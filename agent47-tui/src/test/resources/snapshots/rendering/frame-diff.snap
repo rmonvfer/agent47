@@ -1,0 +1,6 @@
+first=
+<ESC>[0m<ESC>[2J<ESC>[Hline 1
+line 2
+line 3<ESC>[3;5H
+second=
+<ESC>[2;1H<ESC>[2Kline 2 updated<ESC>[2;3H

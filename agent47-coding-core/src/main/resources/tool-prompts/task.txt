@@ -1,0 +1,19 @@
+Launch one or more tasks using specialized sub-agents to handle complex, multistep work autonomously.
+
+When to use the Task tool:
+- When the work is complex, multistep, and can be done autonomously by a specialized agent
+- When you are instructed to execute custom slash commands
+- When you need to explore or research the codebase in an open-ended way
+
+When NOT to use the Task tool:
+- If you want to read a specific file path, use the Read or Find tool instead, to find the match more quickly
+- If you are searching for a specific class definition like "class Foo", use the Find tool instead
+- If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead
+- For simple, straightforward tasks that don't need autonomous multi-step work
+
+Usage notes:
+1. Launch multiple agents concurrently whenever possible to maximize performance; use a single message with multiple tool uses.
+2. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back with a concise summary of the result.
+3. Each agent invocation starts with a fresh context. Your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you.
+4. The agent's outputs should generally be trusted.
+5. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).

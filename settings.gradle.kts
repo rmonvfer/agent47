@@ -1,0 +1,35 @@
+pluginManagement {
+    includeBuild("build-logic")
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+        google()
+    }
+}
+
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
+rootProject.name = "agent47"
+
+include(
+    ":agent47-ai-types",
+    ":agent47-ai-core",
+    ":agent47-ai-providers-openai",
+    ":agent47-ai-providers-anthropic",
+    ":agent47-ai-providers-google",
+    ":agent47-agent-core",
+    ":agent47-coding-core",
+    ":agent47-ext-core",
+    ":agent47-tui",
+    ":agent47-app",
+    ":agent47-test-fixtures",
+    ":agent47-model-generator",
+)

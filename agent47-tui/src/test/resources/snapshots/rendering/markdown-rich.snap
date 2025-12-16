@@ -1,0 +1,17 @@
+[1m[4m# [0m[0mInteractive Session
+
+This [1massistant[0m supports [3mformatted[0m output, [100minline cod[0m
+[100me[0m, and lists.
+
+[36m- [0mfirst item
+[36m- [0msecond item with more words to trigger wrapping in
+   narrow terminals
+
+[2m| [0m[3m[2mQuoted line for context[0m[0m
+
+[2m[code:kotlin][0m
+[2m  fun greet(name: String): String = "Hello, $" + "na[0m
+[2m  me"[0m
+[2m[/code][0m
+
+[2m----------------------------------------------------[0m

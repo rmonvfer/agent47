@@ -1,0 +1,9 @@
+[96mYou[0m                                                   
+Summarize the architecture.
+
+[97mAssistant[0m [90m(gpt-4.1-mini)[0m                              
+The app uses a modular Kotlin runtime with streaming e
+vents.
+[90mtokens in:1234 out:567 total:1901 cost:$0.0050[0m        
+---
+[7m[90mst:[0m [96midle[0m [90m|[0m [90mmodel:[0m [96mgpt-4.1-mini[0m [90m|[0m [90mthink:[0m [96mon[0m [90m|[0m [90mctx:[0m [96m[32m3%[0m[0m  [0m
