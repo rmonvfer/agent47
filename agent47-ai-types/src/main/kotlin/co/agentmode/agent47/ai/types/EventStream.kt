@@ -18,6 +18,8 @@ public open class EventStream<T : Any, R : Any>(
 
     public val events: Flow<T> = eventsChannel.receiveAsFlow()
 
+    public val isTerminated: Boolean get() = closed
+
     public fun push(event: T) {
         if (closed) {
             return
@@ -27,6 +29,11 @@ public open class EventStream<T : Any, R : Any>(
             finalResult.complete(extractResult(event))
             closeChannel()
         }
+    }
+
+    public fun cancel() {
+        closed = true
+        eventsChannel.close()
     }
 
     public suspend fun end(result: R? = null) {
