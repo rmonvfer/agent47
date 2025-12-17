@@ -5,9 +5,11 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.future.await
+import kotlin.concurrent.thread
 
 public data class HttpResult(
     val statusCode: Int,
@@ -75,41 +77,53 @@ public class HttpTransport(
         val statusCode = response.statusCode()
         val lines = response.body()
 
-        val events: Flow<SseEvent> = callbackFlow {
-            var currentEvent: String? = null
-            var dataLines = mutableListOf<String>()
+        val channel = Channel<SseEvent>(Channel.UNLIMITED)
 
-            lines.forEach { line ->
-                when {
-                    line.startsWith("event:") -> {
-                        currentEvent = line.removePrefix("event:").trim()
-                    }
-                    line.startsWith("data:") -> {
-                        dataLines.add(line.removePrefix("data:").trimStart())
-                    }
-                    line.isBlank() -> {
-                        if (dataLines.isNotEmpty()) {
-                            val data = dataLines.joinToString("\n")
-                            if (data != "[DONE]") {
-                                trySend(SseEvent(event = currentEvent, data = data))
+        thread(name = "agent47-sse-parser", isDaemon = true) {
+            try {
+                var currentEvent: String? = null
+                var dataLines = mutableListOf<String>()
+
+                lines.forEach { line ->
+                    when {
+                        line.startsWith("event:") -> {
+                            currentEvent = line.removePrefix("event:").trim()
+                        }
+                        line.startsWith("data:") -> {
+                            dataLines.add(line.removePrefix("data:").trimStart())
+                        }
+                        line.startsWith(":") -> {
+                            // SSE comment, ignore
+                        }
+                        line.isBlank() -> {
+                            if (dataLines.isNotEmpty()) {
+                                val data = dataLines.joinToString("\n")
+                                if (data != "[DONE]") {
+                                    channel.trySend(SseEvent(event = currentEvent, data = data))
+                                }
+                                currentEvent = null
+                                dataLines = mutableListOf()
                             }
-                            currentEvent = null
-                            dataLines = mutableListOf()
+                        }
+                        else -> {
+                            // Non-SSE line (e.g. JSON error body). Capture as a raw event
+                            // so handleSseError can include it in the error message.
+                            channel.trySend(SseEvent(event = null, data = line))
                         }
                     }
                 }
-            }
 
-            if (dataLines.isNotEmpty()) {
-                val data = dataLines.joinToString("\n")
-                if (data != "[DONE]") {
-                    trySend(SseEvent(event = currentEvent, data = data))
+                if (dataLines.isNotEmpty()) {
+                    val data = dataLines.joinToString("\n")
+                    if (data != "[DONE]") {
+                        channel.trySend(SseEvent(event = currentEvent, data = data))
+                    }
                 }
+            } finally {
+                channel.close()
             }
-
-            close()
         }
 
-        return SseResponse(statusCode = statusCode, events = events)
+        return SseResponse(statusCode = statusCode, events = channel.receiveAsFlow())
     }
 }
