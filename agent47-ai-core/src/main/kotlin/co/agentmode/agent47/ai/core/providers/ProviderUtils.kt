@@ -44,7 +44,7 @@ public fun emitError(
     message: String,
 ) {
     val errorMessage = AssistantMessage(
-        content = listOf(TextContent(text = "")),
+        content = listOf(TextContent(text = message)),
         api = model.api,
         provider = model.provider,
         model = model.id,
@@ -122,6 +122,14 @@ public fun streamWithCoroutine(
             body(stream)
         }.onFailure { throwable ->
             emitError(stream, model, throwable.message ?: throwable.toString())
+        }
+        // If the body completed (normally or via error handler above) without pushing
+        // a terminal event, the stream's channel stays open and any collector hangs
+        // forever. This can happen when the SSE connection closes prematurely or the
+        // final event is dropped. Push a fallback error to unblock the collector.
+        // push() is a no-op if the stream is already terminated.
+        if (!stream.isTerminated) {
+            emitError(stream, model, "Stream ended without a complete response")
         }
     }
     return stream
