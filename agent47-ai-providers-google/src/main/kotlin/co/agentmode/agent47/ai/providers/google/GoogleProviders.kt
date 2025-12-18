@@ -16,6 +16,7 @@ import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.ai.types.AssistantMessage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -298,6 +299,15 @@ private fun buildHeaders(model: Model, options: StreamOptions?): Map<String, Str
 
 private fun buildPayload(context: Context, options: StreamOptions?): JsonObject {
     return buildJsonObject {
+        if (!context.systemPrompt.isNullOrBlank()) {
+            put("system_instruction", buildJsonObject {
+                put("parts", buildJsonArray {
+                    add(buildJsonObject {
+                        put("text", JsonPrimitive(context.systemPrompt))
+                    })
+                })
+            })
+        }
         put(
             "contents",
             buildJsonArray {
@@ -356,7 +366,7 @@ private fun buildPayload(context: Context, options: StreamOptions?): JsonObject 
                                             buildJsonObject {
                                                 put("name", JsonPrimitive(tool.name))
                                                 put("description", JsonPrimitive(tool.description))
-                                                put("parameters", tool.parameters)
+                                                put("parameters", sanitizeSchemaForGoogle(tool.parameters))
                                             },
                                         )
                                     }
@@ -428,5 +438,26 @@ private fun roleForGoogle(message: Message): String {
     return when (message.role) {
         "assistant" -> "model"
         else -> "user"
+    }
+}
+
+private val UNSUPPORTED_SCHEMA_FIELDS = setOf(
+    "\$schema", "\$ref", "\$defs",
+    "examples", "default", "pattern", "patternProperties",
+    "minItems", "maxItems", "minLength", "maxLength",
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+    "additionalProperties", "format", "title",
+)
+
+private fun sanitizeSchemaForGoogle(schema: JsonElement): JsonElement {
+    return when (schema) {
+        is JsonObject -> {
+            val filtered = schema.filterKeys { it !in UNSUPPORTED_SCHEMA_FIELDS }
+            JsonObject(filtered.mapValues { (_, value) -> sanitizeSchemaForGoogle(value) })
+        }
+        is JsonArray -> {
+            JsonArray(schema.map { sanitizeSchemaForGoogle(it) })
+        }
+        else -> schema
     }
 }
