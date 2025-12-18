@@ -48,8 +48,9 @@ public class OpenAiCompletionsProvider(
         context: Context,
         options: StreamOptions?,
     ): AssistantMessageEventStream = streamWithCoroutine(model) { stream ->
+        val compat = resolveOpenAiCompat(model)
         val url = endpoint(model.baseUrl, "/chat/completions")
-        val payload = buildCompletionsPayload(model, context, options)
+        val payload = buildCompletionsPayload(model, context, options, compat)
         val headers = buildHeaders(model, options)
         val sseResponse = transport.streamSse(
             url = url,
@@ -494,14 +495,16 @@ private fun buildHeaders(model: Model, options: StreamOptions?): Map<String, Str
     return merged
 }
 
-private fun buildCompletionsPayload(model: Model, context: Context, options: StreamOptions?): JsonObject {
+private fun buildCompletionsPayload(model: Model, context: Context, options: StreamOptions?, compat: OpenAiCompat): JsonObject {
     return buildJsonObject {
         put("model", JsonPrimitive(model.id))
-        put("messages", buildOpenAiMessages(context))
+        put("messages", buildOpenAiMessages(context, model, compat))
         put("stream", JsonPrimitive(true))
-        put("stream_options", buildJsonObject { put("include_usage", JsonPrimitive(true)) })
+        if (compat.supportsStreamOptions) {
+            put("stream_options", buildJsonObject { put("include_usage", JsonPrimitive(true)) })
+        }
         options?.temperature?.let { put("temperature", JsonPrimitive(it)) }
-        options?.maxTokens?.let { put("max_tokens", JsonPrimitive(it)) }
+        options?.maxTokens?.let { put(compat.maxTokensField, JsonPrimitive(it)) }
         val tools = context.tools
         if (!tools.isNullOrEmpty()) {
             put(
@@ -532,36 +535,34 @@ private fun buildResponsesPayload(model: Model, context: Context, options: Strea
     return buildJsonObject {
         put("model", JsonPrimitive(model.id))
         put("stream", JsonPrimitive(true))
+        if (!context.systemPrompt.isNullOrBlank()) {
+            put("instructions", JsonPrimitive(context.systemPrompt))
+        }
         put(
             "input",
             buildJsonArray {
                 context.messages.forEach { message ->
                     add(
                         buildJsonObject {
-                            put("role", JsonPrimitive(message.role))
-                            val content = when (message) {
-                                is co.agentmode.agent47.ai.types.UserMessage -> message.content
-                                is co.agentmode.agent47.ai.types.AssistantMessage -> message.content
-                                is co.agentmode.agent47.ai.types.ToolResultMessage -> message.content
-                                is co.agentmode.agent47.ai.types.CustomMessage -> message.content
-                                is co.agentmode.agent47.ai.types.BashExecutionMessage -> listOf(
-                                    co.agentmode.agent47.ai.types.TextContent(
-                                        text = "<bash command=\"${message.command}\">\n${message.output}\n</bash>",
-                                    ),
-                                )
-
-                                is co.agentmode.agent47.ai.types.BranchSummaryMessage -> listOf(
-                                    co.agentmode.agent47.ai.types.TextContent(text = message.summary),
-                                )
-
-                                is co.agentmode.agent47.ai.types.CompactionSummaryMessage -> listOf(
-                                    co.agentmode.agent47.ai.types.TextContent(text = message.summary),
-                                )
+                            val role = when (message) {
+                                is co.agentmode.agent47.ai.types.AssistantMessage -> "assistant"
+                                else -> "user"
                             }
-                            put(
-                                "content",
-                                JsonPrimitive(contentToText(content)),
-                            )
+                            put("role", JsonPrimitive(role))
+                            val contentText = when (message) {
+                                is co.agentmode.agent47.ai.types.ToolResultMessage -> {
+                                    val errorTag = if (message.isError) " error=\"true\"" else ""
+                                    "<tool_result name=\"${message.toolName}\" call_id=\"${message.toolCallId}\"$errorTag>\n${contentToText(message.content)}\n</tool_result>"
+                                }
+                                is co.agentmode.agent47.ai.types.UserMessage -> contentToText(message.content)
+                                is co.agentmode.agent47.ai.types.AssistantMessage -> contentToText(message.content)
+                                is co.agentmode.agent47.ai.types.CustomMessage -> contentToText(message.content)
+                                is co.agentmode.agent47.ai.types.BashExecutionMessage ->
+                                    "<bash command=\"${message.command}\">\n${message.output}\n</bash>"
+                                is co.agentmode.agent47.ai.types.BranchSummaryMessage -> message.summary
+                                is co.agentmode.agent47.ai.types.CompactionSummaryMessage -> message.summary
+                            }
+                            put("content", JsonPrimitive(contentText))
                         },
                     )
                 }
