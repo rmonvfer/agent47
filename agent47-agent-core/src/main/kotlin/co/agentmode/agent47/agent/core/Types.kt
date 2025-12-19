@@ -1,5 +1,6 @@
 package co.agentmode.agent47.agent.core
 
+import co.agentmode.agent47.ai.types.AssistantMessage
 import co.agentmode.agent47.ai.types.AssistantMessageEvent
 import co.agentmode.agent47.ai.types.AssistantMessageEventStream
 import co.agentmode.agent47.ai.types.ContentBlock
@@ -7,10 +8,12 @@ import co.agentmode.agent47.ai.types.Context
 import co.agentmode.agent47.ai.types.Message
 import co.agentmode.agent47.ai.types.Model
 import co.agentmode.agent47.ai.types.SimpleStreamOptions
+import co.agentmode.agent47.ai.types.StopReason
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.ToolCall
 import co.agentmode.agent47.ai.types.ToolDefinition
 import co.agentmode.agent47.ai.types.ToolResultMessage
+import co.agentmode.agent47.ai.types.UserMessage
 import kotlinx.serialization.json.JsonObject
 
 public fun interface AgentStreamFunction {
@@ -144,9 +147,96 @@ public data class AgentLoopConfig(
 )
 
 public fun defaultConvertToLlm(messages: List<Message>): List<Message> {
-    return messages.filter { message ->
-        message.role == "user" || message.role == "assistant" || message.role == "toolResult"
+    val removeIndices = mutableSetOf<Int>()
+    val insertions = mutableMapOf<Int, Message>()
+
+    for (i in messages.indices) {
+        val msg = messages[i]
+        if (msg !is AssistantMessage || msg.stopReason != StopReason.ERROR) continue
+        removeIndices.add(i)
+
+        // Walk backwards: remove tool results, then the tool-call assistant message
+        val summaryParts = mutableListOf<String>()
+        var j = i - 1
+        while (j >= 0) {
+            val prev = messages[j]
+            if (prev is ToolResultMessage) {
+                val errorTag = if (prev.isError) " (error)" else ""
+                val text = prev.content.filterIsInstance<TextContent>()
+                    .joinToString("\n") { it.text }.take(200)
+                summaryParts.add("Tool '${prev.toolName}'$errorTag: $text")
+                removeIndices.add(j)
+                j--
+            } else if (prev is AssistantMessage && prev.content.any { it is ToolCall }) {
+                removeIndices.add(j)
+                break
+            } else {
+                break
+            }
+        }
+
+        if (summaryParts.isNotEmpty()) {
+            val summary = summaryParts.reversed().joinToString("\n")
+            insertions[i] = UserMessage(
+                content = listOf(
+                    TextContent(
+                        text = "[A previous tool exchange failed and was removed from context.\n$summary\nThe follow-up request failed: ${msg.errorMessage ?: "unknown error"}]"
+                    )
+                ),
+                timestamp = msg.timestamp,
+            )
+        }
     }
+
+    val sanitized = messages.flatMapIndexed { index, message ->
+        when {
+            index in removeIndices && index in insertions -> listOf(insertions[index]!!)
+            index in removeIndices -> emptyList()
+            message.role == "user" || message.role == "assistant" || message.role == "toolResult" -> listOf(message)
+            else -> emptyList()
+        }
+    }
+
+    return insertSyntheticToolResults(sanitized)
+}
+
+public fun insertSyntheticToolResults(messages: List<Message>): List<Message> {
+    val result = mutableListOf<Message>()
+
+    for (i in messages.indices) {
+        result.add(messages[i])
+        val msg = messages[i]
+        if (msg !is AssistantMessage) continue
+
+        val toolCalls = msg.content.filterIsInstance<ToolCall>()
+        if (toolCalls.isEmpty()) continue
+
+        val matchedIds = mutableSetOf<String>()
+        for (j in (i + 1) until messages.size) {
+            val candidate = messages[j]
+            if (candidate is ToolResultMessage && candidate.toolCallId in toolCalls.map { it.id }) {
+                matchedIds.add(candidate.toolCallId)
+            }
+            if (candidate is AssistantMessage) break
+        }
+
+        for (call in toolCalls) {
+            if (call.id !in matchedIds) {
+                result.add(
+                    ToolResultMessage(
+                        toolCallId = call.id,
+                        toolName = call.name,
+                        content = listOf(TextContent(text = "Tool execution was aborted")),
+                        details = null,
+                        isError = true,
+                        timestamp = msg.timestamp,
+                    )
+                )
+            }
+        }
+    }
+
+    return result
 }
 
 public fun createSkippedToolResult(toolCall: ToolCall): ToolResultMessage {
