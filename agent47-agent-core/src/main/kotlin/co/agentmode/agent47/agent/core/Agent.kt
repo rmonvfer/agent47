@@ -49,6 +49,8 @@ public class Agent(options: AgentOptions = AgentOptions()) {
     private val followUpQueue: MutableList<Message> = mutableListOf()
 
     private val loopThread: AtomicReference<Thread?> = AtomicReference(null)
+    private var loopGeneration: Long = 0
+    private var currentStream: EventStream<AgentEvent, List<Message>>? = null
 
     private var streamFunction: AgentStreamFunction? = options.streamFunction
     private var convertToLlm: suspend (messages: List<Message>) -> List<Message> = options.convertToLlm ?: { msgs ->
@@ -135,6 +137,8 @@ public class Agent(options: AgentOptions = AgentOptions()) {
     public fun abort() {
         val thread = loopThread.getAndSet(null) ?: return
         thread.interrupt()
+        currentStream?.cancel()
+        currentStream = null
         clearQueues()
         stateValue = stateValue.copy(
             isStreaming = false,
@@ -207,6 +211,7 @@ public class Agent(options: AgentOptions = AgentOptions()) {
     }
 
     private suspend fun runLoop(messages: List<Message>? = null, skipInitialSteeringPoll: Boolean = false) {
+        val generation = ++loopGeneration
         runningPrompt = CompletableDeferred()
         stateValue = stateValue.copy(isStreaming = true, streamMessage = null, error = null)
 
@@ -254,6 +259,7 @@ public class Agent(options: AgentOptions = AgentOptions()) {
             } else {
                 agentLoopContinue(context, config, streamFunction, onLoopThread = threadCallback)
             }
+            currentStream = stream
 
             stream.events.collect { event ->
                 when (event) {
@@ -299,31 +305,38 @@ public class Agent(options: AgentOptions = AgentOptions()) {
                 emit(event)
             }
         } catch (cancellation: CancellationException) {
-            emit(AgentEndEvent(messages = emptyList()))
+            if (loopGeneration == generation) {
+                emit(AgentEndEvent(messages = emptyList()))
+            }
             throw cancellation
         } catch (error: Throwable) {
-            val errText = error.message ?: error.toString()
-            val errorMessage = AssistantMessage(
-                content = listOf(TextContent(text = "")),
-                api = stateValue.model.api,
-                provider = stateValue.model.provider,
-                model = stateValue.model.id,
-                usage = emptyUsage(),
-                stopReason = StopReason.ERROR,
-                errorMessage = errText,
-                timestamp = System.currentTimeMillis(),
-            )
-            stateValue = stateValue.copy(messages = stateValue.messages + errorMessage, error = errText)
-            emit(AgentEndEvent(messages = listOf(errorMessage)))
+            if (loopGeneration == generation) {
+                val errText = error.message ?: error.toString()
+                val errorMessage = AssistantMessage(
+                    content = listOf(TextContent(text = "")),
+                    api = stateValue.model.api,
+                    provider = stateValue.model.provider,
+                    model = stateValue.model.id,
+                    usage = emptyUsage(),
+                    stopReason = StopReason.ERROR,
+                    errorMessage = errText,
+                    timestamp = System.currentTimeMillis(),
+                )
+                stateValue = stateValue.copy(messages = stateValue.messages + errorMessage, error = errText)
+                emit(AgentEndEvent(messages = listOf(errorMessage)))
+            }
         } finally {
-            loopThread.set(null)
-            stateValue = stateValue.copy(
-                isStreaming = false,
-                streamMessage = null,
-                pendingToolCalls = emptySet(),
-            )
-            runningPrompt?.complete(Unit)
-            runningPrompt = null
+            if (loopGeneration == generation) {
+                loopThread.set(null)
+                currentStream = null
+                stateValue = stateValue.copy(
+                    isStreaming = false,
+                    streamMessage = null,
+                    pendingToolCalls = emptySet(),
+                )
+                runningPrompt?.complete(Unit)
+                runningPrompt = null
+            }
         }
     }
 
