@@ -19,6 +19,7 @@ import co.agentmode.agent47.coding.core.tools.SubmitResultData
 import co.agentmode.agent47.coding.core.tools.SubmitResultTool
 import co.agentmode.agent47.coding.core.tools.createCoreTools
 import co.agentmode.agent47.coding.core.tools.truncateHead
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import java.nio.file.Path
@@ -153,6 +154,11 @@ public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult {
                 agent.prompt("You must call submit_result to complete this task. Please call it now with your results.")
             }
         }
+    } catch (e: CancellationException) {
+        agent.abort()
+        durationMs = System.currentTimeMillis() - startTime
+        error = "Cancelled"
+        throw e
     } catch (e: Exception) {
         durationMs = System.currentTimeMillis() - startTime
         error = e.message ?: e::class.simpleName ?: "Unknown error"
