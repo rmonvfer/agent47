@@ -1,7 +1,9 @@
 package co.agentmode.agent47.agent.core
 
 import co.agentmode.agent47.ai.core.AiRuntime
+import co.agentmode.agent47.ai.core.utils.MessageTransforms
 import co.agentmode.agent47.ai.types.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -31,16 +33,23 @@ public fun agentLoop(
                     stream.push(MessageEndEvent(prompt))
                 }
 
-                runCatching {
+                try {
                     runLoop(currentContext, newMessages, config, stream, streamFunction)
-                }.onFailure {
+                } catch (_: CancellationException) {
+                    stream.cancel()
+                } catch (error: Throwable) {
+                    val errorMessage = createLoopErrorMessage(config, error)
+                    newMessages.add(errorMessage)
+                    stream.push(MessageStartEvent(errorMessage))
+                    stream.push(MessageEndEvent(errorMessage))
                     stream.push(AgentEndEvent(messages = newMessages.toList()))
                     stream.end(newMessages.toList())
                 }
             }
         } catch (_: InterruptedException) {
             // Agent.abort() interrupts this thread to cancel the loop.
-            // The abort() method handles cleanup and event emission.
+            // Close the stream to unblock any collector.
+            stream.cancel()
         }
     }
     onLoopThread?.invoke(t)
@@ -68,15 +77,23 @@ public fun agentLoopContinue(
                 stream.push(AgentStartEvent())
                 stream.push(TurnStartEvent())
 
-                runCatching {
+                try {
                     runLoop(currentContext, newMessages, config, stream, streamFunction)
-                }.onFailure {
+                } catch (_: CancellationException) {
+                    stream.cancel()
+                } catch (error: Throwable) {
+                    val errorMessage = createLoopErrorMessage(config, error)
+                    newMessages.add(errorMessage)
+                    stream.push(MessageStartEvent(errorMessage))
+                    stream.push(MessageEndEvent(errorMessage))
                     stream.push(AgentEndEvent(messages = newMessages.toList()))
                     stream.end(newMessages.toList())
                 }
             }
         } catch (_: InterruptedException) {
             // Agent.abort() interrupts this thread to cancel the loop.
+            // Close the stream to unblock any collector.
+            stream.cancel()
         }
     }
     onLoopThread?.invoke(t)
@@ -185,7 +202,12 @@ private suspend fun streamAssistantResponse(
     streamFunction: AgentStreamFunction?,
 ): AssistantMessage {
     val transformed = config.transformContext?.invoke(context.messages.toList()) ?: context.messages.toList()
-    val llmMessages = config.convertToLlm(transformed)
+    val converted = config.convertToLlm(transformed)
+    val llmMessages = MessageTransforms.convertCrossProviderThinking(
+        converted,
+        targetApi = config.model.api,
+        targetProvider = config.model.provider,
+    )
     val llmContext = Context(
         systemPrompt = context.systemPrompt,
         messages = llmMessages,
@@ -302,6 +324,8 @@ private suspend fun executeToolCalls(
                     )
                 },
             )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (error: Throwable) {
             executionResult = AgentToolResult(
                 content = listOf(TextContent(text = error.message ?: error.toString())),
@@ -351,4 +375,18 @@ private suspend fun executeToolCalls(
     }
 
     return ToolExecutionResult(toolResults = results, steeringMessages = steeringMessages)
+}
+
+private fun createLoopErrorMessage(config: AgentLoopConfig, error: Throwable): AssistantMessage {
+    val errText = error.message ?: error.toString()
+    return AssistantMessage(
+        content = listOf(TextContent(text = "")),
+        api = config.model.api,
+        provider = config.model.provider,
+        model = config.model.id,
+        usage = emptyUsage(),
+        stopReason = StopReason.ERROR,
+        errorMessage = errText,
+        timestamp = System.currentTimeMillis(),
+    )
 }
