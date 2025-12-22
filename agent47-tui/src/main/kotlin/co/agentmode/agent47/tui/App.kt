@@ -237,6 +237,7 @@ private fun Agent47AppContent(
     var activeSessionManager by remember { mutableStateOf(sessionManager) }
     var currentPromptJob by remember { mutableStateOf<Job?>(null) }
     val toolArgumentsById = remember { mutableMapOf<String, String>() }
+    var chatVersion by remember { mutableIntStateOf(0) }
 
     // --- Derived values ---
 
@@ -272,15 +273,14 @@ private fun Agent47AppContent(
 
     val statusHeight = 1
     val baseInputHeight = min(8, max(1, editor.text().lines().size))
-    val slashPopupRowsWanted = min(8, editor.slashCommandPopupItemCount())
-    val desiredEditorInnerHeight = baseInputHeight + slashPopupRowsWanted
+    val popupItemCount = editor.slashCommandPopupItemCount()
+    val popupRowCount = min(8, popupItemCount)
+    val popupHeight = if (popupRowCount > 0) popupRowCount + (if (popupItemCount > 8) 1 else 0) else 0
     val taskBarHeight = if (taskBarState.visible) taskBarState.lineCount else 0
     val activityHeight = if (isStreaming && !taskBarState.visible) 1 else 0
-    val maxEditorBoxHeight = max(3, height - statusHeight - 1)
-    val editorBoxHeight = (desiredEditorInnerHeight + 2).coerceIn(3, maxEditorBoxHeight)
-    val editorInnerHeight = (editorBoxHeight - 2).coerceAtLeast(1)
-    val inputHeight = baseInputHeight.coerceAtMost(editorInnerHeight).coerceAtLeast(1)
-    val historyHeight = max(1, height - statusHeight - editorBoxHeight - activityHeight - taskBarHeight)
+    val marginHeight = 1
+    val borderHeight = 2
+    val historyHeight = max(1, height - statusHeight - borderHeight - popupHeight - baseInputHeight - activityHeight - taskBarHeight - marginHeight)
 
     // --- Helper lambdas (closures over state) ---
 
@@ -296,6 +296,7 @@ private fun Agent47AppContent(
             timestamp = System.currentTimeMillis(),
         )
         chatHistoryState.appendMessage(assistant)
+        chatVersion++
     }
 
     fun applyModel(
@@ -670,6 +671,7 @@ private fun Agent47AppContent(
         initialModel?.let(agent::setModel)
         initialUserMessage?.let { message ->
             chatHistoryState.appendMessage(message)
+            chatVersion++
             activeSessionManager?.appendMessage(message)
             val job = launch {
                 try {
@@ -708,6 +710,7 @@ private fun Agent47AppContent(
                 setIsStreaming = { isStreaming = it },
                 setLiveActivityLabel = { liveActivityLabel = it },
                 setCurrentPromptJob = { currentPromptJob = it },
+                bumpChatVersion = { chatVersion++ },
             )
         }
     }
@@ -727,7 +730,7 @@ private fun Agent47AppContent(
     // Read editorVersion to trigger recomposition when the editor state changes.
     @Suppress("UNUSED_EXPRESSION")
     editorVersion
-    val editorResult = editor.render(width = width, height = inputHeight)
+    val editorResult = editor.render(width = width, height = baseInputHeight)
 
     // --- Key event handler ---
 
@@ -739,9 +742,6 @@ private fun Agent47AppContent(
         if (keyEvent.ctrl && keyEvent.key is Key.Character && keyEvent.key.value == 'c') {
             if (isStreaming) {
                 client.rawAgent().abort()
-                currentPromptJob?.cancel(CancellationException("Interrupted by user"))
-                currentPromptJob = null
-                isStreaming = false
                 appendSystemMessage("Interrupted current response.")
                 ctrlCArmed = false
                 return true
@@ -762,9 +762,6 @@ private fun Agent47AppContent(
         if (keyEvent.key is Key.Escape) {
             if (isStreaming) {
                 client.rawAgent().abort()
-                currentPromptJob?.cancel(CancellationException("Interrupted by user"))
-                currentPromptJob = null
-                isStreaming = false
                 appendSystemMessage("Interrupted current response.")
                 return true
             }
@@ -988,6 +985,7 @@ private fun Agent47AppContent(
                                 kotlin.system.exitProcess(0)
                             }
                         },
+                        bumpChatVersion = { chatVersion++ },
                     )
                     return@onKeyEvent true
                 }
@@ -1004,6 +1002,7 @@ private fun Agent47AppContent(
                 markdownRenderer = markdownRenderer,
                 diffRenderer = diffRenderer,
                 showUsageFooter = showUsageFooter,
+                version = chatVersion,
             )
 
             // Activity line (spinner while streaming, only when no task bar)
@@ -1024,16 +1023,30 @@ private fun Agent47AppContent(
                 activityLabel = liveActivityLabel,
             )
 
+            // Margin between chat area and editor border
+            Text("")
+
             val bashMode = editor.text().trimStart().startsWith("!")
 
             // Editor top border
             EditorBorder(width, bashMode)
 
+            // Slash command popup (between border and input)
+            val autocompleteModel = editorResult.autocomplete
+            if (autocompleteModel != null && autocompleteModel.items.isNotEmpty()) {
+                AutocompletePopup(
+                    model = autocompleteModel,
+                    promptWidth = 2,
+                    maxWidth = width,
+                    theme = mosaicTheme,
+                )
+            }
+
             // Editor view
             EditorView(
                 result = editorResult,
                 width = width,
-                height = editorInnerHeight,
+                height = baseInputHeight,
                 bashMode = bashMode,
             )
 
@@ -1118,6 +1131,7 @@ private fun handleAgentEvent(
     setIsStreaming: (Boolean) -> Unit,
     setLiveActivityLabel: (String) -> Unit,
     setCurrentPromptJob: (Job?) -> Unit,
+    bumpChatVersion: () -> Unit,
 ) {
     when (event) {
         is AgentStartEvent -> {
@@ -1138,6 +1152,7 @@ private fun handleAgentEvent(
             } else if (message !is ToolResultMessage) {
                 chatHistoryState.appendMessage(message)
             }
+            bumpChatVersion()
         }
 
         is MessageUpdateEvent -> {
@@ -1147,6 +1162,7 @@ private fun handleAgentEvent(
             } else if (message !is ToolResultMessage) {
                 chatHistoryState.updateMessage(message)
             }
+            bumpChatVersion()
         }
 
         is MessageEndEvent -> {
@@ -1263,6 +1279,7 @@ private fun handleSubmit(
     setThinkingLevel: (String) -> Unit,
     tryExpandFileCommand: (String) -> String?,
     setRunning: (Boolean) -> Unit,
+    bumpChatVersion: () -> Unit,
 ) {
     when {
         rawInput.startsWith("/") -> {
@@ -1321,6 +1338,7 @@ private fun handleSubmit(
                             currentPromptJob = currentPromptJob,
                             setCurrentPromptJob = setCurrentPromptJob,
                             appendSystemMessage = appendSystemMessage,
+                            bumpChatVersion = bumpChatVersion,
                         )
                     } else {
                         appendSystemMessage("Unknown command: $command")
@@ -1340,6 +1358,7 @@ private fun handleSubmit(
                 timestamp = System.currentTimeMillis(),
             )
             chatHistoryState.appendMessage(start)
+            bumpChatVersion()
             activeSessionManager?.appendMessage(start)
 
             val output = executeShell(command, cwd)
@@ -1371,6 +1390,7 @@ private fun handleSubmit(
                 currentPromptJob = currentPromptJob,
                 setCurrentPromptJob = setCurrentPromptJob,
                 appendSystemMessage = appendSystemMessage,
+                bumpChatVersion = bumpChatVersion,
             )
         }
     }
@@ -1386,8 +1406,10 @@ private fun submitMessage(
     currentPromptJob: Job?,
     setCurrentPromptJob: (Job?) -> Unit,
     appendSystemMessage: (String) -> Unit,
+    bumpChatVersion: () -> Unit,
 ) {
     chatHistoryState.appendMessage(message)
+    bumpChatVersion()
     activeSessionManager?.appendMessage(message)
 
     if (isStreaming) {
