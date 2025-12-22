@@ -19,7 +19,6 @@ import com.jakewharton.mosaic.text.AnnotatedString
 import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.text.withStyle
-import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Text
 import com.jakewharton.mosaic.ui.TextStyle
 
@@ -56,6 +55,8 @@ public class ChatHistoryState {
     private var activeAssistantKey: String? = null
     private var assistantSequence by mutableLongStateOf(0L)
     internal var pinnedToBottom by mutableStateOf(true)
+    internal var version by mutableIntStateOf(0)
+        private set
 
     public fun appendMessage(message: Message) {
         if (message is AssistantMessage) {
@@ -69,6 +70,7 @@ public class ChatHistoryState {
             message = message,
             toolExecution = toolExecutionFor(message),
         )
+        version++
         if (pinnedToBottom) scrollToBottom = true
     }
 
@@ -96,6 +98,7 @@ public class ChatHistoryState {
         entries += ChatHistoryEntry(key = key, message = message)
         activeAssistantKey = key
         thinkingCollapsedState[key] = true
+        version++
         if (pinnedToBottom) scrollToBottom = true
     }
 
@@ -125,6 +128,7 @@ public class ChatHistoryState {
         val key = "tool:${execution.toolCallId}"
         toolCollapsedState.putIfAbsent(key, defaultToolCollapsed(execution.toolName))
         entries += ChatHistoryEntry(key = key, toolExecution = execution)
+        version++
         if (pinnedToBottom) scrollToBottom = true
     }
 
@@ -225,6 +229,7 @@ public fun ChatHistory(
     markdownRenderer: MarkdownRenderer,
     diffRenderer: DiffRenderer,
     showUsageFooter: Boolean = true,
+    version: Int = 0,
 ) {
     val theme = LocalThemeConfig.current
     val viewportHeight = height.coerceAtLeast(1)
@@ -232,7 +237,8 @@ public fun ChatHistory(
     // Flatten all entries into rendered lines
     val allLines = buildList {
         state.entries.forEachIndexed { index, entry ->
-            addAll(renderEntry(entry, width, state, markdownRenderer, diffRenderer, theme, showUsageFooter))
+            val entryLines = renderEntry(entry, width, state, markdownRenderer, diffRenderer, theme, showUsageFooter)
+            addAll(entryLines)
             if (index != state.entries.lastIndex) {
                 add(annotated(""))
             }
@@ -277,24 +283,34 @@ public fun ChatHistory(
             }
 
             val contentSlice = allLines.subList(contentStart, contentEnd)
+            val belowMarkerCount = if (hasBelow) 1 else 0
+            val usedRows = size + contentSlice.size + belowMarkerCount
+            val topPadding = (viewportHeight - usedRows).coerceAtLeast(0)
+
+            // Pad at top to push content to the bottom of the viewport,
+            // so messages appear just above the editor like a chat UI.
+            if (topPadding > 0) {
+                addAll(List(topPadding) { annotated("") })
+            }
+
             addAll(contentSlice)
 
             if (hasBelow) {
                 val hiddenBelow = allLines.size - contentEnd
                 add(scrollMarker(width, hiddenLines = hiddenBelow, up = false, theme.colors.muted))
             }
-
-            // Pad to fill viewport if content is shorter
-            val remaining = viewportHeight - size
-            if (remaining > 0) {
-                addAll(List(remaining) { annotated("") })
-            }
         }
     }
 
-    Column(modifier = Modifier.height(viewportHeight)) {
-        visibleLines.forEach { line -> Text(line) }
-    }
+    Text(
+        buildAnnotatedString {
+            visibleLines.forEachIndexed { index, line ->
+                append(line)
+                if (index < visibleLines.lastIndex) append('\n')
+            }
+        },
+        modifier = Modifier.height(viewportHeight),
+    )
 }
 
 private fun renderEntry(
@@ -369,6 +385,19 @@ private fun renderAssistantMessageLines(
     theme: ThemeConfig,
     showUsageFooter: Boolean = true,
 ): List<AnnotatedString> = buildList {
+    if (message.stopReason == StopReason.ERROR) {
+        val errorText = message.errorMessage ?: "Unknown error"
+        errorText.split("\n").forEach { line ->
+            add(buildAnnotatedString {
+                withStyle(SpanStyle(color = theme.colors.error)) {
+                    append("\u2717 ")
+                    append(line)
+                }
+            })
+        }
+        return@buildList
+    }
+
     message.content.forEach { block ->
         when (block) {
             is TextContent -> addAll(markdownRenderer.render(block.text, width))
