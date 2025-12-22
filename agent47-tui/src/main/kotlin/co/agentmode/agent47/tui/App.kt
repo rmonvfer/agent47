@@ -1617,7 +1617,7 @@ public fun runTui(
     val restoreTerminal = "\u001b[<u\u001b[?25h\u001b[?1049l"
 
     // Install a shutdown hook so that exitProcess() (or any JVM shutdown) restores
-    // the terminal from alternate screen / raw / kitty keyboard mode.
+    // the terminal from alternate screen / kitty keyboard mode.
     val shutdownHook = Thread({
         out.write(restoreTerminal.toByteArray())
         out.flush()
@@ -1628,6 +1628,8 @@ public fun runTui(
     // Kitty keyboard flags=1 (disambiguate) makes the terminal encode modifier keys
     // on Enter, Tab, Escape, and Backspace via CSI u sequences, allowing Shift+Enter
     // to be distinguished from bare Enter.
+    // Non-ASCII Unicode codepoints (ñ, é, etc.) are handled by our patched CompatKt.java
+    // which shadows Mosaic's broken version that throws for codepoints outside ASCII.
     out.write("\u001b[?1049h\u001b[?25l\u001b[>1u".toByteArray())
     out.flush()
     try {
@@ -1654,6 +1656,11 @@ public fun runTui(
                 todoState = todoState,
             )
         }
+    } catch (e: UnsupportedOperationException) {
+        // Safety net: if our CompatKt shadow somehow isn't loaded and Mosaic's
+        // original throws for an unrecognized codepoint, exit gracefully.
+        System.err.println("Keyboard input error: ${e.message}")
+        System.err.println("This is a Mosaic library bug with non-ASCII characters.")
     } finally {
         // Pop kitty keyboard flags, restore cursor, and leave alternate screen buffer
         out.write(restoreTerminal.toByteArray())
