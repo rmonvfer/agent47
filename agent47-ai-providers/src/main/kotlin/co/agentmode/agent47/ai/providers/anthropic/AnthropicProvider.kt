@@ -42,10 +42,13 @@ import co.agentmode.agent47.ai.types.ToolCallStartEvent
 import co.agentmode.agent47.ai.types.ToolResultMessage
 import co.agentmode.agent47.ai.types.UserMessage
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -230,8 +233,13 @@ private fun buildHeaders(model: Model, options: StreamOptions?): Map<String, Str
     return headers
 }
 
+private fun normalizeAnthropicToolId(id: String): String {
+    val sanitized = id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+    return if (sanitized.length > 40) sanitized.take(40) else sanitized
+}
+
 private fun buildPayload(model: Model, context: Context, options: StreamOptions?): JsonObject {
-    return buildJsonObject {
+    val raw = buildJsonObject {
         put("model", JsonPrimitive(model.id))
         put("max_tokens", JsonPrimitive(options?.maxTokens ?: model.maxTokens))
         put("stream", JsonPrimitive(true))
@@ -255,7 +263,7 @@ private fun buildPayload(model: Model, context: Context, options: StreamOptions?
                                             .joinToString("\n") { it.text }
                                         add(buildJsonObject {
                                             put("type", JsonPrimitive("tool_result"))
-                                            put("tool_use_id", JsonPrimitive(message.toolCallId))
+                                            put("tool_use_id", JsonPrimitive(normalizeAnthropicToolId(message.toolCallId)))
                                             put("content", JsonPrimitive(text))
                                             if (message.isError) {
                                                 put("is_error", JsonPrimitive(true))
@@ -291,7 +299,7 @@ private fun buildPayload(model: Model, context: Context, options: StreamOptions?
 
                                                 is ToolCall -> add(buildJsonObject {
                                                     put("type", JsonPrimitive("tool_use"))
-                                                    put("id", JsonPrimitive(block.id))
+                                                    put("id", JsonPrimitive(normalizeAnthropicToolId(block.id)))
                                                     put("name", JsonPrimitive(block.name))
                                                     put("input", block.arguments)
                                                 })
@@ -328,4 +336,115 @@ private fun buildPayload(model: Model, context: Context, options: StreamOptions?
             )
         }
     }
+
+    return applyCacheBreakpoints(raw)
+}
+
+private val CACHE_CONTROL = buildJsonObject {
+    put("type", JsonPrimitive("ephemeral"))
+}
+
+private fun applyCacheBreakpoints(payload: JsonObject): JsonObject {
+    val mutablePayload = payload.toMutableMap()
+    var breakpointsRemaining = 4
+
+    // 1. Last tool definition in the tools array
+    val tools = mutablePayload["tools"]?.let { it as? JsonArray }
+    if (tools != null && tools.isNotEmpty() && breakpointsRemaining > 0) {
+        val lastIndex = tools.size - 1
+        val lastTool = tools[lastIndex].jsonObject
+        val updated = JsonObject(lastTool.toMutableMap().apply { put("cache_control", CACHE_CONTROL) })
+        val updatedTools = buildJsonArray {
+            tools.forEachIndexed { index, element ->
+                if (index == lastIndex) add(updated) else add(element)
+            }
+        }
+        mutablePayload["tools"] = updatedTools
+        breakpointsRemaining--
+    }
+
+    // 2. System prompt: convert string to block array format with cache_control
+    val system = mutablePayload["system"]
+    if (system != null && breakpointsRemaining > 0) {
+        when (system) {
+            is JsonPrimitive -> {
+                mutablePayload["system"] = buildJsonArray {
+                    add(buildJsonObject {
+                        put("type", JsonPrimitive("text"))
+                        put("text", system)
+                        put("cache_control", CACHE_CONTROL)
+                    })
+                }
+                breakpointsRemaining--
+            }
+            is JsonArray -> {
+                if (system.isNotEmpty()) {
+                    val lastIndex = system.size - 1
+                    val lastBlock = system[lastIndex].jsonObject
+                    val updated = JsonObject(lastBlock.toMutableMap().apply { put("cache_control", CACHE_CONTROL) })
+                    mutablePayload["system"] = buildJsonArray {
+                        system.forEachIndexed { index, element ->
+                            if (index == lastIndex) add(updated) else add(element)
+                        }
+                    }
+                    breakpointsRemaining--
+                }
+            }
+            else -> {}
+        }
+    }
+
+    // 3 & 4. Penultimate and final user messages
+    val messages = mutablePayload["messages"]?.let { it as? JsonArray }
+    if (messages != null && breakpointsRemaining > 0) {
+        val userIndices = messages.indices.filter { i ->
+            messages[i].jsonObject["role"]?.jsonPrimitive?.contentOrNull == "user"
+        }
+
+        val indicesToMark = mutableListOf<Int>()
+        if (userIndices.size >= 2) {
+            indicesToMark.add(userIndices[userIndices.size - 2])
+        }
+        if (userIndices.isNotEmpty()) {
+            indicesToMark.add(userIndices.last())
+        }
+
+        if (indicesToMark.isNotEmpty()) {
+            val markedSet = mutableSetOf<Int>()
+            for (idx in indicesToMark) {
+                if (breakpointsRemaining <= 0) break
+                markedSet.add(idx)
+                breakpointsRemaining--
+            }
+
+            mutablePayload["messages"] = buildJsonArray {
+                messages.forEachIndexed { index, element ->
+                    if (index in markedSet) {
+                        add(addCacheControlToLastContentBlock(element.jsonObject))
+                    } else {
+                        add(element)
+                    }
+                }
+            }
+        }
+    }
+
+    return JsonObject(mutablePayload)
+}
+
+private fun addCacheControlToLastContentBlock(message: JsonObject): JsonObject {
+    val content = message["content"]?.let { it as? JsonArray } ?: return message
+    if (content.isEmpty()) return message
+
+    val lastIndex = content.size - 1
+    val lastBlock = content[lastIndex].jsonObject
+    val updatedBlock = JsonObject(lastBlock.toMutableMap().apply { put("cache_control", CACHE_CONTROL) })
+
+    val updatedContent = buildJsonArray {
+        content.forEachIndexed { index, element ->
+            if (index == lastIndex) add(updatedBlock) else add(element)
+        }
+    }
+
+    return JsonObject(message.toMutableMap().apply { put("content", updatedContent) })
 }

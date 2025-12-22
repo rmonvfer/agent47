@@ -8,9 +8,7 @@ plugins {
 dependencies {
     implementation(project(":agent47-ai-types"))
     implementation(project(":agent47-ai-core"))
-    implementation(project(":agent47-ai-providers-openai"))
-    implementation(project(":agent47-ai-providers-anthropic"))
-    implementation(project(":agent47-ai-providers-google"))
+    implementation(project(":agent47-ai-providers"))
     implementation(project(":agent47-agent-core"))
     implementation(project(":agent47-coding-core"))
     implementation(project(":agent47-ext-core"))

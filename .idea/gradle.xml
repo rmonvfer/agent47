@@ -23,9 +23,7 @@
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/agent47-agent-core" />
             <option value="$PROJECT_DIR$/agent47-ai-core" />
-            <option value="$PROJECT_DIR$/agent47-ai-providers-anthropic" />
-            <option value="$PROJECT_DIR$/agent47-ai-providers-google" />
-            <option value="$PROJECT_DIR$/agent47-ai-providers-openai" />
+            <option value="$PROJECT_DIR$/agent47-ai-providers" />
             <option value="$PROJECT_DIR$/agent47-ai-types" />
             <option value="$PROJECT_DIR$/agent47-app" />
             <option value="$PROJECT_DIR$/agent47-coding-core" />

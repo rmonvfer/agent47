@@ -22,9 +22,7 @@ rootProject.name = "agent47"
 include(
     ":agent47-ai-types",
     ":agent47-ai-core",
-    ":agent47-ai-providers-openai",
-    ":agent47-ai-providers-anthropic",
-    ":agent47-ai-providers-google",
+    ":agent47-ai-providers",
     ":agent47-agent-core",
     ":agent47-coding-core",
     ":agent47-ext-core",
