@@ -367,7 +367,7 @@ private fun renderUserMessageLines(
                 block.text.split("\n").forEachIndexed { index, line ->
                     val prefix = if (index == 0) prompt else " ".repeat(prompt.length)
                     add(buildAnnotatedString {
-                        withStyle(SpanStyle(color = theme.colors.accent, background = theme.userMessageBg)) { append(prefix) }
+                        withStyle(SpanStyle(color = theme.colors.muted, background = theme.userMessageBg)) { append(prefix) }
                         withStyle(style) { append(line.take(contentWidth)) }
                     })
                 }
@@ -859,7 +859,7 @@ private fun userPromptScrollMarker(
     }
 
     return buildAnnotatedString {
-        withStyle(SpanStyle(color = theme.colors.accent)) { append(prefixStr) }
+        withStyle(SpanStyle(color = theme.colors.muted)) { append(prefixStr) }
         withStyle(SpanStyle(color = com.jakewharton.mosaic.ui.Color.White, background = theme.userMessageBg)) {
             append(truncated)
         }

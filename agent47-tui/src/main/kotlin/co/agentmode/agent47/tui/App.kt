@@ -275,9 +275,9 @@ private fun Agent47AppContent(
     val baseInputHeight = min(8, max(1, editor.text().lines().size))
     val popupItemCount = editor.slashCommandPopupItemCount()
     val popupRowCount = min(8, popupItemCount)
-    val popupHeight = if (popupRowCount > 0) popupRowCount + (if (popupItemCount > 8) 1 else 0) else 0
+    val popupHeight = if (popupRowCount > 0) popupRowCount + (if (popupItemCount > 8) 1 else 0) + 1 else 0
     val taskBarHeight = if (taskBarState.visible) taskBarState.lineCount else 0
-    val activityHeight = if (isStreaming && !taskBarState.visible) 1 else 0
+    val activityHeight = if (isStreaming && !taskBarState.visible) 2 else 0
     val marginHeight = 1
     val borderHeight = 2
     val historyHeight = max(1, height - statusHeight - borderHeight - popupHeight - baseInputHeight - activityHeight - taskBarHeight - marginHeight)
@@ -1007,6 +1007,7 @@ private fun Agent47AppContent(
 
             // Activity line (spinner while streaming, only when no task bar)
             if (isStreaming && !taskBarState.visible) {
+                Text("")
                 ActivityLine(
                     spinnerFrame = spinnerFrame,
                     label = liveActivityLabel,
@@ -1036,10 +1037,10 @@ private fun Agent47AppContent(
             if (autocompleteModel != null && autocompleteModel.items.isNotEmpty()) {
                 AutocompletePopup(
                     model = autocompleteModel,
-                    promptWidth = 2,
                     maxWidth = width,
                     theme = mosaicTheme,
                 )
+                Text("")
             }
 
             // Editor view
