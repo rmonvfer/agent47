@@ -1,26 +1,12 @@
 package co.agentmode.agent47.tui.components
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import co.agentmode.agent47.tui.input.Key
 import co.agentmode.agent47.tui.input.KeyboardEvent
 import co.agentmode.agent47.tui.input.toKeyboardEvent
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
-import com.jakewharton.mosaic.layout.DrawStyle
-import com.jakewharton.mosaic.layout.KeyEvent
-import com.jakewharton.mosaic.layout.drawBehind
-import com.jakewharton.mosaic.layout.height
-import com.jakewharton.mosaic.layout.offset
-import com.jakewharton.mosaic.layout.onKeyEvent
-import com.jakewharton.mosaic.layout.padding
-import com.jakewharton.mosaic.layout.width
+import com.jakewharton.mosaic.layout.*
 import com.jakewharton.mosaic.modifier.Modifier
 import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
@@ -350,16 +336,19 @@ private fun <T> handleSelectDialogKeyboardEvent(
                 onClose()
                 true
             }
+
             Key.Backspace -> {
                 state.deleteChar()
                 true
             }
+
             is Key.Character -> {
                 if (!event.ctrl && !event.alt) {
                     state.appendChar(event.key.value)
                 }
                 true
             }
+
             else -> true
         }
     }
@@ -370,15 +359,18 @@ private fun <T> handleSelectDialogKeyboardEvent(
             onSelectionChanged?.let { callback -> state.selectedValue()?.let(callback) }
             true
         }
+
         Key.ArrowDown -> {
             state.moveDown()
             onSelectionChanged?.let { callback -> state.selectedValue()?.let(callback) }
             true
         }
+
         Key.Backspace -> {
             state.deleteChar()
             true
         }
+
         Key.Enter -> {
             val value = state.selectedValue()
             if (value != null) {
@@ -386,10 +378,12 @@ private fun <T> handleSelectDialogKeyboardEvent(
             }
             true
         }
+
         Key.Escape -> {
             onClose()
             true
         }
+
         is Key.Character -> {
             if (event.ctrl && event.key.value.lowercaseChar() == 'u') {
                 state.clearFilter()
@@ -398,6 +392,7 @@ private fun <T> handleSelectDialogKeyboardEvent(
             }
             true
         }
+
         else -> true
     }
 }
@@ -549,7 +544,6 @@ public fun PromptDialog(
             }
             val isEmpty = state.text.isEmpty()
             val textColor = if (isEmpty) theme.colors.muted else theme.colors.accentBright
-            val fieldWidth = innerWidth
 
             Text(
                 buildAnnotatedString {
@@ -562,7 +556,7 @@ public fun PromptDialog(
                         }
                         val rest = if (placeholder.length > 1) placeholder.substring(1) else ""
                         withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-                            append(rest.take(fieldWidth - 1).padEnd(fieldWidth - 1))
+                            append(rest.take(innerWidth - 1).padEnd(innerWidth - 1))
                         }
                     } else {
                         val shown = if (state.masked) "•".repeat(state.text.length) else state.text
@@ -581,7 +575,7 @@ public fun PromptDialog(
                         }
 
                         val usedWidth = beforeCursor.length + 1 + afterCursor.length
-                        val remaining = (fieldWidth - usedWidth).coerceAtLeast(0)
+                        val remaining = (innerWidth - usedWidth).coerceAtLeast(0)
                         if (remaining > 0) {
                             withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
                                 append(" ".repeat(remaining))
@@ -606,34 +600,42 @@ private fun handlePromptDialogKey(
             onSubmit(state.text)
             true
         }
+
         Key.Escape -> {
             onClose()
             true
         }
+
         Key.Backspace -> {
             state.deleteChar()
             true
         }
+
         Key.Delete -> {
             state.deleteForward()
             true
         }
+
         Key.ArrowLeft -> {
             state.moveLeft()
             true
         }
+
         Key.ArrowRight -> {
             state.moveRight()
             true
         }
+
         Key.Home -> {
             state.moveHome()
             true
         }
+
         Key.End -> {
             state.moveEnd()
             true
         }
+
         is Key.Character -> {
             if (keyboardEvent.ctrl) {
                 when (keyboardEvent.key.value.lowercaseChar()) {
@@ -646,6 +648,7 @@ private fun handlePromptDialogKey(
             }
             true
         }
+
         else -> true
     }
 }
@@ -656,6 +659,7 @@ private fun handlePromptDialogKey(
 public sealed interface OverlayEntry {
     public val id: Int
 }
+
 @Stable
 public class SelectOverlayEntry<T> internal constructor(
     override val id: Int,
@@ -815,8 +819,7 @@ public class OverlayHostState {
      */
     public fun clear() {
         while (stack.isNotEmpty()) {
-            val entry = stack.removeLast()
-            when (entry) {
+            when (val entry = stack.removeLast()) {
                 is SelectOverlayEntry<*> -> entry.onClose()
                 is PromptOverlayEntry -> entry.onClose()
                 is InfoOverlayEntry -> entry.onClose()
@@ -862,6 +865,7 @@ public fun InfoDialog(
                     onClose()
                     true
                 }
+
                 else -> true
             }
         },
