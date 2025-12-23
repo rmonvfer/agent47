@@ -1,11 +1,6 @@
 package co.agentmode.agent47.model.generator
 
-import co.agentmode.agent47.ai.types.Model
-import co.agentmode.agent47.ai.types.ModelCost
-import co.agentmode.agent47.ai.types.ModelInputKind
-import co.agentmode.agent47.ai.types.ApiId
-import co.agentmode.agent47.ai.types.ProviderId
-import kotlinx.serialization.Serializable
+import co.agentmode.agent47.ai.types.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
 import java.net.URI
@@ -244,9 +239,9 @@ fun loadModelsDevData(): List<Model> {
         baseUrl = "https://api.anthropic.com",
         skipFilter = { id, _ ->
             id.startsWith("claude-3-5-haiku") ||
-                id.startsWith("claude-3-7-sonnet") ||
-                id == "claude-3-opus-20240229" ||
-                id == "claude-3-sonnet-20240229"
+                    id.startsWith("claude-3-7-sonnet") ||
+                    id == "claude-3-opus-20240229" ||
+                    id == "claude-3-sonnet-20240229"
         },
     )
 
@@ -582,9 +577,30 @@ private fun kimiCodeFallbackModels(): List<Model> {
     val context = 262144
     val maxTokens = 32000
     return listOf(
-        kimiModel("kimi-for-coding", "Kimi For Coding", context, maxTokens, true, listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE)),
-        kimiModel("kimi-k2.5", "Kimi K2.5", context, maxTokens, true, listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE)),
-        kimiModel("kimi-k2-turbo-preview", "Kimi K2 Turbo Preview", context, maxTokens, true, listOf(ModelInputKind.TEXT)),
+        kimiModel(
+            "kimi-for-coding",
+            "Kimi For Coding",
+            context,
+            maxTokens,
+            true,
+            listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE)
+        ),
+        kimiModel(
+            "kimi-k2.5",
+            "Kimi K2.5",
+            context,
+            maxTokens,
+            true,
+            listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE)
+        ),
+        kimiModel(
+            "kimi-k2-turbo-preview",
+            "Kimi K2 Turbo Preview",
+            context,
+            maxTokens,
+            true,
+            listOf(ModelInputKind.TEXT)
+        ),
         kimiModel("kimi-k2", "Kimi K2", context, maxTokens, true, listOf(ModelInputKind.TEXT)),
     )
 }
@@ -616,7 +632,15 @@ private fun hardcodedCodexModels(): List<Model> {
     val context = 272000
     val maxTokens = 128000
 
-    fun codex(id: String, name: String, inputCost: Double, outputCost: Double, cacheRead: Double, ctx: Int = context, input: List<ModelInputKind> = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE)) = Model(
+    fun codex(
+        id: String,
+        name: String,
+        inputCost: Double,
+        outputCost: Double,
+        cacheRead: Double,
+        ctx: Int = context,
+        input: List<ModelInputKind> = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE)
+    ) = Model(
         id = id, name = name,
         api = ApiId("openai-codex-responses"),
         provider = ProviderId("openai-codex"),
@@ -632,7 +656,15 @@ private fun hardcodedCodexModels(): List<Model> {
         codex("gpt-5.2", "GPT-5.2", 1.75, 14.0, 0.175),
         codex("gpt-5.2-codex", "GPT-5.2 Codex", 1.75, 14.0, 0.175),
         codex("gpt-5.3-codex", "GPT-5.3 Codex", 1.75, 14.0, 0.175, ctx = 400000),
-        codex("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", 1.75, 14.0, 0.175, ctx = 128000, input = listOf(ModelInputKind.TEXT)),
+        codex(
+            "gpt-5.3-codex-spark",
+            "GPT-5.3 Codex Spark",
+            1.75,
+            14.0,
+            0.175,
+            ctx = 128000,
+            input = listOf(ModelInputKind.TEXT)
+        ),
     )
 }
 
@@ -640,13 +672,14 @@ private fun hardcodedCursorModels(): List<Model> {
     val baseUrl = "https://api2.cursor.sh"
     val zero = ModelCost(0.0, 0.0, 0.0, 0.0)
 
-    fun cursor(id: String, name: String, reasoning: Boolean, input: List<ModelInputKind>, ctx: Int, maxTokens: Int) = Model(
-        id = id, name = name,
-        api = ApiId("cursor-agent"),
-        provider = ProviderId("cursor"),
-        baseUrl = baseUrl, reasoning = reasoning, input = input,
-        cost = zero, contextWindow = ctx, maxTokens = maxTokens,
-    )
+    fun cursor(id: String, name: String, reasoning: Boolean, input: List<ModelInputKind>, ctx: Int, maxTokens: Int) =
+        Model(
+            id = id, name = name,
+            api = ApiId("cursor-agent"),
+            provider = ProviderId("cursor"),
+            baseUrl = baseUrl, reasoning = reasoning, input = input,
+            cost = zero, contextWindow = ctx, maxTokens = maxTokens,
+        )
 
     val ti = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE)
     val t = listOf(ModelInputKind.TEXT)
@@ -723,7 +756,16 @@ private fun hardcodedVertexModels(): List<Model> {
     val baseUrl = "https://{location}-aiplatform.googleapis.com"
     val ti = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE)
 
-    fun vertex(id: String, name: String, reasoning: Boolean, inputCost: Double, outputCost: Double, cacheRead: Double, ctx: Int, maxTokens: Int) = Model(
+    fun vertex(
+        id: String,
+        name: String,
+        reasoning: Boolean,
+        inputCost: Double,
+        outputCost: Double,
+        cacheRead: Double,
+        ctx: Int,
+        maxTokens: Int
+    ) = Model(
         id = id, name = "$name (Vertex)",
         api = ApiId("google-vertex"),
         provider = ProviderId("google-vertex"),
@@ -739,7 +781,16 @@ private fun hardcodedVertexModels(): List<Model> {
         vertex("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite", true, 0.075, 0.3, 0.01875, 1048576, 65536),
         vertex("gemini-2.5-pro", "Gemini 2.5 Pro", true, 1.25, 10.0, 0.125, 1048576, 65536),
         vertex("gemini-2.5-flash", "Gemini 2.5 Flash", true, 0.3, 2.5, 0.03, 1048576, 65536),
-        vertex("gemini-2.5-flash-lite-preview-09-2025", "Gemini 2.5 Flash Lite Preview 09-25", true, 0.1, 0.4, 0.01, 1048576, 65536),
+        vertex(
+            "gemini-2.5-flash-lite-preview-09-2025",
+            "Gemini 2.5 Flash Lite Preview 09-25",
+            true,
+            0.1,
+            0.4,
+            0.01,
+            1048576,
+            65536
+        ),
         vertex("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", true, 0.1, 0.4, 0.01, 1048576, 65536),
         vertex("gemini-1.5-pro", "Gemini 1.5 Pro", false, 1.25, 5.0, 0.3125, 1000000, 8192),
         vertex("gemini-1.5-flash", "Gemini 1.5 Flash", false, 0.075, 0.3, 0.01875, 1000000, 8192),
@@ -785,55 +836,65 @@ fun main() {
     }
 
     // Hardcoded models (add if not already present from API)
-    addIfMissing(allModels, Model(
-        id = "gpt-5-chat-latest", name = "GPT-5 Chat Latest",
-        api = ApiId("openai-responses"), provider = ProviderId("openai"),
-        baseUrl = "https://api.openai.com/v1", reasoning = false,
-        input = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE),
-        cost = ModelCost(1.25, 10.0, 0.125, 0.0),
-        contextWindow = 128000, maxTokens = 16384,
-    ))
+    addIfMissing(
+        allModels, Model(
+            id = "gpt-5-chat-latest", name = "GPT-5 Chat Latest",
+            api = ApiId("openai-responses"), provider = ProviderId("openai"),
+            baseUrl = "https://api.openai.com/v1", reasoning = false,
+            input = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE),
+            cost = ModelCost(1.25, 10.0, 0.125, 0.0),
+            contextWindow = 128000, maxTokens = 16384,
+        )
+    )
 
-    addIfMissing(allModels, Model(
-        id = "gpt-5.1-codex", name = "GPT-5.1 Codex",
-        api = ApiId("openai-responses"), provider = ProviderId("openai"),
-        baseUrl = "https://api.openai.com/v1", reasoning = true,
-        input = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE),
-        cost = ModelCost(1.25, 5.0, 0.125, 1.25),
-        contextWindow = 400000, maxTokens = 128000,
-    ))
+    addIfMissing(
+        allModels, Model(
+            id = "gpt-5.1-codex", name = "GPT-5.1 Codex",
+            api = ApiId("openai-responses"), provider = ProviderId("openai"),
+            baseUrl = "https://api.openai.com/v1", reasoning = true,
+            input = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE),
+            cost = ModelCost(1.25, 5.0, 0.125, 1.25),
+            contextWindow = 400000, maxTokens = 128000,
+        )
+    )
 
-    addIfMissing(allModels, Model(
-        id = "gpt-5.1-codex-max", name = "GPT-5.1 Codex Max",
-        api = ApiId("openai-responses"), provider = ProviderId("openai"),
-        baseUrl = "https://api.openai.com/v1", reasoning = true,
-        input = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE),
-        cost = ModelCost(1.25, 10.0, 0.125, 0.0),
-        contextWindow = 400000, maxTokens = 128000,
-    ))
+    addIfMissing(
+        allModels, Model(
+            id = "gpt-5.1-codex-max", name = "GPT-5.1 Codex Max",
+            api = ApiId("openai-responses"), provider = ProviderId("openai"),
+            baseUrl = "https://api.openai.com/v1", reasoning = true,
+            input = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE),
+            cost = ModelCost(1.25, 10.0, 0.125, 0.0),
+            contextWindow = 400000, maxTokens = 128000,
+        )
+    )
 
     // OpenAI Codex (ChatGPT OAuth) models
     allModels += hardcodedCodexModels()
 
     // Missing Grok model
-    addIfMissing(allModels, Model(
-        id = "grok-code-fast-1", name = "Grok Code Fast 1",
-        api = ApiId("openai-completions"), provider = ProviderId("xai"),
-        baseUrl = "https://api.x.ai/v1", reasoning = false,
-        input = listOf(ModelInputKind.TEXT),
-        cost = ModelCost(0.2, 1.5, 0.02, 0.0),
-        contextWindow = 32768, maxTokens = 8192,
-    ))
+    addIfMissing(
+        allModels, Model(
+            id = "grok-code-fast-1", name = "Grok Code Fast 1",
+            api = ApiId("openai-completions"), provider = ProviderId("xai"),
+            baseUrl = "https://api.x.ai/v1", reasoning = false,
+            input = listOf(ModelInputKind.TEXT),
+            cost = ModelCost(0.2, 1.5, 0.02, 0.0),
+            contextWindow = 32768, maxTokens = 8192,
+        )
+    )
 
     // OpenRouter auto alias
-    addIfMissing(allModels, Model(
-        id = "auto", name = "Auto",
-        api = ApiId("openai-completions"), provider = ProviderId("openrouter"),
-        baseUrl = "https://openrouter.ai/api/v1", reasoning = true,
-        input = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE),
-        cost = ModelCost(0.0, 0.0, 0.0, 0.0),
-        contextWindow = 2000000, maxTokens = 30000,
-    ))
+    addIfMissing(
+        allModels, Model(
+            id = "auto", name = "Auto",
+            api = ApiId("openai-completions"), provider = ProviderId("openrouter"),
+            baseUrl = "https://openrouter.ai/api/v1", reasoning = true,
+            input = listOf(ModelInputKind.TEXT, ModelInputKind.IMAGE),
+            cost = ModelCost(0.0, 0.0, 0.0, 0.0),
+            contextWindow = 2000000, maxTokens = 30000,
+        )
+    )
 
     // MiniMax Coding Plan fallbacks
     fun addMiniMaxCodeFallbacks(provider: String, baseUrl: String, nameSuffix: String) {
@@ -843,14 +904,16 @@ fun main() {
             Triple("MiniMax-M2.5", "MiniMax M2.5", 204800),
             Triple("MiniMax-M2.5-lightning", "MiniMax M2.5 Lightning", 204800),
         )) {
-            addIfMissing(allModels, Model(
-                id = id, name = "$name$nameSuffix",
-                api = ApiId("openai-completions"), provider = ProviderId(provider),
-                baseUrl = baseUrl, reasoning = true, input = listOf(ModelInputKind.TEXT),
-                cost = ModelCost(0.0, 0.0, 0.0, 0.0),
-                contextWindow = ctx, maxTokens = 32000,
-                compat = MINIMAX_CODE_COMPAT,
-            ))
+            addIfMissing(
+                allModels, Model(
+                    id = id, name = "$name$nameSuffix",
+                    api = ApiId("openai-completions"), provider = ProviderId(provider),
+                    baseUrl = baseUrl, reasoning = true, input = listOf(ModelInputKind.TEXT),
+                    cost = ModelCost(0.0, 0.0, 0.0, 0.0),
+                    contextWindow = ctx, maxTokens = 32000,
+                    compat = MINIMAX_CODE_COMPAT,
+                )
+            )
         }
     }
     addMiniMaxCodeFallbacks("minimax-code", "https://api.minimax.io/v1", " (Coding Plan)")
@@ -862,13 +925,15 @@ fun main() {
             listOf("MiniMax-M2.5", "MiniMax M2.5", 0.15, 1.2),
             listOf("MiniMax-M2.5-lightning", "MiniMax M2.5 Lightning", 0.3, 2.4),
         )) {
-            addIfMissing(allModels, Model(
-                id = id as String, name = "$name$nameSuffix",
-                api = ApiId("anthropic-messages"), provider = ProviderId(provider),
-                baseUrl = baseUrl, reasoning = true, input = listOf(ModelInputKind.TEXT),
-                cost = ModelCost(inputCost as Double, outputCost as Double, 0.0, 0.0),
-                contextWindow = 204800, maxTokens = 32000,
-            ))
+            addIfMissing(
+                allModels, Model(
+                    id = id as String, name = "$name$nameSuffix",
+                    api = ApiId("anthropic-messages"), provider = ProviderId(provider),
+                    baseUrl = baseUrl, reasoning = true, input = listOf(ModelInputKind.TEXT),
+                    cost = ModelCost(inputCost as Double, outputCost as Double, 0.0, 0.0),
+                    contextWindow = 204800, maxTokens = 32000,
+                )
+            )
         }
     }
     addMiniMaxAnthropicFallbacks("minimax", "https://api.minimax.io/anthropic", "")
