@@ -1,7 +1,6 @@
 package co.agentmode.agent47.coding.core.tools
 
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -42,7 +41,7 @@ public object JtdSchema {
         val definitions = jtd["definitions"]?.jsonObject
         val root = convertNode(jtd, definitions)
 
-        if (definitions == null || definitions.isEmpty()) {
+        if (definitions.isNullOrEmpty()) {
             return root
         }
 
@@ -56,7 +55,7 @@ public object JtdSchema {
             for ((key, value) in root) {
                 put(key, value)
             }
-            put("\$defs", defs)
+            put($$"$defs", defs)
         }
     }
 
@@ -66,7 +65,7 @@ public object JtdSchema {
         val base = when {
             node.containsKey("ref") -> {
                 val ref = node["ref"]!!.jsonPrimitive.content
-                buildJsonObject { put("\$ref", JsonPrimitive("#/\$defs/$ref")) }
+                buildJsonObject { put($$"$ref", JsonPrimitive($$"#/$defs/$$ref")) }
             }
 
             node.containsKey("type") -> {

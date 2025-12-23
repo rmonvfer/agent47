@@ -7,17 +7,13 @@ import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.ToolDefinition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import java.nio.file.Files
 import java.nio.file.Path
 
 /**
  * Applies multiple sequential edits to a single file atomically.
- * Delegates to the same logic as [EditTool] for each individual edit,
+ * Delegates to the same logic as [EditTool] for each edit,
  * but rolls back all changes if any edit fails.
  */
 public class MultiEditTool(
@@ -85,8 +81,8 @@ public class MultiEditTool(
                     content = listOf(
                         TextContent(
                             text = "Error: Edit $index failed - could not find the exact text in $path. " +
-                                "The old text must match exactly including all whitespace and newlines. " +
-                                "No edits were applied.",
+                                    "The old text must match exactly including all whitespace and newlines. " +
+                                    "No edits were applied.",
                         ),
                     ),
                     details = null,
@@ -101,7 +97,7 @@ public class MultiEditTool(
                     content = listOf(
                         TextContent(
                             text = "Error: Edit $index failed - found $occurrences occurrences of the text in $path. " +
-                                "The text must be unique. Please provide more context. No edits were applied.",
+                                    "The text must be unique. Please provide more context. No edits were applied.",
                         ),
                     ),
                     details = null,
@@ -109,13 +105,14 @@ public class MultiEditTool(
             }
 
             val base = match.contentForReplacement
-            val edited = base.substring(0, match.index) + normalizedNew + base.substring(match.index + match.matchLength)
+            val edited =
+                base.substring(0, match.index) + normalizedNew + base.substring(match.index + match.matchLength)
             if (base == edited) {
                 return AgentToolResult(
                     content = listOf(
                         TextContent(
                             text = "Error: Edit $index produced no changes in $path. " +
-                                "oldText and newText are the same. No edits were applied.",
+                                    "oldText and newText are the same. No edits were applied.",
                         ),
                     ),
                     details = null,

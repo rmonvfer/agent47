@@ -5,14 +5,14 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * Typed details attached to a tool execution result. Each variant carries
- * strongly-typed data for a specific tool so the TUI can render it without
+ * strongly typed data for a specific tool, so the TUI can render it without
  * parsing raw JSON.
  */
 public sealed class ToolDetails {
 
     /**
      * Generic metadata carried as a JSON object, used by tools that don't
-     * need specialised rendering (Read, Edit, Bash, Grep, etc.).
+     * need specialized rendering (Read, Edit, Bash, Grep, etc.).
      */
     public data class Generic(val json: JsonObject) : ToolDetails()
 
