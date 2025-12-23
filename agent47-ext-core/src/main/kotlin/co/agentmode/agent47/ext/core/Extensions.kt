@@ -24,7 +24,7 @@ public fun interface BeforeAgentHook {
 }
 
 public fun interface AfterAgentHook {
-    public suspend fun run(context: AfterAgentContext): Unit
+    public suspend fun run(context: AfterAgentContext)
 }
 
 public fun interface ContextTransformHook {
@@ -65,7 +65,7 @@ public class ExtensionEventBus {
 
     public val events: SharedFlow<ExtensionEvent> = mutableEvents.asSharedFlow()
 
-    public fun emit(event: ExtensionEvent): Unit {
+    public fun emit(event: ExtensionEvent) {
         mutableEvents.tryEmit(event)
     }
 }
@@ -82,7 +82,7 @@ public data class ExtensionDefinition(
 public class InMemoryCommandRegistry : CommandRegistry {
     private val commands: MutableMap<String, RegisteredCommand> = linkedMapOf()
 
-    override fun registerCommand(name: String, description: String): Unit {
+    override fun registerCommand(name: String, description: String) {
         commands[name] = RegisteredCommand(name, description)
     }
 
@@ -97,7 +97,7 @@ public class ExtensionRunner(
 
     public val events: SharedFlow<ExtensionEvent> = eventBus.events
 
-    public fun load(extension: ExtensionDefinition): Unit {
+    public fun load(extension: ExtensionDefinition) {
         extensions += extension
         extension.registerCommands?.invoke(commandRegistry)
         eventBus.emit(ExtensionLoadedEvent(extensionId = extension.id))
@@ -114,7 +114,7 @@ public class ExtensionRunner(
         return current
     }
 
-    public suspend fun runAfterAgent(messages: List<Message>): Unit {
+    public suspend fun runAfterAgent(messages: List<Message>) {
         for (extension in extensions) {
             extension.afterAgent?.run(AfterAgentContext(messages))
         }
