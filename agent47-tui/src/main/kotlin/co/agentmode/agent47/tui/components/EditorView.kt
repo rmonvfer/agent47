@@ -7,13 +7,11 @@ import co.agentmode.agent47.tui.editor.EditorRenderResult
 import co.agentmode.agent47.tui.rendering.annotated
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import com.jakewharton.mosaic.layout.height
-import com.jakewharton.mosaic.layout.offset
 import com.jakewharton.mosaic.layout.width
 import com.jakewharton.mosaic.modifier.Modifier
 import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.text.withStyle
-import com.jakewharton.mosaic.ui.Box
 import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Text
 import com.jakewharton.mosaic.ui.TextStyle
@@ -23,8 +21,7 @@ import com.jakewharton.mosaic.ui.TextStyle
  * by the [Editor][co.agentmode.agent47.tui.editor.Editor] model.
  *
  * Each visual line is emitted as a [Text] node. The cursor is rendered by
- * inverting the character at the cursor position. When an autocomplete popup
- * is active, it is drawn as a floating overlay via [Box] offset.
+ * inverting the character at the cursor position.
  */
 @Composable
 public fun EditorView(
@@ -42,69 +39,54 @@ public fun EditorView(
         color = theme.codeBlockFg,
     )
 
-    Box(modifier = Modifier.width(width).height(height)) {
-        Column {
-            result.lines.forEachIndexed { rowIndex, lineText ->
-                val isFirstLine = rowIndex == 0
-                val prefix = if (isFirstLine) prompt else " ".repeat(prompt.length)
-                val contentWidth = width - prefix.length
-                val displayText = lineText.take(contentWidth).padEnd(contentWidth)
+    Column(modifier = Modifier.width(width).height(height)) {
+        result.lines.forEachIndexed { rowIndex, lineText ->
+            val isFirstLine = rowIndex == 0
+            val prefix = if (isFirstLine) prompt else " ".repeat(prompt.length)
+            val contentWidth = width - prefix.length
+            val displayText = lineText.take(contentWidth).padEnd(contentWidth)
 
-                val hasCursor = rowIndex == result.cursorRow
-                val cursorCol = result.cursorColumn
+            val hasCursor = rowIndex == result.cursorRow
+            val cursorCol = result.cursorColumn
 
-                Text(buildAnnotatedString {
-                    withStyle(SpanStyle(color = promptColor)) {
-                        append(prefix)
-                    }
+            Text(buildAnnotatedString {
+                withStyle(SpanStyle(color = promptColor)) {
+                    append(prefix)
+                }
 
-                    if (hasCursor) {
-                        val adjustedCursorCol = cursorCol.coerceIn(0, displayText.length)
-                        val before = displayText.substring(0, adjustedCursorCol)
-                        val cursorChar = if (adjustedCursorCol < displayText.length) {
-                            displayText[adjustedCursorCol].toString()
-                        } else {
-                            " "
-                        }
-                        val after = if (adjustedCursorCol + 1 < displayText.length) {
-                            displayText.substring(adjustedCursorCol + 1)
-                        } else {
-                            ""
-                        }
-
-                        withStyle(textStyle) { append(before) }
-                        withStyle(SpanStyle(textStyle = TextStyle.Invert)) {
-                            append(cursorChar)
-                        }
-                        withStyle(textStyle) { append(after) }
+                if (hasCursor) {
+                    val adjustedCursorCol = cursorCol.coerceIn(0, displayText.length)
+                    val before = displayText.substring(0, adjustedCursorCol)
+                    val cursorChar = if (adjustedCursorCol < displayText.length) {
+                        displayText[adjustedCursorCol].toString()
                     } else {
-                        withStyle(textStyle) { append(displayText) }
+                        " "
                     }
-                })
-            }
-        }
+                    val after = if (adjustedCursorCol + 1 < displayText.length) {
+                        displayText.substring(adjustedCursorCol + 1)
+                    } else {
+                        ""
+                    }
 
-        // Autocomplete popup overlay
-        val autocomplete = result.autocomplete
-        if (autocomplete != null && autocomplete.items.isNotEmpty()) {
-            AutocompletePopup(
-                model = autocomplete,
-                promptWidth = prompt.length,
-                maxWidth = width,
-                theme = theme,
-            )
+                    withStyle(textStyle) { append(before) }
+                    withStyle(SpanStyle(textStyle = TextStyle.Invert)) {
+                        append(cursorChar)
+                    }
+                    withStyle(textStyle) { append(after) }
+                } else {
+                    withStyle(textStyle) { append(displayText) }
+                }
+            })
         }
     }
 }
 
 /**
- * Renders the autocomplete popup as a list of completion items, positioned
- * relative to the trigger token in the editor.
+ * Renders the autocomplete popup as a list of completion items.
  */
 @Composable
-private fun AutocompletePopup(
+internal fun AutocompletePopup(
     model: EditorAutocompleteRenderModel,
-    promptWidth: Int,
     maxWidth: Int,
     theme: co.agentmode.agent47.tui.theme.ThemeConfig,
 ) {
@@ -123,27 +105,22 @@ private fun AutocompletePopup(
     val visibleItems = items.subList(scrollOffset, (scrollOffset + maxVisible).coerceAtMost(items.size))
 
     val labelColumnWidth = visibleItems.maxOf { it.label.length }
-    val availableWidth = (maxWidth - promptWidth - model.column).coerceAtLeast(10)
+    val availableWidth = maxWidth.coerceAtLeast(10)
     val gap = 4
     val detailBudget = (availableWidth - labelColumnWidth - gap - 2).coerceAtLeast(0)
     val itemWidth = availableWidth
 
-    val offsetX = promptWidth + model.column
-    val offsetY = model.row
-
-    Box(modifier = Modifier.offset(x = offsetX, y = offsetY)) {
-        Column {
-            visibleItems.forEachIndexed { index, item ->
-                val isSelected = (scrollOffset + index) == model.selectedIndex
-                Text(renderCompletionItem(item, isSelected, itemWidth, labelColumnWidth, detailBudget, theme))
-            }
-            val hiddenBelow = items.size - (scrollOffset + maxVisible)
-            if (hiddenBelow > 0) {
-                Text(annotated(
-                    " +$hiddenBelow more",
-                    SpanStyle(color = theme.colors.muted),
-                ))
-            }
+    Column {
+        visibleItems.forEachIndexed { index, item ->
+            val isSelected = (scrollOffset + index) == model.selectedIndex
+            Text(renderCompletionItem(item, isSelected, itemWidth, labelColumnWidth, detailBudget, theme))
+        }
+        val hiddenBelow = items.size - (scrollOffset + maxVisible)
+        if (hiddenBelow > 0) {
+            Text(annotated(
+                " +$hiddenBelow more",
+                SpanStyle(color = theme.colors.muted),
+            ))
         }
     }
 }
@@ -160,9 +137,9 @@ private fun renderCompletionItem(
     val detail = item.detail
 
     val labelStyle = if (selected) {
-        SpanStyle(color = theme.colors.accentBright, background = theme.overlaySelectedBg)
+        SpanStyle(color = theme.markdownText, background = theme.overlaySelectedBg)
     } else {
-        SpanStyle(color = theme.colors.accent, background = theme.statusBarBg)
+        SpanStyle(color = theme.markdownText, background = theme.statusBarBg)
     }
     val detailStyle = if (selected) {
         SpanStyle(color = theme.colors.muted, background = theme.overlaySelectedBg)
