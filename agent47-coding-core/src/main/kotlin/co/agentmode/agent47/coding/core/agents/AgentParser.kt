@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
-internal data class AgentFrontmatter(
+internal data class AgentFrontMatter(
     val name: String? = null,
     val description: String? = null,
     val tools: List<String>? = null,
@@ -15,7 +15,7 @@ internal data class AgentFrontmatter(
 
 public object AgentParser {
 
-    private val frontmatterRegex = Regex("""^---\s*\n(.*?)\n---\s*\n?(.*)$""", RegexOption.DOT_MATCHES_ALL)
+    private val frontMatterRegex = Regex("""^---\s*\n(.*?)\n---\s*\n?(.*)$""", RegexOption.DOT_MATCHES_ALL)
 
     public fun parse(
         content: String,
@@ -23,23 +23,23 @@ public object AgentParser {
         source: AgentSource,
         filePath: String? = null,
     ): AgentDefinition {
-        val match = frontmatterRegex.matchEntire(content.trimStart())
+        val match = frontMatterRegex.matchEntire(content.trimStart())
         val yamlBlock = match?.groupValues?.get(1)?.trim().orEmpty()
         val body = match?.groupValues?.get(2)?.trim() ?: content.trim()
 
-        val frontmatter = if (yamlBlock.isNotBlank()) {
+        val frontMatter = if (yamlBlock.isNotBlank()) {
             runCatching {
-                Yaml.default.decodeFromString(AgentFrontmatter.serializer(), yamlBlock)
-            }.getOrElse { AgentFrontmatter() }
+                Yaml.default.decodeFromString(AgentFrontMatter.serializer(), yamlBlock)
+            }.getOrElse { AgentFrontMatter() }
         } else {
-            AgentFrontmatter()
+            AgentFrontMatter()
         }
 
-        val name = frontmatter.name ?: fallbackName
-        val description = frontmatter.description ?: name
+        val name = frontMatter.name ?: fallbackName
+        val description = frontMatter.description ?: name
 
-        val spawns = parseSpawnsPolicy(frontmatter.spawns)
-        val modelPatterns = frontmatter.model?.let { raw ->
+        val spawns = parseSpawnsPolicy(frontMatter.spawns)
+        val modelPatterns = frontMatter.model?.let { raw ->
             raw.split(",").map { it.trim() }.filter { it.isNotBlank() }
         }
         val thinkingLevel = parseThinkingLevel(yamlBlock)
@@ -50,7 +50,7 @@ public object AgentParser {
             name = name,
             description = description,
             systemPrompt = body,
-            tools = frontmatter.tools,
+            tools = frontMatter.tools,
             spawns = spawns,
             model = modelPatterns,
             thinkingLevel = thinkingLevel,
@@ -79,7 +79,7 @@ public object AgentParser {
     }
 
     private fun parseOutputSchema(yamlBlock: String): JsonObject? {
-        val regex = Regex("""output:\s*(\{.*\})""", RegexOption.DOT_MATCHES_ALL)
+        val regex = Regex("""output:\s*(\{.*})""", RegexOption.DOT_MATCHES_ALL)
         val raw = regex.find(yamlBlock)?.groupValues?.get(1) ?: return null
         return runCatching {
             co.agentmode.agent47.ai.types.Agent47Json.decodeFromString(JsonObject.serializer(), raw)
