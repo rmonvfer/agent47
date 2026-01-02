@@ -31,6 +31,18 @@ public enum class QueueMode {
     ONE_AT_A_TIME,
 }
 
+/**
+ * The top-level agent state machine. Manages the conversation history, model configuration,
+ * tool set, and the agentic loop lifecycle.
+ *
+ * Use [prompt] to send user messages and start the loop. The loop streams the model's
+ * response, executes any tool calls, and continues until the model stops or an error occurs.
+ * Events are delivered to listeners registered via [subscribe].
+ *
+ * Mid-conversation, [steer] injects messages that interrupt tool execution (useful for
+ * user corrections), while [followUp] queues messages that are sent after the current
+ * turn completes. [abort] forcefully stops the loop by interrupting its thread.
+ */
 public class Agent(options: AgentOptions = AgentOptions()) {
     private var stateValue: AgentState = AgentState(
         systemPrompt = options.initialState?.systemPrompt ?: "",

@@ -42,6 +42,16 @@ public fun interface AgentToolUpdateCallback<T> {
     public fun onUpdate(partialResult: AgentToolResult<T>): Unit
 }
 
+/**
+ * A tool that agents can invoke during the agentic loop. Implementations provide a
+ * [definition] (name, description, JSON Schema parameters) that is sent to the LLM,
+ * and an [execute] method that runs when the model calls the tool.
+ *
+ * The type parameter [T] represents the tool-specific detail type returned alongside
+ * content blocks in [AgentToolResult]. The agent loop calls [execute] for each
+ * [ToolCall] in the assistant's response and feeds the results back as
+ * [ToolResultMessage] entries.
+ */
 public interface AgentTool<T> {
     public val definition: ToolDefinition
     public val label: String
@@ -133,6 +143,18 @@ public data class ToolExecutionEndEvent(
     override val type: String = "tool_execution_end",
 ) : AgentEvent
 
+/**
+ * Configuration for a single run of the agent loop.
+ *
+ * [convertToLlm] transforms the raw message history into the list sent to the LLM,
+ * typically via [defaultConvertToLlm] which strips error turns and inserts synthetic
+ * tool results for orphaned calls. [transformContext] is an optional second pass that
+ * can further modify messages (e.g. for overflow trimming).
+ *
+ * [getSteeringMessages] and [getFollowUpMessages] are polled by the loop between turns.
+ * Steering messages interrupt tool execution; follow-up messages are injected after the
+ * model stops generating.
+ */
 public data class AgentLoopConfig(
     val model: Model,
     val reasoning: co.agentmode.agent47.ai.types.ThinkingLevel? = null,
