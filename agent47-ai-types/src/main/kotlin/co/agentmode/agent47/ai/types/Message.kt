@@ -4,11 +4,21 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
+/**
+ * A piece of content within a [Message]. Content blocks are polymorphic: they can represent
+ * plain text, model thinking, images, or tool calls. Providers serialize each variant
+ * differently, but the agent layer works with them uniformly.
+ */
 @Serializable
 public sealed interface ContentBlock {
     public val type: String
 }
 
+/**
+ * Plain text content. The [textSignature] is an opaque token used by some providers
+ * (notably Anthropic) for cross-turn replay of extended thinking; it is stripped
+ * when messages cross provider boundaries.
+ */
 @Serializable
 @SerialName("text")
 public data class TextContent(
@@ -17,6 +27,11 @@ public data class TextContent(
     val textSignature: String? = null,
 ) : ContentBlock
 
+/**
+ * Extended thinking / chain-of-thought content produced by reasoning models.
+ * When messages cross provider boundaries, thinking blocks are converted to
+ * [TextContent] wrapped in `<thinking>` tags and the [thinkingSignature] is stripped.
+ */
 @Serializable
 @SerialName("thinking")
 public data class ThinkingContent(
@@ -33,6 +48,11 @@ public data class ImageContent(
     val mimeType: String,
 ) : ContentBlock
 
+/**
+ * A tool invocation requested by the model. The [id] is provider-assigned and must be
+ * echoed back in the corresponding [ToolResultMessage]. The [thoughtSignature] is an
+ * opaque provider token stripped during cross-provider thinking conversion.
+ */
 @Serializable
 @SerialName("toolCall")
 public data class ToolCall(
@@ -89,6 +109,13 @@ public enum class StopReason {
     ABORTED,
 }
 
+/**
+ * A single entry in a conversation. Messages are polymorphic: user input, assistant
+ * responses, tool results, and several synthetic message types (bash execution records,
+ * branch summaries, compaction summaries) all implement this interface. Messages are
+ * serialized to JSONL for session persistence and converted to provider-specific
+ * formats before being sent to the LLM.
+ */
 @Serializable
 public sealed interface Message {
     public val role: String
@@ -103,6 +130,12 @@ public data class UserMessage(
     override val timestamp: Long,
 ) : Message
 
+/**
+ * A response from the LLM. Tracks which [api] and [provider] produced it so that
+ * cross-provider thinking conversion can distinguish same-provider messages (which
+ * keep their signatures intact) from foreign ones. The [stopReason] indicates why
+ * the model stopped generating: natural stop, length limit, tool use, or error.
+ */
 @Serializable
 @SerialName("assistant")
 public data class AssistantMessage(
@@ -117,6 +150,12 @@ public data class AssistantMessage(
     override val timestamp: Long,
 ) : Message
 
+/**
+ * The result of executing a tool. The [toolCallId] must match the [ToolCall.id] from
+ * the assistant message that requested it. APIs that enforce strict tool call / result
+ * pairing (OpenAI, Anthropic) will reject requests with orphaned calls, which is why
+ * [co.agentmode.agent47.agent.core.insertSyntheticToolResults] exists as a safety net.
+ */
 @Serializable
 @SerialName("toolResult")
 public data class ToolResultMessage(

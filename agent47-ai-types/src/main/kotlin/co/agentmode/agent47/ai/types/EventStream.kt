@@ -7,6 +7,18 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.channels.Channel
 
+/**
+ * A typed event channel that produces a stream of events and resolves to a final result.
+ *
+ * Events are pushed by a producer (typically a coroutine running an SSE stream or an agent
+ * loop) and consumed by a collector via [events]. The stream closes automatically when a
+ * terminal event is pushed (determined by [isComplete]), or it can be closed explicitly via
+ * [end] or [cancel]. The final result is available via [result], which suspends until the
+ * stream completes.
+ *
+ * @param T the event type
+ * @param R the result type, extracted from the terminal event
+ */
 public open class EventStream<T : Any, R : Any>(
     private val isComplete: (T) -> Boolean,
     private val extractResult: (T) -> R,
