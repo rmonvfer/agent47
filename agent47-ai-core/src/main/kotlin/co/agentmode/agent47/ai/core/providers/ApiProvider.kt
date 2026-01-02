@@ -23,6 +23,15 @@ public fun interface StreamSimpleFunction {
     ): AssistantMessageEventStream
 }
 
+/**
+ * Implements streaming LLM calls for a specific API format (e.g. OpenAI completions,
+ * Anthropic messages, Google generative AI). Each provider registers itself in [ApiRegistry][co.agentmode.agent47.ai.core.ApiRegistry]
+ * keyed by its [api] identifier; the runtime selects the right provider based on
+ * the model's declared API.
+ *
+ * Implementations handle SSE parsing, token counting, and translating the universal
+ * [Context] into provider-specific request payloads.
+ */
 public interface ApiProvider {
     public val api: ApiId
     public suspend fun stream(model: Model, context: Context, options: StreamOptions? = null): AssistantMessageEventStream
