@@ -145,6 +145,12 @@ private suspend fun runLoop(
                 pendingMessages.clear()
             }
 
+            if (config.beforeAgent != null) {
+                val transformed = config.beforeAgent.invoke(currentContext.messages.toList())
+                currentContext.messages.clear()
+                currentContext.messages.addAll(transformed)
+            }
+
             val assistantMessage = streamAssistantResponse(currentContext, config, stream, streamFunction)
             newMessages.add(assistantMessage)
 
@@ -191,6 +197,7 @@ private suspend fun runLoop(
         break
     }
 
+    config.afterAgent?.invoke(currentContext.messages.toList())
     stream.push(AgentEndEvent(newMessages.toList()))
     stream.end(newMessages.toList())
 }

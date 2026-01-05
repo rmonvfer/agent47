@@ -166,6 +166,8 @@ public data class AgentLoopConfig(
     val getApiKey: (suspend (provider: String) -> String?)? = null,
     val getSteeringMessages: (suspend () -> List<Message>)? = null,
     val getFollowUpMessages: (suspend () -> List<Message>)? = null,
+    val beforeAgent: (suspend (List<Message>) -> List<Message>)? = null,
+    val afterAgent: (suspend (List<Message>) -> Unit)? = null,
 )
 
 public fun defaultConvertToLlm(messages: List<Message>): List<Message> {
