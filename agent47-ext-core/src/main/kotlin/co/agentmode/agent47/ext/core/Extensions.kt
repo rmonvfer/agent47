@@ -70,6 +70,22 @@ public class ExtensionEventBus {
     }
 }
 
+/**
+ * Declares a set of hooks that plug into the agent execution pipeline. Extensions
+ * are loaded into an [ExtensionRunner] and compose in load order: before-agent hooks
+ * chain their message transformations, context transforms layer on top of each other,
+ * and tool wrappers nest.
+ *
+ * All hooks are optional. A minimal extension might only wrap tools or only register
+ * custom slash commands.
+ *
+ * @property id unique identifier for this extension, used in events and diagnostics
+ * @property beforeAgent runs before the agent processes input; can modify messages
+ * @property afterAgent runs after the agent completes; useful for logging or cleanup
+ * @property transformContext transforms the AI context before it is sent to the LLM
+ * @property toolWrapper wraps individual tools to intercept or modify their behavior
+ * @property registerCommands registers custom slash commands at load time
+ */
 public data class ExtensionDefinition(
     val id: String,
     val beforeAgent: BeforeAgentHook? = null,
@@ -89,6 +105,14 @@ public class InMemoryCommandRegistry : CommandRegistry {
     override fun listCommands(): List<RegisteredCommand> = commands.values.toList()
 }
 
+/**
+ * Loads and sequences [ExtensionDefinition] instances. Multiple extensions compose:
+ * hooks run in the order extensions were loaded, and tool wrappers nest so that
+ * the last-loaded extension's wrapper is the outermost layer.
+ *
+ * The runner also aggregates custom slash commands from all loaded extensions via
+ * its internal [CommandRegistry].
+ */
 public class ExtensionRunner(
     private val eventBus: ExtensionEventBus = ExtensionEventBus(),
     private val commandRegistry: CommandRegistry = InMemoryCommandRegistry(),
