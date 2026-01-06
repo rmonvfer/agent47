@@ -25,6 +25,7 @@ public fun createCoreTools(
     enabled: List<String> = DEFAULT_TOOLS,
     skillReader: SkillReader? = null,
     todoState: TodoState? = null,
+    commandPrefix: String? = null,
 ): CoreTools {
     val enabledSet = enabled.toSet()
     val tools = CoreTools(
@@ -32,7 +33,7 @@ public fun createCoreTools(
         write = if ("write" in enabledSet) WriteTool(cwd) else null,
         edit = if ("edit" in enabledSet) EditTool(cwd) else null,
         multiEdit = if ("multiedit" in enabledSet) MultiEditTool(cwd) else null,
-        bash = if ("bash" in enabledSet) BashTool(cwd) else null,
+        bash = if ("bash" in enabledSet) BashTool(cwd, commandPrefix) else null,
         grep = if ("grep" in enabledSet) GrepTool(cwd) else null,
         find = if ("find" in enabledSet) FindTool(cwd) else null,
         ls = if ("ls" in enabledSet) LsTool(cwd) else null,

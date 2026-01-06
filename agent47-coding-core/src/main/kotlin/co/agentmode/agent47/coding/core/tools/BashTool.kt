@@ -19,7 +19,7 @@ import kotlinx.serialization.json.put
 
 public class BashTool(
     private val cwd: Path,
-    private val commandPrefix: String? = null,
+    public val commandPrefix: String? = null,
 ) : AgentTool<JsonObject?> {
     override val label: String = "bash"
 
