@@ -449,7 +449,7 @@ private val UNSUPPORTED_SCHEMA_FIELDS = setOf(
     "additionalProperties", "format", "title",
 )
 
-private fun sanitizeSchemaForGoogle(schema: JsonElement): JsonElement {
+internal fun sanitizeSchemaForGoogle(schema: JsonElement): JsonElement {
     return when (schema) {
         is JsonObject -> {
             val filtered = schema.filterKeys { it !in UNSUPPORTED_SCHEMA_FIELDS }

@@ -233,7 +233,7 @@ private fun buildHeaders(model: Model, options: StreamOptions?): Map<String, Str
     return headers
 }
 
-private fun normalizeAnthropicToolId(id: String): String {
+internal fun normalizeAnthropicToolId(id: String): String {
     val sanitized = id.replace(Regex("[^a-zA-Z0-9_-]"), "_")
     return if (sanitized.length > 40) sanitized.take(40) else sanitized
 }
@@ -344,7 +344,7 @@ private val CACHE_CONTROL = buildJsonObject {
     put("type", JsonPrimitive("ephemeral"))
 }
 
-private fun applyCacheBreakpoints(payload: JsonObject): JsonObject {
+internal fun applyCacheBreakpoints(payload: JsonObject): JsonObject {
     val mutablePayload = payload.toMutableMap()
     var breakpointsRemaining = 4
 
