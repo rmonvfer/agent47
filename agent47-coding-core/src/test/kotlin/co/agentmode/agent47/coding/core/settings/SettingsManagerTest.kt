@@ -188,4 +188,109 @@ class SettingsManagerTest {
         assertEquals("/bin/zsh", manager.get().shellPath)
         assertEquals("set -e && ", manager.get().shellCommandPrefix)
     }
+
+    @Test
+    fun `modelRoles are merged as union of global and project`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        globalPath.writeText(
+            """
+            {
+              "modelRoles": {
+                "smol": "anthropic/claude-haiku-4-5",
+                "slow": "anthropic/claude-opus-4-6"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        projectPath.writeText(
+            """
+            {
+              "modelRoles": {
+                "smol": "google/gemini-2.5-flash",
+                "default": "openai/gpt-5.1-codex"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        val roles = manager.get().modelRoles
+        // Project overrides global for "smol"
+        assertEquals("google/gemini-2.5-flash", roles["smol"])
+        // Global "slow" is preserved
+        assertEquals("anthropic/claude-opus-4-6", roles["slow"])
+        // Project adds "default"
+        assertEquals("openai/gpt-5.1-codex", roles["default"])
+    }
+
+    @Test
+    fun `project shell settings override global`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        globalPath.writeText(
+            """
+            {
+              "shellPath": "/bin/zsh",
+              "shellCommandPrefix": "set -e && "
+            }
+            """.trimIndent(),
+        )
+
+        projectPath.writeText(
+            """
+            {
+              "shellPath": "/bin/bash"
+            }
+            """.trimIndent(),
+        )
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        assertEquals("/bin/bash", manager.get().shellPath)
+        // Global shellCommandPrefix is preserved since project didn't set it
+        assertEquals("set -e && ", manager.get().shellCommandPrefix)
+    }
+
+    @Test
+    fun `loads taskMaxRecursionDepth`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        globalPath.writeText(
+            """
+            {
+              "taskMaxRecursionDepth": 5
+            }
+            """.trimIndent(),
+        )
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        assertEquals(5, manager.get().taskMaxRecursionDepth)
+    }
+
+    @Test
+    fun `loads theme and showUsageFooter`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        globalPath.writeText(
+            """
+            {
+              "theme": "dark",
+              "showUsageFooter": true
+            }
+            """.trimIndent(),
+        )
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        assertEquals("dark", manager.get().theme)
+        assertEquals(true, manager.get().showUsageFooter)
+    }
 }
