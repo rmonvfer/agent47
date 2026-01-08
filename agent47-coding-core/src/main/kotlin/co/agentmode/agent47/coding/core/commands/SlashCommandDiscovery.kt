@@ -6,7 +6,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.extension
-import kotlin.io.path.nameWithoutExtension
 import kotlin.io.path.readText
 
 @Serializable
@@ -55,31 +54,25 @@ public object SlashCommandDiscovery {
     }
 
     private fun discoverFromClasspath(seen: MutableSet<String>, out: MutableList<SlashCommand>) {
-        val resourceDir = SlashCommandDiscovery::class.java.classLoader
-            .getResource("commands")
-            ?: return
-
-        if (resourceDir.protocol != "file") return
-
-        val dir = Path.of(resourceDir.toURI())
-        if (!dir.exists()) return
-
-        Files.list(dir).use { stream ->
-            stream
-                .filter { it.extension == "md" }
-                .sorted()
-                .forEach { path ->
-                    val command = parseCommand(path, SlashCommandSource.BUNDLED)
-                    if (command.name !in seen) {
-                        seen += command.name
-                        out += command
-                    }
-                }
+        val resourceNames = listOf("init.md")
+        for (resourceName in resourceNames) {
+            val stream = SlashCommandDiscovery::class.java.classLoader
+                .getResourceAsStream("commands/$resourceName")
+                ?: continue
+            val content = stream.bufferedReader().readText()
+            val command = parseCommandFromString(content, resourceName, SlashCommandSource.BUNDLED)
+            if (command.name !in seen) {
+                seen += command.name
+                out += command
+            }
         }
     }
 
     private fun parseCommand(path: Path, source: SlashCommandSource): SlashCommand {
-        val raw = path.readText()
+        return parseCommandFromString(path.readText(), path.fileName.toString(), source)
+    }
+
+    private fun parseCommandFromString(raw: String, fileName: String, source: SlashCommandSource): SlashCommand {
         val match = frontmatterRegex.matchEntire(raw.trimStart())
         val yamlBlock = match?.groupValues?.get(1)?.trim().orEmpty()
         val body = match?.groupValues?.get(2)?.trim() ?: raw.trim()
@@ -92,7 +85,7 @@ public object SlashCommandDiscovery {
             CommandFrontmatter()
         }
 
-        val name = frontmatter.name ?: path.nameWithoutExtension
+        val name = frontmatter.name ?: fileName.removeSuffix(".md")
         val description = frontmatter.description ?: name
 
         return SlashCommand(
