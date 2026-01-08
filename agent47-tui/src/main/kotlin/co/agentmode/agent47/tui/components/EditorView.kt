@@ -44,10 +44,22 @@ public fun EditorView(
             val isFirstLine = rowIndex == 0
             val prefix = if (isFirstLine) prompt else " ".repeat(prompt.length)
             val contentWidth = width - prefix.length
-            val displayText = lineText.take(contentWidth).padEnd(contentWidth)
+
+            // In bash mode the prompt already shows "! ", so strip the leading "!"
+            // from the first line to avoid displaying it twice.
+            val strippedText = if (bashMode && isFirstLine && lineText.startsWith("!")) {
+                lineText.removePrefix("!")
+            } else {
+                lineText
+            }
+            val displayText = strippedText.take(contentWidth).padEnd(contentWidth)
 
             val hasCursor = rowIndex == result.cursorRow
-            val cursorCol = result.cursorColumn
+            val cursorCol = if (bashMode && isFirstLine && lineText.startsWith("!")) {
+                (result.cursorColumn - 1).coerceAtLeast(0)
+            } else {
+                result.cursorColumn
+            }
 
             Text(buildAnnotatedString {
                 withStyle(SpanStyle(color = promptColor)) {
