@@ -56,6 +56,17 @@ Build a native binary:
 
 Set at least one API key in your environment: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`.
 
+## Extending agent47
+
+agent47 is designed to be extended without modifying source code. See the guides in [`docs/`](docs/) for details:
+
+- [Agents](docs/agents.md) - define custom agents with their own system prompts, tools, and spawning policies
+- [Skills](docs/skills.md) - create domain-specific knowledge files that agents load on demand
+- [Commands](docs/commands.md) - write reusable prompt templates invoked with `/command args`
+- [Tools](docs/tools.md) - implement custom tools via the `AgentTool<T>` interface
+- [Extensions](docs/extensions.md) - programmatic hooks for intercepting and modifying agent behavior
+- [Configuration](docs/configuration.md) - settings, model configuration, authentication, and discovery hierarchy
+
 ## Configuration
 
 Global config lives in `~/.agent47/`. Project-level config lives in `.agent47/` at your project root. Project settings override global settings.
@@ -72,6 +83,30 @@ Global config lives in `~/.agent47/`. Project-level config lives in `.agent47/` 
 | `.agent47/skills/*/SKILL.md` | Project-level skills |
 | `.agent47/commands/*.md` | Project-level slash commands |
 
+## Module structure
+
+The project is split into Gradle modules organized in layers, where each layer depends only on the ones below it.
+
+**agent47-ai-types** contains all foundational data types: messages, content blocks, models, events, streaming primitives. It has no internal dependencies and no runtime behavior, so modules that only need to describe or display AI data can depend on it without pulling in HTTP clients or provider logic.
+
+**agent47-ai-core** is the AI runtime. It owns the `ApiRegistry` (provider plugin system), `HttpTransport`, tool validation, token overflow handling, and message transforms. Providers register themselves here but are implemented elsewhere.
+
+**agent47-ai-providers** implements all LLM provider integrations: Anthropic, OpenAI (and OpenAI-compatible APIs), and Google. Each provider lives in its own package but shares a single module since they have identical dependencies and are always deployed together.
+
+**agent47-agent-core** is the agentic execution engine. It contains the `Agent` state machine, the multi-turn `AgentLoop` (tool calling, steering, follow-ups), and the `AgentTool<T>` interface. It knows how to orchestrate LLM calls and tool execution but has no opinion about what tools exist.
+
+**agent47-coding-core** is the domain layer for coding. This is where tool implementations live (`BashTool`, `EditTool`, `ReadTool`, `GrepTool`, etc.), along with sub-agent execution, model resolution, auth, slash commands, skills, settings, sessions, and compaction. It is the thickest module and the one most likely to grow.
+
+**agent47-ext-core** provides extension utilities that bridge agent-core and coding-core.
+
+**agent47-tui** is the terminal UI, built with Mosaic (Compose for terminal). It handles chat rendering, the input editor, markdown/diff rendering, and theming.
+
+**agent47-app** is the CLI entry point. It wires providers, models, and settings together and launches either the interactive TUI or non-interactive print mode.
+
+**agent47-model-generator** is a standalone build-time tool that generates Kotlin model definitions from JSON schemas.
+
+**agent47-test-fixtures** provides shared test utilities and mock objects.
+
 ## License
 
-TBD
+MIT - see [LICENSE](LICENSE).
