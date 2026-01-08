@@ -721,7 +721,7 @@ private fun Agent47AppContent(
         if (!isStreaming) return@LaunchedEffect
         while (true) {
             delay(80L)
-            spinnerFrame = (spinnerFrame + 1) % 10
+            spinnerFrame++
         }
     }
 
@@ -1001,8 +1001,9 @@ private fun Agent47AppContent(
                 height = historyHeight,
                 markdownRenderer = markdownRenderer,
                 diffRenderer = diffRenderer,
-                showUsageFooter = showUsageFooter,
                 version = chatVersion,
+                spinnerFrame = spinnerFrame,
+                cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
             )
 
             // Activity line (spinner while streaming, only when no task bar)
@@ -1191,6 +1192,7 @@ private fun handleAgentEvent(
                     output = "",
                     pending = true,
                     collapsed = defaultToolCollapsed(event.toolName),
+                    startedAt = System.currentTimeMillis(),
                 ),
             )
         }

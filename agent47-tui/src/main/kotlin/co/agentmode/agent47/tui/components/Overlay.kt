@@ -14,7 +14,6 @@ import com.jakewharton.mosaic.text.withStyle
 import com.jakewharton.mosaic.ui.Box
 import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Text
-import com.jakewharton.mosaic.ui.TextStyle
 import kotlin.math.max
 import kotlin.math.min
 
@@ -25,6 +24,28 @@ public data class SelectItem<T>(
     val label: String,
     val value: T,
 )
+
+internal data class FuzzyResult(val index: Int, val score: Int, val matchedPositions: List<Int>)
+
+internal fun fuzzyMatch(label: String, query: String): FuzzyResult? {
+    if (query.isBlank()) return FuzzyResult(0, 0, emptyList())
+    val q = query.trim().lowercase()
+    val l = label.lowercase()
+    val positions = mutableListOf<Int>()
+    var qi = 0
+    for (li in l.indices) {
+        if (qi < q.length && l[li] == q[qi]) {
+            positions.add(li)
+            qi++
+        }
+    }
+    if (qi < q.length) return null
+    var score = positions.first()
+    for (i in 1 until positions.size) {
+        score += (positions[i] - positions[i - 1] - 1)
+    }
+    return FuzzyResult(0, score, positions)
+}
 
 /**
  * State holder for a [SelectDialog] that manages selection, filtering, and scroll position.
@@ -42,10 +63,15 @@ public class SelectDialogState<T>(
 
     internal fun filteredIndices(): List<Int> {
         if (query.isBlank()) return items.indices.toList()
-        val q = query.trim()
-        return items.indices.filter { idx ->
-            items[idx].label.contains(q, ignoreCase = true)
+        val results = items.indices.mapNotNull { idx ->
+            fuzzyMatch(items[idx].label, query)?.copy(index = idx)
         }
+        return results.sortedBy { it.score }.map { it.index }
+    }
+
+    internal fun matchedPositions(itemIndex: Int): List<Int> {
+        if (query.isBlank()) return emptyList()
+        return fuzzyMatch(items[itemIndex].label, query)?.matchedPositions ?: emptyList()
     }
 
     internal fun moveUp() {
@@ -123,90 +149,101 @@ public fun <T> rememberSelectDialogState(
 }
 
 /**
- * Modal chrome composable that renders a bordered dialog with a header, optional filter row,
- * scrollable body content, and optional footer. Positioned absolutely at the given offset.
+ * Modal surface composable that renders a bordered, background-filled dialog positioned at
+ * the given offset. Individual dialogs render their own chrome (title, search, footer) as content.
  *
- * @param title Text shown in the header bar
  * @param width Total width of the dialog in columns
  * @param height Total height of the dialog in rows
  * @param offsetX Column offset from the left edge of the terminal
  * @param offsetY Row offset from the top of the terminal
- * @param filterText Optional filter text to show in the filter row (null hides the row)
- * @param footerText Optional text for the footer bar (null hides it)
  * @param modifier Modifier applied to the root Box
- * @param body Composable slot for the dialog body content
+ * @param body Composable slot for the dialog content
  */
 @Composable
 public fun ModalSurface(
-    title: String,
     width: Int,
     height: Int,
     offsetX: Int,
     offsetY: Int,
-    filterText: String? = null,
-    footerText: String? = null,
     modifier: Modifier = Modifier,
     body: @Composable () -> Unit,
 ) {
     val theme = LocalThemeConfig.current
-    val borderColor = theme.colors.dim
-    val bgColor = theme.overlayBg
-    val titleText = " $title "
-    val footerLabel = if (footerText != null) " $footerText " else null
-
     Box(
         modifier = modifier
             .offset(x = offsetX, y = offsetY)
             .width(width)
             .height(height)
             .drawBehind {
-                drawRect(
-                    background = bgColor,
-                    drawStyle = DrawStyle.Fill,
-                )
-                drawRect(
-                    background = borderColor,
-                    drawStyle = DrawStyle.Stroke(1),
-                )
-                // Overlay the title onto the top border row, starting at column 2
-                if (titleText.length <= this.width - 2) {
-                    drawText(
-                        row = 0,
-                        column = 2,
-                        string = titleText,
-                        foreground = theme.colors.accentBright,
-                        background = bgColor,
-                        textStyle = TextStyle.Bold,
-                    )
-                }
-                // Overlay the footer onto the bottom border row, starting at column 2
-                if (footerLabel != null && footerLabel.length <= this.width - 2) {
-                    drawText(
-                        row = this.height - 1,
-                        column = 2,
-                        string = footerLabel,
-                        foreground = theme.colors.muted,
-                        background = bgColor,
-                    )
-                }
-            }
-            .padding(1),
+                drawRect(background = theme.overlayBg, drawStyle = DrawStyle.Fill)
+            },
     ) {
-        Column {
-            // Filter row inside the border
-            if (filterText != null) {
-                Text(
-                    buildAnnotatedString {
-                        val padded = filterText.take(width - 2).padEnd(width - 2)
-                        withStyle(SpanStyle(color = theme.colors.muted, background = bgColor)) {
-                            append(padded)
-                        }
-                    },
-                )
-            }
+        body()
+    }
+}
 
-            // Body fills remaining space
-            body()
+private fun renderOverlayTitleRow(
+    title: String,
+    width: Int,
+    theme: ThemeConfig,
+) = buildAnnotatedString {
+    val titlePart = "  $title"
+    val escPart = "esc  "
+    val gap = (width - titlePart.length - escPart.length).coerceAtLeast(1)
+    withStyle(SpanStyle(color = theme.markdownText, background = theme.overlayBg)) {
+        append(titlePart)
+        append(" ".repeat(gap))
+    }
+    withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
+        append(escPart)
+    }
+}
+
+private fun renderOverlayBlankRow(
+    width: Int,
+    theme: ThemeConfig,
+) = buildAnnotatedString {
+    withStyle(SpanStyle(background = theme.overlayBg)) {
+        append(" ".repeat(width))
+    }
+}
+
+private fun renderOverlayFooterRow(
+    text: String,
+    width: Int,
+    theme: ThemeConfig,
+) = buildAnnotatedString {
+    val content = "  $text"
+    val padded = content.take(width).padEnd(width)
+    withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
+        append(padded)
+    }
+}
+
+private fun renderSearchRow(
+    query: String,
+    width: Int,
+    theme: ThemeConfig,
+) = buildAnnotatedString {
+    if (query.isEmpty()) {
+        val placeholder = "  Search"
+        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
+            append(placeholder.padEnd(width))
+        }
+    } else {
+        val label = "  Search: "
+        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
+            append(label)
+        }
+        val queryPart = query.take(width - label.length)
+        withStyle(SpanStyle(color = theme.markdownText, background = theme.overlayBg)) {
+            append(queryPart)
+        }
+        val remaining = (width - label.length - queryPart.length).coerceAtLeast(0)
+        if (remaining > 0) {
+            withStyle(SpanStyle(background = theme.overlayBg)) {
+                append(" ".repeat(remaining))
+            }
         }
     }
 }
@@ -246,43 +283,54 @@ public fun <T> SelectDialog(
 ) {
     val theme = LocalThemeConfig.current
 
-    // Inner area after border padding: (height - 2) rows, (width - 2) columns.
-    // The filter row takes 1 inner row, leaving the rest for items.
-    val filterHeight = 1
-    val innerHeight = (height - 2).coerceAtLeast(1)
-    val bodyHeight = (innerHeight - filterHeight).coerceAtLeast(1)
-    val innerWidth = (width - 2).coerceAtLeast(1)
+    val topPadding = 1
+    val titleHeight = 1
+    val spacer1 = 1
+    val searchHeight = 1
+    val spacer2 = 1
+    val spacerBeforeFooter = 1
+    val footerHeight = 1
+    val bottomPadding = 1
+    val chrome = topPadding + titleHeight + spacer1 + searchHeight + spacer2 + spacerBeforeFooter + footerHeight + bottomPadding
+    val bodyHeight = (height - chrome).coerceAtLeast(1)
 
     val visibleIndices = state.filteredIndices()
     val scrollTop = state.scrollTopFor(bodyHeight)
 
     ModalSurface(
-        title = title,
         width = width,
         height = height,
         offsetX = offsetX,
         offsetY = offsetY,
-        filterText = "filter: ${state.query}",
-        footerText = "Arrows move | Enter select | Esc close",
         modifier = Modifier.onKeyEvent { event ->
             handleSelectDialogKey(event, state, onSubmit, onClose, onSelectionChanged)
         },
     ) {
         Column {
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderOverlayTitleRow(title, width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderSearchRow(state.query, width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+
             for (i in 0 until bodyHeight) {
                 val visibleIndex = scrollTop + i
                 if (visibleIndex < visibleIndices.size) {
                     val optionIndex = visibleIndices[visibleIndex]
                     val selected = optionIndex == state.selectedIndex
-                    val marker = if (selected) "> " else "  "
-                    val label = marker + state.items[optionIndex].label
-                    Text(renderSelectLine(label, selected, innerWidth, theme))
+                    val label = state.items[optionIndex].label
+                    val positions = state.matchedPositions(optionIndex)
+                    Text(renderSelectLine(label, selected, width, theme, positions))
                 } else if (visibleIndices.isEmpty() && i == 0) {
-                    Text(renderSelectLine("  (no matches)", false, innerWidth, theme))
+                    Text(renderSelectLine("(no matches)", false, width, theme))
                 } else {
-                    Text(renderSelectLine("", false, innerWidth, theme))
+                    Text(renderSelectLine("", false, width, theme))
                 }
             }
+
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderOverlayFooterRow("↑/↓ navigate  enter select", width, theme))
+            Text(renderOverlayBlankRow(width, theme))
         }
     }
 }
@@ -290,22 +338,30 @@ public fun <T> SelectDialog(
 private fun renderSelectLine(
     text: String,
     selected: Boolean,
-    innerWidth: Int,
+    width: Int,
     theme: ThemeConfig,
+    matchedPositions: List<Int> = emptyList(),
 ) = buildAnnotatedString {
-    val padded = text.take(innerWidth).padEnd(innerWidth)
-    if (selected) {
-        withStyle(
-            SpanStyle(
-                color = theme.colors.accentBright,
-                background = theme.overlaySelectedBg,
-            ),
-        ) {
-            append(padded)
+    val prefix = "  "
+    val maxLabelWidth = (width - prefix.length).coerceAtLeast(0)
+    val label = text.take(maxLabelWidth)
+    val bg = if (selected) theme.overlaySelectedBg else theme.overlayBg
+    val fg = theme.markdownText
+    val matchSet = matchedPositions.toSet()
+
+    withStyle(SpanStyle(color = fg, background = bg)) {
+        append(prefix)
+    }
+    for ((i, ch) in label.withIndex()) {
+        val color = if (i in matchSet) theme.colors.accentBright else fg
+        withStyle(SpanStyle(color = color, background = bg)) {
+            append(ch)
         }
-    } else {
-        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-            append(padded)
+    }
+    val remaining = (width - prefix.length - label.length).coerceAtLeast(0)
+    if (remaining > 0) {
+        withStyle(SpanStyle(color = fg, background = bg)) {
+            append(" ".repeat(remaining))
         }
     }
 }
@@ -498,65 +554,52 @@ public fun PromptDialog(
     onClose: () -> Unit,
 ) {
     val theme = LocalThemeConfig.current
-    val innerWidth = (width - 2).coerceAtLeast(1)
+    val inputWidth = (width - 4).coerceAtLeast(1)
 
     ModalSurface(
-        title = title,
         width = width,
         height = height,
         offsetX = offsetX,
         offsetY = offsetY,
-        footerText = "Enter submit | Esc cancel",
         modifier = Modifier.onKeyEvent { event ->
             handlePromptDialogKey(event, state, onSubmit, onClose)
         },
     ) {
         Column {
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderOverlayTitleRow(title, width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+
             if (description != null) {
                 val descLines = description.lines()
                 for (line in descLines) {
                     Text(
                         buildAnnotatedString {
-                            val padded = line.take(innerWidth).padEnd(innerWidth)
+                            val padded = ("  " + line).take(width).padEnd(width)
                             withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
                                 append(padded)
                             }
                         },
                     )
                 }
-                // Blank separator line
-                Text(
-                    buildAnnotatedString {
-                        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-                            append(" ".repeat(innerWidth))
-                        }
-                    },
-                )
+                Text(renderOverlayBlankRow(width, theme))
             }
-
-            // Render the text input field
-            val displayText = if (state.text.isEmpty()) {
-                placeholder
-            } else if (state.masked) {
-                "•".repeat(state.text.length)
-            } else {
-                state.text
-            }
-            val isEmpty = state.text.isEmpty()
-            val textColor = if (isEmpty) theme.colors.muted else theme.colors.accentBright
 
             Text(
                 buildAnnotatedString {
-                    // Build the visible text with a cursor indicator
+                    withStyle(SpanStyle(background = theme.overlayBg)) {
+                        append("  ")
+                    }
+                    val isEmpty = state.text.isEmpty()
+                    val textColor = if (isEmpty) theme.colors.muted else theme.colors.accentBright
                     val cursorInRange = state.cursorPos.coerceIn(0, state.text.length)
                     if (isEmpty) {
-                        // Show placeholder with cursor at start
                         withStyle(SpanStyle(color = theme.colors.accentBright, background = theme.overlaySelectedBg)) {
                             append(if (placeholder.isNotEmpty()) placeholder.first().toString() else " ")
                         }
                         val rest = if (placeholder.length > 1) placeholder.substring(1) else ""
                         withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-                            append(rest.take(innerWidth - 1).padEnd(innerWidth - 1))
+                            append(rest.take(inputWidth - 1).padEnd(inputWidth - 1))
                         }
                     } else {
                         val shown = if (state.masked) "•".repeat(state.text.length) else state.text
@@ -575,15 +618,21 @@ public fun PromptDialog(
                         }
 
                         val usedWidth = beforeCursor.length + 1 + afterCursor.length
-                        val remaining = (innerWidth - usedWidth).coerceAtLeast(0)
+                        val remaining = (inputWidth - usedWidth).coerceAtLeast(0)
                         if (remaining > 0) {
                             withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
                                 append(" ".repeat(remaining))
                             }
                         }
                     }
+                    withStyle(SpanStyle(background = theme.overlayBg)) {
+                        append("  ")
+                    }
                 },
             )
+
+            Text(renderOverlayFooterRow("enter submit  esc cancel", width, theme))
+            Text(renderOverlayBlankRow(width, theme))
         }
     }
 }
@@ -849,15 +898,12 @@ public fun InfoDialog(
     onClose: () -> Unit,
 ) {
     val theme = LocalThemeConfig.current
-    val innerWidth = (width - 2).coerceAtLeast(1)
 
     ModalSurface(
-        title = title,
         width = width,
         height = height,
         offsetX = offsetX,
         offsetY = offsetY,
-        footerText = "Esc cancel",
         modifier = Modifier.onKeyEvent { event ->
             val keyboardEvent = event.toKeyboardEvent()
             when (keyboardEvent.key) {
@@ -871,16 +917,23 @@ public fun InfoDialog(
         },
     ) {
         Column {
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderOverlayTitleRow(title, width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+
             for (line in lines) {
                 Text(
                     buildAnnotatedString {
-                        val padded = line.take(innerWidth).padEnd(innerWidth)
+                        val padded = ("  " + line).take(width).padEnd(width)
                         withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
                             append(padded)
                         }
                     },
                 )
             }
+
+            Text(renderOverlayFooterRow("esc cancel", width, theme))
+            Text(renderOverlayBlankRow(width, theme))
         }
     }
 }
@@ -903,7 +956,7 @@ public fun OverlayHost(
     val entry = state.stack.lastOrNull() ?: return
 
     val dialogWidth = min(88, max(32, terminalWidth - 6))
-    val dialogHeight = min(16, max(8, terminalHeight - 6))
+    val dialogHeight = min(24, max(8, terminalHeight - 4))
     val offsetX = max(0, (terminalWidth - dialogWidth) / 2)
     val offsetY = max(0, (terminalHeight - dialogHeight) / 2)
 
