@@ -67,6 +67,7 @@ public class SettingsManager private constructor(
                 taskMaxRecursionDepth = project.taskMaxRecursionDepth,
                 theme = project.theme ?: global.theme,
                 showUsageFooter = project.showUsageFooter ?: global.showUsageFooter,
+                instructions = global.instructions + project.instructions,
             )
         }
 

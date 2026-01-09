@@ -24,4 +24,5 @@ public data class Settings(
     val taskMaxRecursionDepth: Int = 2,
     val theme: String? = null,
     val showUsageFooter: Boolean? = null,
+    val instructions: List<String> = emptyList(),
 )

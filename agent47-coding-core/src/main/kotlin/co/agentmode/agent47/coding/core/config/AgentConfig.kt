@@ -44,6 +44,9 @@ public class AgentConfig(
     public val globalCommandsDir: Path
         get() = agentDir.resolve("commands")
 
+    public val claudeDir: Path
+        get() = Path(System.getProperty("user.home"), ".claude")
+
     public companion object {
         private fun resolveAgentDir(): Path {
             val envDir = System.getenv("AGENT47_DIR")
