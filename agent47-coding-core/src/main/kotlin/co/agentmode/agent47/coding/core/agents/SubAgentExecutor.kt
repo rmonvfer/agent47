@@ -42,6 +42,8 @@ public data class SubAgentOptions(
     val getApiKey: (suspend (provider: String) -> String?)?,
     val onProgress: ((SubAgentProgress) -> Unit)?,
     val onEvent: ((AgentEvent) -> Unit)?,
+    val sessionsDir: Path? = null,
+    val parentSessionId: String? = null,
 )
 
 public data class SubAgentResult(
@@ -57,6 +59,7 @@ public data class SubAgentResult(
     val tokens: Long,
     val error: String?,
     val aborted: Boolean,
+    val sessionFile: String? = null,
 )
 
 public data class SubAgentProgress(
@@ -231,6 +234,8 @@ private fun buildToolList(
             currentDepth = options.currentDepth + 1,
             maxDepth = options.maxDepth,
             getApiKey = options.getApiKey,
+            sessionsDir = options.sessionsDir,
+            parentSessionId = options.parentSessionId,
         )
         tools += taskTool
     }

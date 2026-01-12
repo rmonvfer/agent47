@@ -205,6 +205,8 @@ class Agent47Command :
                 currentDepth = 0,
                 maxDepth = settings.get().taskMaxRecursionDepth,
                 getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
+                sessionsDir = config.sessionsDir,
+                parentSessionId = sessionManager?.getHeader()?.id,
             )
             allTools += taskTool
         }
