@@ -12,6 +12,7 @@ import co.agentmode.agent47.coding.core.auth.AuthStorage
 import co.agentmode.agent47.coding.core.auth.CopilotAuthPlugin
 import co.agentmode.agent47.coding.core.auth.OAuthResult
 import co.agentmode.agent47.coding.core.config.AgentConfig
+import co.agentmode.agent47.coding.core.instructions.InstructionLoader
 import co.agentmode.agent47.coding.core.models.ModelRegistry
 import co.agentmode.agent47.coding.core.models.ModelResolver
 import co.agentmode.agent47.coding.core.session.SessionManager
@@ -184,6 +185,13 @@ class Agent47Command :
 
         val toolsEnabled = if (noTools) emptyList() else resolveTools()
         val workingDir = Path.of(System.getProperty("user.dir"))
+
+        val instructionLoader = InstructionLoader(
+            cwd = workingDir,
+            globalDir = config.globalDir,
+            claudeDir = config.claudeDir,
+            settings = settings.get(),
+        )
         val todoState = TodoState()
         val toolRegistry = createCoreTools(workingDir, toolsEnabled, skillReader, todoState)
         val allTools = toolRegistry.all().toMutableList<co.agentmode.agent47.agent.core.AgentTool<*>>()
@@ -207,6 +215,7 @@ class Agent47Command :
             customPrompt = systemPrompt,
             appendPrompt = appendSystemPrompt,
             skills = skillRegistry.getAll(),
+            instructions = instructionLoader.format(),
         )
 
         val client = AgentClient(
@@ -607,6 +616,7 @@ class Agent47Command :
         customPrompt: String?,
         appendPrompt: String?,
         skills: List<Skill> = emptyList(),
+        instructions: String = "",
     ): String {
         val toolList = toolNames.joinToString("\n") { "- $it" }
 
@@ -639,6 +649,11 @@ class Agent47Command :
             appendLine("- When summarizing your actions, output plain text directly - do NOT use cat or bash to display what you did")
             appendLine("- Be concise in your responses")
             appendLine("- Show file paths clearly when working with files")
+
+            if (instructions.isNotBlank()) {
+                appendLine()
+                appendLine(instructions)
+            }
 
             if (skills.isNotEmpty()) {
                 appendLine()
