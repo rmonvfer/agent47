@@ -750,6 +750,20 @@ public class InfoOverlayEntry internal constructor(
 ) : OverlayEntry
 
 /**
+ * A scrollable text overlay for viewing long content such as sub-agent conversations.
+ * Supports Ctrl+U/Ctrl+D, PgUp/PgDn, and arrow keys for scrolling.
+ */
+@Stable
+public class ScrollableTextOverlayEntry internal constructor(
+    override val id: Int,
+    internal val title: String,
+    internal val lines: List<String>,
+    internal val onClose: () -> Unit,
+) : OverlayEntry {
+    internal var scrollTop: Int by mutableIntStateOf(0)
+}
+
+/**
  * State holder for [OverlayHost]. Manages a stack of overlay entries and provides
  * push/dismiss operations. Use [rememberOverlayHostState] to create an instance.
  */
@@ -845,6 +859,27 @@ public class OverlayHostState {
     }
 
     /**
+     * Pushes a scrollable text overlay for viewing long content.
+     * Supports keyboard scrolling (Ctrl+U/D, PgUp/PgDn, arrow keys).
+     *
+     * @param title Dialog title
+     * @param lines Text lines to display in the scrollable body
+     * @param onClose Called when the user dismisses the overlay
+     */
+    public fun pushScrollableText(
+        title: String,
+        lines: List<String>,
+        onClose: () -> Unit = {},
+    ) {
+        stack += ScrollableTextOverlayEntry(
+            id = nextId++,
+            title = title,
+            lines = lines,
+            onClose = onClose,
+        )
+    }
+
+    /**
      * Removes the topmost overlay from the stack, invoking its onClose callback.
      */
     public fun dismissTop() {
@@ -853,6 +888,7 @@ public class OverlayHostState {
             is SelectOverlayEntry<*> -> entry.onClose()
             is PromptOverlayEntry -> entry.onClose()
             is InfoOverlayEntry -> entry.onClose()
+            is ScrollableTextOverlayEntry -> entry.onClose()
         }
     }
 
@@ -872,6 +908,7 @@ public class OverlayHostState {
                 is SelectOverlayEntry<*> -> entry.onClose()
                 is PromptOverlayEntry -> entry.onClose()
                 is InfoOverlayEntry -> entry.onClose()
+                is ScrollableTextOverlayEntry -> entry.onClose()
             }
         }
     }
@@ -933,6 +970,93 @@ public fun InfoDialog(
             }
 
             Text(renderOverlayFooterRow("esc cancel", width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+        }
+    }
+}
+
+/**
+ * A scrollable text dialog for viewing long content. Supports keyboard scrolling
+ * with Ctrl+U/D (half-page), PgUp/PgDn (full page), and arrow keys (single line).
+ */
+@Composable
+public fun ScrollableTextDialog(
+    title: String,
+    lines: List<String>,
+    scrollTop: Int,
+    width: Int,
+    height: Int,
+    offsetX: Int,
+    offsetY: Int,
+    onScroll: (Int) -> Unit,
+    onClose: () -> Unit,
+) {
+    val theme = LocalThemeConfig.current
+    val chrome = 5 // blank + title + blank + footer + blank
+    val bodyHeight = (height - chrome).coerceAtLeast(1)
+    val maxScroll = (lines.size - bodyHeight).coerceAtLeast(0)
+    val safeTop = scrollTop.coerceIn(0, maxScroll)
+
+    ModalSurface(
+        width = width,
+        height = height,
+        offsetX = offsetX,
+        offsetY = offsetY,
+        modifier = Modifier.onKeyEvent { event ->
+            val keyboardEvent = event.toKeyboardEvent()
+            when {
+                keyboardEvent.key == Key.Escape -> {
+                    onClose()
+                    true
+                }
+                keyboardEvent.key == Key.ArrowUp -> {
+                    onScroll((safeTop - 1).coerceAtLeast(0))
+                    true
+                }
+                keyboardEvent.key == Key.ArrowDown -> {
+                    onScroll((safeTop + 1).coerceAtMost(maxScroll))
+                    true
+                }
+                keyboardEvent.key == Key.PageUp -> {
+                    onScroll((safeTop - bodyHeight).coerceAtLeast(0))
+                    true
+                }
+                keyboardEvent.key == Key.PageDown -> {
+                    onScroll((safeTop + bodyHeight).coerceAtMost(maxScroll))
+                    true
+                }
+                keyboardEvent.ctrl && keyboardEvent.key is Key.Character && keyboardEvent.key.value.lowercaseChar() == 'u' -> {
+                    onScroll((safeTop - bodyHeight / 2).coerceAtLeast(0))
+                    true
+                }
+                keyboardEvent.ctrl && keyboardEvent.key is Key.Character && keyboardEvent.key.value.lowercaseChar() == 'd' -> {
+                    onScroll((safeTop + bodyHeight / 2).coerceAtMost(maxScroll))
+                    true
+                }
+                else -> true
+            }
+        },
+    ) {
+        Column {
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderOverlayTitleRow(title, width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+
+            for (i in 0 until bodyHeight) {
+                val lineIndex = safeTop + i
+                val lineText = if (lineIndex < lines.size) lines[lineIndex] else ""
+                Text(
+                    buildAnnotatedString {
+                        val padded = ("  " + lineText).take(width).padEnd(width)
+                        withStyle(SpanStyle(color = theme.markdownText, background = theme.overlayBg)) {
+                            append(padded)
+                        }
+                    },
+                )
+            }
+
+            val scrollInfo = if (lines.size > bodyHeight) " (${safeTop + 1}-${min(safeTop + bodyHeight, lines.size)}/${lines.size})" else ""
+            Text(renderOverlayFooterRow("↑/↓ scroll  PgUp/PgDn page  esc close$scrollInfo", width, theme))
             Text(renderOverlayBlankRow(width, theme))
         }
     }
@@ -1033,6 +1157,26 @@ public fun OverlayHost(
                 height = infoHeight,
                 offsetX = offsetX,
                 offsetY = infoOffsetY,
+                onClose = {
+                    state.stack.removeLastOrNull()
+                    entry.onClose()
+                },
+            )
+        }
+
+        is ScrollableTextOverlayEntry -> {
+            val scrollableHeight = min(terminalHeight - 2, max(12, terminalHeight - 4))
+            val scrollableOffsetY = max(0, (terminalHeight - scrollableHeight) / 2)
+
+            ScrollableTextDialog(
+                title = entry.title,
+                lines = entry.lines,
+                scrollTop = entry.scrollTop,
+                width = dialogWidth,
+                height = scrollableHeight,
+                offsetX = offsetX,
+                offsetY = scrollableOffsetY,
+                onScroll = { newTop -> entry.scrollTop = newTop },
                 onClose = {
                     state.stack.removeLastOrNull()
                     entry.onClose()
