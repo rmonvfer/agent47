@@ -1,5 +1,6 @@
 package co.agentmode.agent47.coding.core.tools
 
+import co.agentmode.agent47.coding.core.agents.SubAgentProgress
 import co.agentmode.agent47.coding.core.agents.SubAgentResult
 import kotlinx.serialization.json.JsonObject
 
@@ -29,7 +30,11 @@ public sealed class ToolDetails {
     /**
      * Results from the task tool (sub-agent execution).
      */
-    public data class SubAgent(val results: List<SubAgentResult>) : ToolDetails()
+    public data class SubAgent(
+        val results: List<SubAgentResult>,
+        val activeProgress: SubAgentProgress? = null,
+        val activeProgressList: List<SubAgentProgress> = emptyList(),
+    ) : ToolDetails()
 
     public companion object {
         /**
@@ -49,9 +54,14 @@ public sealed class ToolDetails {
                     val results = details as? List<*> ?: return null
                     Batch(results.filterIsInstance<BatchToolCallResult>())
                 }
-                "task" -> {
-                    val results = details as? List<*> ?: return null
-                    SubAgent(results.filterIsInstance<SubAgentResult>())
+                "task" -> when (details) {
+                    is TaskToolProgressState -> SubAgent(
+                        results = details.results,
+                        activeProgress = details.activeProgress,
+                        activeProgressList = details.activeProgressList,
+                    )
+                    is List<*> -> SubAgent(results = details.filterIsInstance<SubAgentResult>())
+                    else -> null
                 }
                 else -> {
                     (details as? JsonObject)?.let { Generic(it) }

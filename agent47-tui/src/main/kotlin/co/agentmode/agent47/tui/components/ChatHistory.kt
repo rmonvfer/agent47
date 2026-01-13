@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import com.jakewharton.mosaic.layout.height
+import co.agentmode.agent47.coding.core.agents.SubAgentProgress
 import co.agentmode.agent47.coding.core.agents.SubAgentResult
 import co.agentmode.agent47.coding.core.tools.BatchToolCallResult
 import co.agentmode.agent47.coding.core.tools.ToolDetails
@@ -202,10 +203,7 @@ public class ChatHistoryState {
         else -> null
     }
 
-    private fun defaultToolCollapsed(toolName: String): Boolean = when (toolName.lowercase()) {
-        "read", "grep", "find", "ls" -> true
-        else -> false
-    }
+    private fun defaultToolCollapsed(@Suppress("UNUSED_PARAMETER") toolName: String): Boolean = true
 }
 
 /**
@@ -472,14 +470,49 @@ private fun renderToolExecutionLines(
 
     // Body
     if (execution.pending) {
-        val elapsed = if (execution.startedAt > 0) {
-            val seconds = (System.currentTimeMillis() - execution.startedAt) / 1000
-            " (${seconds}s)"
-        } else ""
-        add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
-            withStyle(SpanStyle(color = theme.colors.muted)) { append("Running…$elapsed") }
-        })
+        val subAgent = execution.details as? ToolDetails.SubAgent
+        if (subAgent != null) {
+            // Render completed sub-agents
+            if (subAgent.results.isNotEmpty()) {
+                addAll(renderSubAgentResults(subAgent.results, width, markdownRenderer, theme))
+            }
+            // Render active sub-agent progress lines
+            val progressList = subAgent.activeProgressList.ifEmpty { listOfNotNull(subAgent.activeProgress) }
+            progressList.forEach { progress ->
+                val progressColor = breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
+                val toolInfo = progress.currentTool?.let { " \u2192 $it" } ?: ""
+                val meta = "${progress.toolCount} tools, ${progress.tokens}tok"
+                add(buildAnnotatedString {
+                    withStyle(SpanStyle(color = theme.colors.muted)) { append("  ") }
+                    withStyle(SpanStyle(color = progressColor)) { append("\u25CB") }
+                    append(" ")
+                    withStyle(SpanStyle(color = theme.colors.accentBright)) { append("${progress.agent}/${progress.id}") }
+                    append(" ")
+                    withStyle(SpanStyle(color = theme.colors.muted)) { append(progress.status) }
+                    withStyle(SpanStyle(color = theme.colors.dim)) { append("$toolInfo ($meta)") }
+                })
+            }
+            // Fallback if no progress available yet
+            if (subAgent.results.isEmpty() && progressList.isEmpty()) {
+                val elapsed = if (execution.startedAt > 0) {
+                    val seconds = (System.currentTimeMillis() - execution.startedAt) / 1000
+                    " (${seconds}s)"
+                } else ""
+                add(buildAnnotatedString {
+                    withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
+                    withStyle(SpanStyle(color = theme.colors.muted)) { append("Running…$elapsed") }
+                })
+            }
+        } else {
+            val elapsed = if (execution.startedAt > 0) {
+                val seconds = (System.currentTimeMillis() - execution.startedAt) / 1000
+                " (${seconds}s)"
+            } else ""
+            add(buildAnnotatedString {
+                withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
+                withStyle(SpanStyle(color = theme.colors.muted)) { append("Running…$elapsed") }
+            })
+        }
     } else if (!execution.collapsed) {
         val rendered = when (val details = execution.details) {
             is ToolDetails.Todo -> if (details.items.isNotEmpty()) renderTodoList(details.items, width, theme) else null
@@ -517,15 +550,39 @@ private fun renderToolExecutionLines(
             })
         }
     } else {
-        // Collapsed: show single summary line
-        val preview = execution.output.lineSequence().firstOrNull()?.take(width - connectorWidth - 3).orEmpty()
-        add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
-            withStyle(SpanStyle(color = theme.colors.muted)) {
-                append(preview.ifEmpty { if (execution.isError) "Error" else "Done" })
-                if (execution.output.contains("\n")) append(" …")
+        // Collapsed: show a preview of the output with an expand hint
+        if (execution.output.isBlank()) {
+            add(buildAnnotatedString {
+                withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
+                withStyle(SpanStyle(color = theme.colors.muted)) {
+                    append(if (execution.isError) "Error" else "Done")
+                }
+            })
+        } else {
+            val lines = execution.output.split("\n")
+            val previewLimit = 5
+            val contentWidth = (width - connectorWidth).coerceAtLeast(10)
+            val shown = lines.take(previewLimit)
+            shown.forEachIndexed { index, line ->
+                add(buildAnnotatedString {
+                    if (index == 0) {
+                        withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
+                    } else {
+                        append(" ".repeat(connectorWidth))
+                    }
+                    append(line.take(contentWidth))
+                })
             }
-        })
+            val hidden = lines.size - shown.size
+            if (hidden > 0) {
+                add(buildAnnotatedString {
+                    withStyle(SpanStyle(color = theme.colors.muted)) {
+                        append(" ".repeat(connectorWidth))
+                        append("\u2026 +$hidden lines (ctrl+e to expand)")
+                    }
+                })
+            }
+        }
     }
 }
 
@@ -627,7 +684,7 @@ private fun renderSubAgentResults(
         if (result.output.isNotBlank() && errorText == null) {
             val previewText = result.output.split("\n")
                 .filter { it.isNotBlank() }
-                .take(3)
+                .take(10)
                 .joinToString("\n")
             val maxLine = (width - 6).coerceAtLeast(20)
             val renderedLines = markdownRenderer.render(previewText, maxLine)
@@ -638,8 +695,8 @@ private fun renderSubAgentResults(
                 })
             }
             val totalOutputLines = result.output.split("\n").count { it.isNotBlank() }
-            if (totalOutputLines > 3) {
-                add(annotated("      ... ${totalOutputLines - 3} more lines", SpanStyle(color = theme.colors.muted)))
+            if (totalOutputLines > 10) {
+                add(annotated("      ... ${totalOutputLines - 10} more lines", SpanStyle(color = theme.colors.muted)))
             }
         }
     }
