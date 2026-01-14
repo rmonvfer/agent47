@@ -9,20 +9,20 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(24)
+    jvmToolchain(21)
     explicitApiWarning()
 }
 
 tasks.withType<KotlinCompile>().configureEach {
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_24)
+        jvmTarget.set(JvmTarget.JVM_21)
         freeCompilerArgs.add("-Xjsr305=strict")
         allWarningsAsErrors.set(providers.environmentVariable("CI").isPresent)
     }
 }
 
 tasks.withType<JavaCompile>().configureEach {
-    options.release.set(24)
+    options.release.set(21)
 }
 
 tasks.withType<Test>().configureEach {

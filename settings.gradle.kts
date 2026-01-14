@@ -3,6 +3,7 @@ pluginManagement {
     repositories {
         gradlePluginPortal()
         mavenCentral()
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
 }
 
@@ -10,6 +11,7 @@ dependencyResolutionManagement {
     repositories {
         mavenCentral()
         google()
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
 }
 
@@ -26,7 +28,9 @@ include(
     ":agent47-agent-core",
     ":agent47-coding-core",
     ":agent47-ext-core",
+    ":agent47-ui-core",
     ":agent47-tui",
+    ":agent47-gui",
     ":agent47-app",
     ":agent47-test-fixtures",
     ":agent47-model-generator",
