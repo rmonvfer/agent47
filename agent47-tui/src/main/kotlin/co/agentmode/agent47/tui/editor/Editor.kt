@@ -2,6 +2,15 @@ package co.agentmode.agent47.tui.editor
 
 import co.agentmode.agent47.tui.input.Key
 import co.agentmode.agent47.tui.input.KeyboardEvent
+import co.agentmode.agent47.ui.core.editor.AutocompleteManager
+import co.agentmode.agent47.ui.core.editor.CompletionItem
+import co.agentmode.agent47.ui.core.editor.EditorSnapshot
+import co.agentmode.agent47.ui.core.editor.EditorState
+import co.agentmode.agent47.ui.core.editor.FileCompletionProvider
+import co.agentmode.agent47.ui.core.editor.KillRing
+import co.agentmode.agent47.ui.core.editor.SlashCommandCompletionProvider
+import co.agentmode.agent47.ui.core.editor.UndoStack
+import co.agentmode.agent47.ui.core.editor.WordWrap
 
 import java.nio.file.Path
 

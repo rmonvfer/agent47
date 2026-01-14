@@ -5,8 +5,6 @@ import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.tui.rendering.DiffRenderer
 import co.agentmode.agent47.tui.rendering.MarkdownRenderer
 import co.agentmode.agent47.tui.rendering.annotated
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import com.jakewharton.mosaic.layout.height
@@ -22,189 +20,12 @@ import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.text.withStyle
 import com.jakewharton.mosaic.ui.Text
 import com.jakewharton.mosaic.ui.TextStyle
-
-/**
- * Represents a single entry in the chat history, keyed for identity-based updates.
- */
-@Stable
-public class ChatHistoryEntry(
-    public val key: String,
-    message: Message? = null,
-    toolExecution: ToolExecutionView? = null,
-) {
-    public var message: Message? by mutableStateOf(message)
-        internal set
-    public var toolExecution: ToolExecutionView? by mutableStateOf(toolExecution)
-        internal set
-}
-
-/**
- * Holds the full state of the chat history: entries, scroll offset, and
- * per-item collapse toggles. Designed to be driven by agent events from
- * outside Compose (e.g., a LaunchedEffect collecting a Flow).
- *
- * All mutations trigger recomposition automatically because the backing
- * fields are Compose snapshot-state objects.
- */
-@Stable
-public class ChatHistoryState {
-    internal val entries = mutableStateListOf<ChatHistoryEntry>()
-    internal var scrollTopLine by mutableIntStateOf(0)
-    internal val toolCollapsedState = mutableStateMapOf<String, Boolean>()
-    internal val thinkingCollapsedState = mutableStateMapOf<String, Boolean>()
-
-    private var activeAssistantKey: String? = null
-    private var assistantSequence by mutableLongStateOf(0L)
-    internal var pinnedToBottom by mutableStateOf(true)
-    internal var version by mutableIntStateOf(0)
-        private set
-
-    public fun appendMessage(message: Message) {
-        if (message is AssistantMessage) {
-            startAssistantMessage(message)
-            return
-        }
-        val key = messageKey(message)
-        if (entries.any { it.key == key }) return
-        entries += ChatHistoryEntry(
-            key = key,
-            message = message,
-            toolExecution = toolExecutionFor(message),
-        )
-        version++
-        if (pinnedToBottom) scrollToBottom = true
-    }
-
-    public fun updateMessage(message: Message) {
-        if (message is AssistantMessage) {
-            updateAssistantMessage(message)
-            return
-        }
-        val key = messageKey(message)
-        val index = entries.indexOfFirst { it.key == key }
-        if (index < 0) {
-            appendMessage(message)
-            return
-        }
-        entries[index].message = message
-        if (message is ToolResultMessage) {
-            entries[index].toolExecution = toolExecutionFor(message)
-                ?: entries[index].toolExecution
-        }
-        if (pinnedToBottom) scrollToBottom = true
-    }
-
-    public fun startAssistantMessage(message: AssistantMessage) {
-        val key = nextAssistantKey()
-        entries += ChatHistoryEntry(key = key, message = message)
-        activeAssistantKey = key
-        thinkingCollapsedState[key] = true
-        version++
-        if (pinnedToBottom) scrollToBottom = true
-    }
-
-    public fun updateAssistantMessage(message: AssistantMessage) {
-        val activeKey = activeAssistantKey
-        val activeIndex = if (activeKey != null) entries.indexOfFirst { it.key == activeKey } else -1
-        val index = if (activeIndex >= 0) {
-            activeIndex
-        } else {
-            entries.indexOfLast { it.message is AssistantMessage }
-        }
-        if (index < 0) {
-            startAssistantMessage(message)
-            return
-        }
-        entries[index].message = message
-        activeAssistantKey = entries[index].key
-        if (pinnedToBottom) scrollToBottom = true
-    }
-
-    public fun endAssistantMessage(message: AssistantMessage) {
-        updateAssistantMessage(message)
-        activeAssistantKey = null
-    }
-
-    public fun appendToolExecution(execution: ToolExecutionView) {
-        val key = "tool:${execution.toolCallId}"
-        toolCollapsedState.putIfAbsent(key, defaultToolCollapsed(execution.toolName))
-        entries += ChatHistoryEntry(key = key, toolExecution = execution)
-        version++
-        if (pinnedToBottom) scrollToBottom = true
-    }
-
-    public fun updateToolExecution(execution: ToolExecutionView) {
-        val key = "tool:${execution.toolCallId}"
-        val index = entries.indexOfFirst { it.key == key }
-        if (index < 0) {
-            appendToolExecution(execution)
-            return
-        }
-        val existing = entries[index].toolExecution
-        val preservedStartedAt = if (execution.startedAt == 0L && existing != null) existing.startedAt else execution.startedAt
-        entries[index].toolExecution = execution.copy(
-            collapsed = toolCollapsedState[key] ?: execution.collapsed,
-            startedAt = preservedStartedAt,
-        )
-    }
-
-    public fun scrollUp(lines: Int = 1) {
-        scrollTopLine = (scrollTopLine - lines.coerceAtLeast(1)).coerceAtLeast(0)
-        pinnedToBottom = false
-    }
-
-    public fun scrollDown(lines: Int = 1) {
-        scrollTopLine += lines.coerceAtLeast(1)
-    }
-
-    public fun toggleLatestToolCollapsed(): Boolean {
-        val entry = entries.asReversed().firstOrNull { it.toolExecution != null } ?: return false
-        val key = entry.key
-        val current = toolCollapsedState[key] ?: false
-        toolCollapsedState[key] = !current
-        return true
-    }
-
-    public fun toggleLatestThinkingCollapsed(): Boolean {
-        val entry = entries.asReversed().firstOrNull { e ->
-            val msg = e.message
-            msg is AssistantMessage && msg.content.any { it is ThinkingContent }
-        } ?: return false
-        val key = entry.key
-        val current = thinkingCollapsedState[key] ?: true
-        thinkingCollapsedState[key] = !current
-        return true
-    }
-
-    public fun hasEntries(): Boolean = entries.isNotEmpty()
-
-    /**
-     * Flag consumed by the composable to auto-scroll to the bottom on next frame.
-     * Reset after the scroll is applied.
-     */
-    internal var scrollToBottom by mutableStateOf(false)
-
-    private fun messageKey(message: Message): String = when (message) {
-        is ToolResultMessage -> "tool:${message.toolCallId}"
-        else -> "${message.role}:${message.timestamp}"
-    }
-
-    private fun nextAssistantKey(): String {
-        assistantSequence += 1
-        return "assistant-stream:$assistantSequence"
-    }
-
-    private fun toolExecutionFor(message: Message): ToolExecutionView? = when (message) {
-        is ToolResultMessage -> ToolExecutionView.fromToolResult(
-            result = message,
-            collapsed = defaultToolCollapsed(message.toolName),
-        )
-
-        else -> null
-    }
-
-    private fun defaultToolCollapsed(@Suppress("UNUSED_PARAMETER") toolName: String): Boolean = true
-}
+import co.agentmode.agent47.ui.core.state.ChatHistoryEntry
+import co.agentmode.agent47.ui.core.state.ChatHistoryState
+import co.agentmode.agent47.ui.core.state.ToolExecutionView
+import co.agentmode.agent47.ui.core.util.summarizeToolArguments
+import co.agentmode.agent47.ui.core.util.formatDuration
+import co.agentmode.agent47.ui.core.util.findLastUserPromptText
 
 /**
  * Creates and remembers a [ChatHistoryState] across recompositions.
@@ -366,15 +187,20 @@ private fun renderUserMessageLines(
         color = com.jakewharton.mosaic.ui.Color.White,
         background = theme.userMessageBg,
     )
+    var isFirstVisualLine = true
     message.content.forEach { block ->
         when (block) {
             is TextContent -> {
-                block.text.split("\n").forEachIndexed { index, line ->
-                    val prefix = if (index == 0) prompt else " ".repeat(prompt.length)
-                    add(buildAnnotatedString {
-                        withStyle(SpanStyle(color = theme.colors.muted, background = theme.userMessageBg)) { append(prefix) }
-                        withStyle(style) { append(line.take(contentWidth)) }
-                    })
+                block.text.split("\n").forEach { line ->
+                    val wrapped = if (line.length <= contentWidth) listOf(line) else line.chunked(contentWidth)
+                    wrapped.forEach { segment ->
+                        val prefix = if (isFirstVisualLine) prompt else " ".repeat(prompt.length)
+                        isFirstVisualLine = false
+                        add(buildAnnotatedString {
+                            withStyle(SpanStyle(color = theme.colors.muted, background = theme.userMessageBg)) { append(prefix) }
+                            withStyle(style) { append(segment) }
+                        })
+                    }
                 }
             }
             else -> add(annotated("[${block.type}]", SpanStyle(color = theme.colors.muted)))
@@ -755,16 +581,6 @@ private fun renderBatchResults(
     }
 }
 
-private fun formatDuration(ms: Long): String = when {
-    ms < 1000 -> "${ms}ms"
-    ms < 60_000 -> "${"%.1f".format(ms / 1000.0)}s"
-    else -> {
-        val minutes = ms / 60_000
-        val seconds = (ms % 60_000) / 1000
-        "${minutes}m${seconds}s"
-    }
-}
-
 private fun renderBashExecutionLines(
     message: BashExecutionMessage,
     width: Int,
@@ -804,6 +620,9 @@ private fun renderCustomMessageLines(
     theme: ThemeConfig,
 ): List<AnnotatedString> {
     if (!message.display) return emptyList()
+    if (message.customType == "command_result") {
+        return renderCommandResultLines(message, width, theme)
+    }
     return buildList {
         add(annotated("[${message.customType}]", SpanStyle(color = theme.colors.muted)))
         message.content.filterIsInstance<TextContent>().forEach { block ->
@@ -812,75 +631,25 @@ private fun renderCustomMessageLines(
     }
 }
 
-/**
- * Data model for a tool execution view in the Mosaic TUI.
- */
-public data class ToolExecutionView(
-    val toolCallId: String,
-    val toolName: String,
-    val arguments: String = "",
-    val output: String = "",
-    val details: ToolDetails? = null,
-    val isError: Boolean = false,
-    val pending: Boolean = false,
-    val collapsed: Boolean = false,
-    val startedAt: Long = 0L,
-) {
-    public companion object {
-        public fun fromToolResult(
-            result: ToolResultMessage,
-            arguments: String = "",
-            collapsed: Boolean = false,
-        ): ToolExecutionView {
-            val output = result.content
-                .filterIsInstance<TextContent>()
-                .joinToString("\n") { it.text }
-                .ifBlank { fallbackOutput(result.content) }
-
-            return ToolExecutionView(
-                toolCallId = result.toolCallId,
-                toolName = result.toolName,
-                arguments = arguments,
-                output = output,
-                details = result.details?.let { ToolDetails.Generic(it) },
-                isError = result.isError,
-                pending = false,
-                collapsed = collapsed,
-            )
-        }
-
-        private fun fallbackOutput(content: List<ContentBlock>): String {
-            if (content.isEmpty()) return ""
-            return content.joinToString("\n") { "[${it.type}]" }
+private fun renderCommandResultLines(
+    message: CustomMessage,
+    width: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> {
+    val text = message.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
+    val lines = text.lines()
+    return buildList {
+        lines.forEachIndexed { index, line ->
+            add(buildAnnotatedString {
+                if (index == 0) {
+                    withStyle(SpanStyle(color = theme.colors.dim)) { append("  \u23BF  ") }
+                } else {
+                    append("     ")
+                }
+                withStyle(SpanStyle(color = theme.colors.muted)) { append(line.take(width - 5)) }
+            })
         }
     }
-}
-
-/**
- * Extracts a concise summary from a tool's JSON arguments string based on the tool name.
- * Returns the most relevant field (file path, command, pattern, etc.) truncated to [maxWidth].
- */
-private fun summarizeToolArguments(toolName: String, arguments: String, maxWidth: Int): String {
-    val json = runCatching {
-        kotlinx.serialization.json.Json.parseToJsonElement(arguments) as? JsonObject
-    }.getOrNull()
-
-    val raw = when (toolName.lowercase()) {
-        "read" -> json?.get("file_path")?.jsonPrimitive?.content
-        "edit" -> json?.get("file_path")?.jsonPrimitive?.content
-        "multiedit" -> json?.get("file_path")?.jsonPrimitive?.content
-        "write" -> json?.get("file_path")?.jsonPrimitive?.content
-        "bash" -> json?.get("command")?.jsonPrimitive?.content?.replace('\n', ' ')
-        "grep" -> json?.get("pattern")?.jsonPrimitive?.content
-        "find" -> json?.get("pattern")?.jsonPrimitive?.content
-            ?: json?.get("glob")?.jsonPrimitive?.content
-        "ls" -> json?.get("path")?.jsonPrimitive?.content ?: "."
-        "todowrite" -> json?.get("todos")?.let { "${it}" }?.take(maxWidth)
-        "task" -> json?.get("description")?.jsonPrimitive?.content
-        else -> null
-    } ?: return arguments.take(maxWidth)
-
-    return if (raw.length > maxWidth) raw.take(maxWidth - 1) + "\u2026" else raw
 }
 
 private fun scrollMarker(
@@ -893,16 +662,6 @@ private fun scrollMarker(
     val text = "$arrow $hiddenLines more"
     val padded = text.padEnd(width)
     return annotated(padded, SpanStyle(color = color))
-}
-
-/**
- * Extracts the first line of text from the last [UserMessage] in the entries list.
- * Returns null if no user message exists.
- */
-private fun findLastUserPromptText(entries: List<ChatHistoryEntry>): String? {
-    val msg = entries.lastOrNull { it.message is UserMessage }?.message as? UserMessage ?: return null
-    val text = msg.content.filterIsInstance<TextContent>().joinToString(" ") { it.text }
-    return text.ifBlank { null }
 }
 
 /**

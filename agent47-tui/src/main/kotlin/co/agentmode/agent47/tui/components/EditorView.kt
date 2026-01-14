@@ -1,7 +1,7 @@
 package co.agentmode.agent47.tui.components
 
 import androidx.compose.runtime.Composable
-import co.agentmode.agent47.tui.editor.CompletionItem
+import co.agentmode.agent47.ui.core.editor.CompletionItem
 import co.agentmode.agent47.tui.editor.EditorAutocompleteRenderModel
 import co.agentmode.agent47.tui.editor.EditorRenderResult
 import co.agentmode.agent47.tui.rendering.annotated

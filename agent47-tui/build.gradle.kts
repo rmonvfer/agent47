@@ -4,6 +4,7 @@ plugins {
 }
 
 dependencies {
+    api(project(":agent47-ui-core"))
     implementation(project(":agent47-ai-types"))
     implementation(project(":agent47-agent-core"))
     implementation(project(":agent47-coding-core"))
