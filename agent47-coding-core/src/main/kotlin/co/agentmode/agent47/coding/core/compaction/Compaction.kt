@@ -6,6 +6,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 public data class CompactionSettings(
     val enabled: Boolean = true,
+    val auto: Boolean = true,
+    val prune: Boolean = true,
     val reserveTokens: Int = 16_384,
     val keepRecentTokens: Int = 20_000,
 )
@@ -136,30 +138,121 @@ public fun findCutPoint(messages: List<Message>, keepRecentTokens: Int): CutPoin
     )
 }
 
-public fun compact(
-    messages: List<Message>,
-    firstKeptEntryId: String,
-    tokensBefore: Int,
-): CompactionResult {
-    val keptMessages = messages.takeLast(10)
-    val summary = keptMessages.joinToString("\n") { message ->
-        when (message) {
-            is UserMessage -> "user: ${message.content.filterIsInstance<TextContent>().joinToString(" ") { it.text }}"
-            is AssistantMessage -> "assistant: ${
-                message.content.filterIsInstance<TextContent>().joinToString(" ") { it.text }
-            }"
+public val COMPACTION_PROMPT: String = """
+Provide a detailed summary for continuing the conversation above.
+Focus on information helpful for continuing, including what was done, what's being worked on, which files are involved, and what's planned next.
 
-            is ToolResultMessage -> "tool(${message.toolName}): ${
-                message.content.filterIsInstance<TextContent>().joinToString(" ") { it.text }
-            }"
+Use this template:
+---
+## Goal
+[What goal(s) is the user trying to accomplish?]
 
-            else -> "${message.role}: ..."
+## Instructions
+[Important instructions the user gave that are still relevant]
+
+## Discoveries
+[Notable things learned during this conversation]
+
+## Accomplished
+[Work completed, work in progress, work remaining]
+
+## Relevant files / directories
+[Structured list of files read, edited, or created that pertain to the task]
+---
+""".trimIndent()
+
+public fun pruneToolOutputs(messages: List<Message>, keepRecentTokens: Int): List<Message> {
+    val result = messages.toMutableList()
+    var recentTokens = 0
+    var protectedBoundary = result.size
+
+    for (i in result.indices.reversed()) {
+        val msg = result[i]
+        if (msg is UserMessage) {
+            protectedBoundary = i
+            break
+        }
+        recentTokens += estimateTokens(msg)
+        if (recentTokens >= keepRecentTokens) {
+            protectedBoundary = i
+            break
         }
     }
 
-    return CompactionResult(
-        summary = summary,
-        firstKeptEntryId = firstKeptEntryId,
-        tokensBefore = tokensBefore,
+    for (i in 0 until protectedBoundary) {
+        val msg = result[i]
+        if (msg is ToolResultMessage) {
+            val text = msg.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
+            if (text.length > 500) {
+                val truncated = text.take(200) + "\n... [truncated ${text.length - 200} chars]"
+                result[i] = ToolResultMessage(
+                    toolCallId = msg.toolCallId,
+                    toolName = msg.toolName,
+                    content = listOf(TextContent(text = truncated)),
+                    details = msg.details,
+                    isError = msg.isError,
+                    timestamp = msg.timestamp,
+                )
+            }
+        }
+    }
+    return result
+}
+
+public fun buildCompactionMessages(messages: List<Message>): List<Message> {
+    val historyText = buildString {
+        for (msg in messages) {
+            when (msg) {
+                is UserMessage -> {
+                    appendLine("[user]")
+                    msg.content.filterIsInstance<TextContent>().forEach { appendLine(it.text) }
+                }
+                is AssistantMessage -> {
+                    appendLine("[assistant]")
+                    msg.content.filterIsInstance<TextContent>().forEach { appendLine(it.text) }
+                    msg.content.filterIsInstance<ToolCall>().forEach {
+                        appendLine("  tool_call: ${it.name}(${it.arguments.toString().take(200)})")
+                    }
+                }
+                is ToolResultMessage -> {
+                    val text = msg.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
+                    val preview = if (text.length > 300) text.take(300) + "..." else text
+                    appendLine("[tool:${msg.toolName}] ${if (msg.isError) "ERROR" else "OK"}: $preview")
+                }
+                is CompactionSummaryMessage -> {
+                    appendLine("[previous_summary]")
+                    appendLine(msg.summary)
+                }
+                else -> {
+                    appendLine("[${msg.role}]")
+                }
+            }
+            appendLine()
+        }
+    }
+
+    return listOf(
+        UserMessage(
+            content = listOf(TextContent(text = historyText)),
+            timestamp = System.currentTimeMillis(),
+        ),
+        UserMessage(
+            content = listOf(TextContent(text = COMPACTION_PROMPT)),
+            timestamp = System.currentTimeMillis(),
+        ),
     )
+}
+
+public fun applyCompaction(
+    messages: List<Message>,
+    summary: String,
+    cutPointIndex: Int,
+    tokensBefore: Int,
+): List<Message> {
+    val compactionMessage = CompactionSummaryMessage(
+        summary = summary,
+        tokensBefore = tokensBefore,
+        timestamp = System.currentTimeMillis(),
+    )
+    return listOf(compactionMessage) + messages.drop(cutPointIndex)
 }

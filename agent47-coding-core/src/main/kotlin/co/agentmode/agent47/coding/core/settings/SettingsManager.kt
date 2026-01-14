@@ -74,6 +74,8 @@ public class SettingsManager private constructor(
         private fun mergeCompaction(global: CompactionSettings, project: CompactionSettings): CompactionSettings {
             return CompactionSettings(
                 enabled = project.enabled,
+                auto = project.auto,
+                prune = project.prune,
                 reserveTokens = project.reserveTokens,
                 keepRecentTokens = project.keepRecentTokens,
             )
