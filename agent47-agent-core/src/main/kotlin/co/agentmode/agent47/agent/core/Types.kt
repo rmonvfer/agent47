@@ -12,6 +12,7 @@ import co.agentmode.agent47.ai.types.StopReason
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.ToolCall
 import co.agentmode.agent47.ai.types.ToolDefinition
+import co.agentmode.agent47.ai.types.CompactionSummaryMessage
 import co.agentmode.agent47.ai.types.ToolResultMessage
 import co.agentmode.agent47.ai.types.UserMessage
 import kotlinx.serialization.json.JsonObject
@@ -216,6 +217,14 @@ public fun defaultConvertToLlm(messages: List<Message>): List<Message> {
         when {
             index in removeIndices && index in insertions -> listOf(insertions[index]!!)
             index in removeIndices -> emptyList()
+            message is CompactionSummaryMessage -> listOf(
+                UserMessage(
+                    content = listOf(
+                        TextContent(text = "[Previous context summary]\n${message.summary}"),
+                    ),
+                    timestamp = message.timestamp,
+                )
+            )
             message.role == "user" || message.role == "assistant" || message.role == "toolResult" -> listOf(message)
             else -> emptyList()
         }

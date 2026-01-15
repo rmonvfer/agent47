@@ -267,6 +267,7 @@ private suspend fun streamAssistantResponse(
                     is ToolCallStartEvent -> event.partial
                     is ToolCallDeltaEvent -> event.partial
                     is ToolCallEndEvent -> event.partial
+                    else -> error("Unexpected event type: $event")
                 }
 
                 partial = newPartial
