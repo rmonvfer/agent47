@@ -4,12 +4,21 @@ import androidx.compose.runtime.*
 import co.agentmode.agent47.agent.core.*
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.coding.core.compaction.CompactionResult
+import co.agentmode.agent47.coding.core.compaction.CompactionSettings
+import co.agentmode.agent47.coding.core.compaction.applyCompaction
+import co.agentmode.agent47.coding.core.compaction.estimateContextTokens
+import co.agentmode.agent47.coding.core.compaction.findCutPoint
+import co.agentmode.agent47.coding.core.compaction.shouldCompact
+import co.agentmode.agent47.coding.core.session.CompactionEntry
 import co.agentmode.agent47.coding.core.auth.AuthMethod
 import co.agentmode.agent47.coding.core.auth.OAuthAuthorization
 import co.agentmode.agent47.coding.core.auth.OAuthCredential
 import co.agentmode.agent47.coding.core.auth.OAuthResult
 import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.coding.core.commands.SlashCommandExpander
+import co.agentmode.agent47.coding.core.instructions.InstructionFile
+import co.agentmode.agent47.coding.core.instructions.InstructionSource
 import co.agentmode.agent47.coding.core.models.ProviderInfo
 import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.coding.core.tools.ToolDetails
@@ -18,6 +27,8 @@ import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.session.ThinkingLevelChangeEntry
 import co.agentmode.agent47.tui.components.*
 import co.agentmode.agent47.tui.editor.Editor
+import co.agentmode.agent47.ui.core.editor.WordWrap
+import co.agentmode.agent47.ui.core.state.*
 import co.agentmode.agent47.tui.input.Key
 import co.agentmode.agent47.tui.input.KeyboardEvent
 import co.agentmode.agent47.tui.input.toKeyboardEvent
@@ -115,6 +126,9 @@ internal fun Agent47App(
     onSettingsChanged: (transform: (Settings) -> Settings) -> Unit = {},
     initialShowUsageFooter: Boolean = true,
     todoState: TodoState? = null,
+    instructionFiles: List<InstructionFile> = emptyList(),
+    compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
+    compactionSettings: CompactionSettings = CompactionSettings(),
 ) {
     var activeTheme by remember { mutableStateOf(theme) }
     CompositionLocalProvider(LocalThemeConfig provides activeTheme) {
@@ -139,6 +153,9 @@ internal fun Agent47App(
             onSettingsChanged = onSettingsChanged,
             initialShowUsageFooter = initialShowUsageFooter,
             todoState = todoState,
+            instructionFiles = instructionFiles,
+            compactContext = compactContext,
+            compactionSettings = compactionSettings,
         )
     }
 }
@@ -165,6 +182,9 @@ private fun Agent47AppContent(
     onSettingsChanged: (transform: (Settings) -> Settings) -> Unit,
     initialShowUsageFooter: Boolean,
     todoState: TodoState? = null,
+    instructionFiles: List<InstructionFile> = emptyList(),
+    compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
+    compactionSettings: CompactionSettings = CompactionSettings(),
 ) {
     val mosaicTheme = LocalThemeConfig.current
     val terminalState = LocalTerminalState.current
@@ -182,13 +202,14 @@ private fun Agent47AppContent(
         listOf(
             SlashCommandSpec("/help", "Show help and shortcuts"),
             SlashCommandSpec("/commands", "List available slash commands"),
-            SlashCommandSpec("/clear", "Clear visible chat history"),
+            SlashCommandSpec("/new", "Start a new session"),
+            SlashCommandSpec("/clear", "Clear the chat display"),
             SlashCommandSpec("/model", "Pick or set the active model"),
             SlashCommandSpec("/provider", "Connect a provider"),
-            SlashCommandSpec("/thinking", "Pick or set thinking level"),
             SlashCommandSpec("/theme", "Pick a color theme"),
-            SlashCommandSpec("/usage", "Toggle usage footer on messages"),
             SlashCommandSpec("/session", "Load a saved session"),
+            SlashCommandSpec("/compact", "Compact conversation context"),
+            SlashCommandSpec("/memory", "Show loaded instruction files"),
             SlashCommandSpec("/settings", "Open interactive settings"),
             SlashCommandSpec("/exit", "Exit interactive mode"),
         )
@@ -272,7 +293,10 @@ private fun Agent47AppContent(
     // --- Layout calculations ---
 
     val statusHeight = 1
-    val baseInputHeight = min(8, max(1, editor.text().lines().size))
+    val editorPromptWidth = 2 // "❯ " or "! "
+    val editorContentWidth = (width - editorPromptWidth).coerceAtLeast(1)
+    val visualLineCount = WordWrap.createMapping(editor.state.lines, editorContentWidth).visualLines.size
+    val baseInputHeight = min(8, max(1, visualLineCount))
     val popupItemCount = editor.slashCommandPopupItemCount()
     val popupRowCount = min(8, popupItemCount)
     val popupHeight = if (popupRowCount > 0) popupRowCount + (if (popupItemCount > 8) 1 else 0) + 1 else 0
@@ -299,6 +323,46 @@ private fun Agent47AppContent(
         chatVersion++
     }
 
+    fun showCommandInput(text: String) {
+        chatHistoryState.appendMessage(
+            UserMessage(
+                content = listOf(TextContent(text = text)),
+                timestamp = System.currentTimeMillis(),
+            ),
+        )
+        chatVersion++
+    }
+
+    fun appendCommandResult(text: String) {
+        chatHistoryState.appendMessage(
+            CustomMessage(
+                customType = "command_result",
+                content = listOf(TextContent(text = text)),
+                display = true,
+                timestamp = System.currentTimeMillis(),
+            ),
+        )
+        chatVersion++
+    }
+
+    fun startNewSession() {
+        currentPromptJob?.cancel(CancellationException("Starting new session"))
+        currentPromptJob = null
+        client.rawAgent().clearMessages()
+        chatHistoryState.entries.clear()
+        toolArgumentsById.clear()
+        chatVersion++
+        if (sessionsDir != null) {
+            val newPath = sessionsDir.resolve("session-${System.currentTimeMillis()}.jsonl")
+            val newManager = runCatching { SessionManager(newPath) }.getOrNull()
+            activeSessionManager = newManager
+            appendCommandResult("Started new session")
+        } else {
+            activeSessionManager = null
+            appendCommandResult("Started new session (no persistence)")
+        }
+    }
+
     fun applyModel(
         model: Model,
         recordSessionEntry: Boolean = true,
@@ -321,7 +385,7 @@ private fun Agent47AppContent(
             )
         }
         if (announce) {
-            appendSystemMessage("Model set to ${model.provider.value}/${model.id}")
+            appendCommandResult("Model set to ${model.provider.value}/${model.id}")
         }
         onSettingsChanged { it.copy(defaultModel = model.id, defaultProvider = model.provider.value) }
     }
@@ -344,14 +408,14 @@ private fun Agent47AppContent(
             )
         }
         if (announce) {
-            appendSystemMessage("Thinking set to ${level.name.lowercase()}")
+            appendCommandResult("Thinking set to ${level.name.lowercase()}")
         }
         onSettingsChanged { it.copy(defaultThinkingLevel = level.name.lowercase()) }
     }
 
     fun parseThinkingLevel(value: String): AgentThinkingLevel {
         return parseThinkingLevelOrNull(value) ?: run {
-            appendSystemMessage("Unknown thinking level: $value")
+            appendCommandResult("Unknown thinking level: $value")
             thinkingLevel
         }
     }
@@ -364,7 +428,7 @@ private fun Agent47AppContent(
 
     fun openModelOverlay() {
         if (currentModels.isEmpty()) {
-            appendSystemMessage("No models available — use /provider to connect one")
+            appendCommandResult("No models available — use /provider to connect one")
             return
         }
         val options = currentModels.map { model ->
@@ -390,7 +454,7 @@ private fun Agent47AppContent(
         if (newIndex != null && (selectedModelIndex < 0 || currentModel == null)) {
             applyModel(currentModels[newIndex])
         }
-        appendSystemMessage("Connected ${info.name} — ${currentModels.count { it.provider.value == info.id }} models available")
+        appendCommandResult("Connected ${info.name} — ${currentModels.count { it.provider.value == info.id }} models available")
     }
 
     fun startAuthMethod(info: ProviderInfo, method: AuthMethod) {
@@ -552,7 +616,7 @@ private fun Agent47AppContent(
 
     fun openSessionOverlay() {
         if (sessionsDir == null || !Files.isDirectory(sessionsDir)) {
-            appendSystemMessage("Session picker is unavailable: no session directory configured")
+            appendCommandResult("Session picker is unavailable: no session directory configured")
             return
         }
         val sessions = runCatching {
@@ -565,11 +629,11 @@ private fun Agent47AppContent(
                     .toList()
             }
         }.getOrElse {
-            appendSystemMessage("Failed to list sessions: ${it.message ?: it::class.simpleName}")
+            appendCommandResult("Failed to list sessions: ${it.message ?: it::class.simpleName}")
             return
         }
         if (sessions.isEmpty()) {
-            appendSystemMessage("No saved sessions found")
+            appendCommandResult("No saved sessions found")
             return
         }
         val options = sessions.map { path ->
@@ -595,7 +659,7 @@ private fun Agent47AppContent(
                             announce = false
                         )
                     },
-                    appendSystemMessage = ::appendSystemMessage,
+                    appendSystemMessage = ::appendCommandResult,
                 )
             },
         )
@@ -647,11 +711,11 @@ private fun Agent47AppContent(
                     SettingsAction.Usage -> {
                         showUsageFooter = !showUsageFooter
                         onSettingsChanged { it.copy(showUsageFooter = showUsageFooter) }
-                        appendSystemMessage("Usage footer: ${if (showUsageFooter) "on" else "off"}")
+                        appendCommandResult("Usage footer: ${if (showUsageFooter) "on" else "off"}")
                     }
                     SettingsAction.Session -> openSessionOverlay()
                     SettingsAction.Commands -> openCommandsOverlay()
-                    SettingsAction.Help -> appendSystemMessage(helpText(slashCommands))
+                    SettingsAction.Help -> appendCommandResult(helpText(slashCommands))
                     SettingsAction.Exit -> {
                         client.rawAgent().abort()
                         currentPromptJob?.cancel(CancellationException("Exiting"))
@@ -661,6 +725,89 @@ private fun Agent47AppContent(
                 }
             },
         )
+    }
+
+    fun openMemoryOverlay() {
+        if (instructionFiles.isEmpty()) {
+            appendSystemMessage("No instruction files loaded")
+            return
+        }
+        val options = instructionFiles.map { file ->
+            val sourceLabel = when (file.source) {
+                InstructionSource.PROJECT -> "Project"
+                InstructionSource.GLOBAL -> "Global"
+                InstructionSource.CLAUDE_CODE -> "Claude Code"
+                InstructionSource.SETTINGS -> "Settings"
+            }
+            val relativePath = runCatching {
+                cwd.relativize(file.path).toString()
+            }.getOrElse { file.path.toString() }
+            val lineCount = file.content.count { it == '\n' } + 1
+            SelectItem(
+                label = "$sourceLabel · ${file.path.fileName}    $relativePath  ${lineCount}L",
+                value = file,
+            )
+        }
+        overlayHostState.push(
+            title = "Instructions",
+            items = options,
+            keepOpenOnSubmit = true,
+            onSubmit = { file ->
+                overlayHostState.pushScrollableText(
+                    title = "${file.path.fileName} (${file.source.name.lowercase()})",
+                    lines = file.content.split("\n"),
+                )
+            },
+        )
+    }
+
+    // --- Compaction ---
+
+    fun runCompaction() {
+        val model = currentModel
+        if (compactContext == null || model == null) {
+            appendCommandResult("Compaction unavailable")
+            return
+        }
+        liveActivityLabel = "Compacting"
+        isStreaming = true
+        promptScope.launch(Dispatchers.IO) {
+            try {
+                val messages = client.rawAgent().state.messages
+                val estimate = estimateContextTokens(messages)
+                val result = compactContext.invoke(messages, model)
+                if (result != null) {
+                    val cutPoint = findCutPoint(messages, compactionSettings.keepRecentTokens)
+                    val compacted = applyCompaction(
+                        messages = messages,
+                        summary = result.summary,
+                        cutPointIndex = cutPoint.firstKeptEntryIndex,
+                        tokensBefore = estimate.tokens,
+                    )
+                    client.rawAgent().replaceMessages(compacted)
+                    activeSessionManager?.append(
+                        CompactionEntry(
+                            id = randomEntryId(),
+                            parentId = activeSessionManager?.getLeafId(),
+                            timestamp = Instant.now().toString(),
+                            summary = result.summary,
+                            firstKeptEntryId = result.firstKeptEntryId,
+                            tokensBefore = estimate.tokens,
+                        ),
+                    )
+                    val after = estimateContextTokens(compacted)
+                    appendCommandResult("Context compacted (${estimate.tokens} → ~${after.tokens} tokens)")
+                } else {
+                    appendCommandResult("Compaction failed")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                appendCommandResult("Compaction error: ${e.message ?: e::class.simpleName}")
+            } finally {
+                isStreaming = false
+            }
+        }
     }
 
     // --- Configure agent on first composition ---
@@ -712,6 +859,19 @@ private fun Agent47AppContent(
                 setCurrentPromptJob = { currentPromptJob = it },
                 bumpChatVersion = { chatVersion++ },
             )
+            if (event is AgentEndEvent &&
+                compactionSettings.auto && compactionSettings.enabled &&
+                compactContext != null
+            ) {
+                val activeModel = currentModel
+                if (activeModel != null) {
+                    val messages = client.rawAgent().state.messages
+                    val estimate = estimateContextTokens(messages)
+                    if (shouldCompact(estimate.tokens, activeModel.contextWindow, compactionSettings)) {
+                        runCompaction()
+                    }
+                }
+            }
         }
     }
 
@@ -730,7 +890,7 @@ private fun Agent47AppContent(
     // Read editorVersion to trigger recomposition when the editor state changes.
     @Suppress("UNUSED_EXPRESSION")
     editorVersion
-    val editorResult = editor.render(width = width, height = baseInputHeight)
+    val editorResult = editor.render(width = editorContentWidth, height = baseInputHeight)
 
     // --- Key event handler ---
 
@@ -950,32 +1110,27 @@ private fun Agent47AppContent(
                         currentPromptJob = currentPromptJob,
                         setCurrentPromptJob = { currentPromptJob = it },
                         appendSystemMessage = ::appendSystemMessage,
+                        showCommandInput = ::showCommandInput,
+                        appendCommandResult = ::appendCommandResult,
                         openModelOverlay = ::openModelOverlay,
-                        openThinkingOverlay = ::openThinkingOverlay,
                         openSessionOverlay = ::openSessionOverlay,
                         openSettingsOverlay = ::openSettingsOverlay,
                         openCommandsOverlay = ::openCommandsOverlay,
                         openThemeOverlay = ::openThemeOverlay,
                         openProviderOverlay = ::openProviderOverlay,
-                        toggleUsageFooter = {
-                            showUsageFooter = !showUsageFooter
-                            onSettingsChanged { it.copy(showUsageFooter = showUsageFooter) }
-                            appendSystemMessage("Usage footer: ${if (showUsageFooter) "on" else "off"}")
-                        },
+                        openMemoryOverlay = ::openMemoryOverlay,
                         setModelById = { modelId ->
                             val match = currentModels.firstOrNull { model ->
                                 model.id.equals(modelId, ignoreCase = true) ||
                                         "${model.provider.value}/${model.id}".equals(modelId, ignoreCase = true)
                             }
                             if (match == null) {
-                                appendSystemMessage("Model not found: $modelId")
+                                appendCommandResult("Model not found: $modelId")
                             } else {
                                 applyModel(match)
                             }
                         },
-                        setThinkingLevel = { value ->
-                            setThinkingLevel(parseThinkingLevel(value))
-                        },
+                        startNewSession = ::startNewSession,
                         tryExpandFileCommand = ::tryExpandFileCommand,
                         setRunning = { value ->
                             if (!value) {
@@ -986,6 +1141,7 @@ private fun Agent47AppContent(
                             }
                         },
                         bumpChatVersion = { chatVersion++ },
+                        runCompaction = ::runCompaction,
                     )
                     return@onKeyEvent true
                 }
@@ -1270,19 +1426,21 @@ private fun handleSubmit(
     currentPromptJob: Job?,
     setCurrentPromptJob: (Job?) -> Unit,
     appendSystemMessage: (String) -> Unit,
+    showCommandInput: (String) -> Unit,
+    appendCommandResult: (String) -> Unit,
     openModelOverlay: () -> Unit,
-    openThinkingOverlay: () -> Unit,
     openSessionOverlay: () -> Unit,
     openSettingsOverlay: () -> Unit,
     openCommandsOverlay: () -> Unit,
     openThemeOverlay: () -> Unit,
     openProviderOverlay: () -> Unit,
-    toggleUsageFooter: () -> Unit,
+    openMemoryOverlay: () -> Unit,
     setModelById: (String) -> Unit,
-    setThinkingLevel: (String) -> Unit,
+    startNewSession: () -> Unit,
     tryExpandFileCommand: (String) -> String?,
     setRunning: (Boolean) -> Unit,
     bumpChatVersion: () -> Unit,
+    runCompaction: () -> Unit = {},
 ) {
     when {
         rawInput.startsWith("/") -> {
@@ -1291,11 +1449,25 @@ private fun handleSubmit(
             val args = tokens.drop(1)
 
             when (command) {
-                "/help" -> appendSystemMessage(helpText(slashCommands))
-                "/commands" -> openCommandsOverlay()
-                "/clear" -> chatHistoryState.entries.clear()
+                "/help" -> {
+                    showCommandInput(rawInput)
+                    appendCommandResult(helpText(slashCommands))
+                }
+                "/commands" -> {
+                    showCommandInput(rawInput)
+                    openCommandsOverlay()
+                }
+                "/new" -> {
+                    showCommandInput(rawInput)
+                    startNewSession()
+                }
+                "/clear" -> {
+                    chatHistoryState.entries.clear()
+                    bumpChatVersion()
+                }
                 "/exit" -> setRunning(false)
                 "/model" -> {
+                    showCommandInput(rawInput)
                     if (args.isEmpty()) {
                         openModelOverlay()
                     } else {
@@ -1303,24 +1475,32 @@ private fun handleSubmit(
                     }
                 }
 
-                "/thinking" -> {
-                    if (args.isEmpty()) {
-                        openThinkingOverlay()
-                    } else {
-                        setThinkingLevel(args.first())
-                    }
+                "/theme" -> {
+                    showCommandInput(rawInput)
+                    openThemeOverlay()
                 }
-
-                "/theme" -> openThemeOverlay()
-                "/provider" -> openProviderOverlay()
-                "/usage" -> toggleUsageFooter()
-                "/settings" -> openSettingsOverlay()
+                "/provider" -> {
+                    showCommandInput(rawInput)
+                    openProviderOverlay()
+                }
+                "/compact" -> {
+                    showCommandInput(rawInput)
+                    runCompaction()
+                }
+                "/memory" -> {
+                    showCommandInput(rawInput)
+                    openMemoryOverlay()
+                }
+                "/settings" -> {
+                    showCommandInput(rawInput)
+                    openSettingsOverlay()
+                }
                 "/session" -> {
+                    showCommandInput(rawInput)
                     if (args.isEmpty()) {
                         openSessionOverlay()
                     } else {
-                        // Direct path, not currently wired to overlay
-                        appendSystemMessage("Use /session without arguments to open the session picker.")
+                        appendCommandResult("Use /session without arguments to open the session picker.")
                     }
                 }
 
@@ -1344,7 +1524,8 @@ private fun handleSubmit(
                             bumpChatVersion = bumpChatVersion,
                         )
                     } else {
-                        appendSystemMessage("Unknown command: $command")
+                        showCommandInput(rawInput)
+                        appendCommandResult("Unknown command: $command")
                     }
                 }
             }
@@ -1518,6 +1699,117 @@ private fun defaultToolCollapsed(toolName: String): Boolean = when (toolName.low
     else -> false
 }
 
+private fun openSubAgentResultOverlay(
+    chatHistoryState: ChatHistoryState,
+    overlayHostState: OverlayHostState,
+    appendSystemMessage: (String) -> Unit,
+) {
+    val lastTaskExecution = chatHistoryState.entries.asReversed()
+        .firstOrNull { entry ->
+            val details = entry.toolExecution?.details
+            details is ToolDetails.SubAgent && details.results.isNotEmpty()
+        }?.toolExecution
+
+    val subAgent = lastTaskExecution?.details as? ToolDetails.SubAgent
+    if (subAgent == null || subAgent.results.isEmpty()) {
+        appendSystemMessage("No sub-agent results available.")
+        return
+    }
+
+    val results = subAgent.results
+    if (results.size == 1) {
+        showSubAgentResult(results.first(), overlayHostState)
+        return
+    }
+
+    val options = results.map { result ->
+        val status = when {
+            result.aborted -> "ABORTED"
+            result.error != null -> "ERROR"
+            result.exitCode == 0 -> "OK"
+            else -> "FAILED"
+        }
+        SelectItem(
+            label = "[$status] ${result.agent}/${result.id} - ${result.description ?: result.task.take(40)}",
+            value = result,
+        )
+    }
+
+    overlayHostState.push(
+        title = "Sub-Agent Results",
+        items = options,
+        selectedIndex = 0,
+        onSubmit = { result -> showSubAgentResult(result, overlayHostState) },
+    )
+}
+
+private fun showSubAgentResult(
+    result: co.agentmode.agent47.coding.core.agents.SubAgentResult,
+    overlayHostState: OverlayHostState,
+) {
+    val lines = buildList {
+        add("Agent: ${result.agent}  ID: ${result.id}")
+        add("Task: ${result.description ?: result.task.take(80)}")
+        add("Status: ${if (result.exitCode == 0) "SUCCESS" else "FAILED"}  Duration: ${result.durationMs}ms  Tokens: ${result.tokens}")
+        if (result.error != null) {
+            add("Error: ${result.error}")
+        }
+        add("")
+
+        // Load session file if available
+        val sessionPath = result.sessionFile?.let { java.nio.file.Path.of(it) }
+        if (sessionPath != null && java.nio.file.Files.exists(sessionPath)) {
+            add("--- Session Transcript ---")
+            add("")
+            val sessionManager = runCatching {
+                co.agentmode.agent47.coding.core.session.SessionManager(sessionPath)
+            }.getOrNull()
+            if (sessionManager != null) {
+                val context = sessionManager.buildContext()
+                context.messages.forEach { message ->
+                    when (message) {
+                        is AssistantMessage -> {
+                            add("[assistant]")
+                            message.content.filterIsInstance<TextContent>().forEach { block ->
+                                block.text.lines().forEach { line -> add("  $line") }
+                            }
+                            add("")
+                        }
+                        is UserMessage -> {
+                            add("[user]")
+                            message.content.filterIsInstance<TextContent>().forEach { block ->
+                                block.text.lines().forEach { line -> add("  $line") }
+                            }
+                            add("")
+                        }
+                        is ToolResultMessage -> {
+                            val output = message.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
+                            val preview = output.lines().take(5).joinToString("\n")
+                            add("[tool:${message.toolName}] ${if (message.isError) "ERROR" else "OK"}")
+                            preview.lines().forEach { line -> add("  $line") }
+                            if (output.lines().size > 5) add("  ... ${output.lines().size - 5} more lines")
+                            add("")
+                        }
+                        else -> {}
+                    }
+                }
+            } else {
+                add("(failed to load session file)")
+            }
+        } else {
+            // Fallback: show output
+            add("--- Output ---")
+            add("")
+            result.output.lines().forEach { line -> add(line) }
+        }
+    }
+
+    overlayHostState.pushScrollableText(
+        title = "Sub-Agent: ${result.agent}/${result.id}",
+        lines = lines,
+    )
+}
+
 private fun emptyUsage(): Usage = Usage(
     input = 0,
     output = 0,
@@ -1587,6 +1879,7 @@ private fun helpText(slashCommands: List<SlashCommandSpec>): String = buildStrin
     appendLine("  Ctrl+O         Open settings overlay")
     appendLine("  Ctrl+G         Toggle latest thinking block")
     appendLine("  Ctrl+E         Toggle latest tool details")
+    appendLine("  Ctrl+R         View sub-agent results")
     appendLine("  PgUp/PgDn      Scroll chat history")
     appendLine("  Ctrl+U/Ctrl+D  Scroll chat history")
     appendLine("  Up/Down        Scroll chat when input is empty")
@@ -1637,6 +1930,9 @@ public fun runTui(
     onSettingsChanged: (transform: (Settings) -> Settings) -> Unit = {},
     initialShowUsageFooter: Boolean = true,
     todoState: TodoState? = null,
+    instructionFiles: List<InstructionFile> = emptyList(),
+    compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
+    compactionSettings: CompactionSettings = CompactionSettings(),
 ) {
     val out = System.out
     val restoreTerminal = "\u001b[<u\u001b[?25h\u001b[?1049l"
@@ -1679,6 +1975,9 @@ public fun runTui(
                 onSettingsChanged = onSettingsChanged,
                 initialShowUsageFooter = initialShowUsageFooter,
                 todoState = todoState,
+                instructionFiles = instructionFiles,
+                compactContext = compactContext,
+                compactionSettings = compactionSettings,
             )
         }
     } catch (e: UnsupportedOperationException) {
