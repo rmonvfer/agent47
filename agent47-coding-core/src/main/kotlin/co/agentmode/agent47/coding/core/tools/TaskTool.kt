@@ -154,12 +154,7 @@ public class TaskTool(
                 emitProgress(onUpdate, results, updatedProgress)
             }
             results += result
-            onUpdate?.onUpdate(
-                AgentToolResult(
-                    content = listOf(TextContent(text = formatProgressSummary(results, totalCount))),
-                    details = TaskToolProgressState(results.toList()),
-                ),
-            )
+            emitProgressUpdate(onUpdate, formatProgressSummary(results, totalCount), TaskToolProgressState(results.toList()))
         }
 
         return results
@@ -190,12 +185,7 @@ public class TaskTool(
                     appendLine("  [${p.index + 1}] ${p.agent}/${p.id}: ${p.status}")
                 }
             }
-            onUpdate?.onUpdate(
-                AgentToolResult(
-                    content = listOf(TextContent(text = progressText)),
-                    details = snapshot,
-                ),
-            )
+            emitProgressUpdate(onUpdate, progressText, snapshot)
         }
 
         val allResults = supervisorScope {
@@ -282,13 +272,26 @@ public class TaskTool(
         return result.copy(sessionFile = sessionFilePath)
     }
 
+    @Suppress("UNCHECKED_CAST")
+    private fun emitProgressUpdate(
+        onUpdate: AgentToolUpdateCallback<List<SubAgentResult>>?,
+        content: String,
+        progressState: TaskToolProgressState,
+    ) {
+        onUpdate ?: return
+        val erased = onUpdate as AgentToolUpdateCallback<Any?>
+        val result: AgentToolResult<Any?> = AgentToolResult(
+            content = listOf(TextContent(text = content)),
+            details = progressState,
+        )
+        erased.onUpdate(result)
+    }
+
     private fun emitProgress(
         onUpdate: AgentToolUpdateCallback<List<SubAgentResult>>?,
         completedResults: List<SubAgentResult>,
         progress: SubAgentProgress,
     ) {
-        onUpdate ?: return
-
         val progressText = buildString {
             appendLine("[${progress.index + 1}] ${progress.agent}/${progress.id}: ${progress.status}")
             if (progress.currentTool != null) {
@@ -296,13 +299,7 @@ public class TaskTool(
             }
             appendLine("  Tools: ${progress.toolCount} | Tokens: ${progress.tokens}")
         }
-
-        onUpdate.onUpdate(
-            AgentToolResult(
-                content = listOf(TextContent(text = progressText)),
-                details = TaskToolProgressState(completedResults, progress),
-            ),
-        )
+        emitProgressUpdate(onUpdate, progressText, TaskToolProgressState(completedResults, progress))
     }
 
     private fun formatProgressSummary(results: List<SubAgentResult>, total: Int): String {
