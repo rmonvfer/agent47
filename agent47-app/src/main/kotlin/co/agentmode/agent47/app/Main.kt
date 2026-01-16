@@ -6,12 +6,20 @@ import co.agentmode.agent47.agent.core.PartialAgentState
 import co.agentmode.agent47.ai.providers.anthropic.registerAnthropicProviders
 import co.agentmode.agent47.ai.providers.google.registerGoogleProviders
 import co.agentmode.agent47.ai.providers.openai.registerOpenAiProviders
+import co.agentmode.agent47.ai.core.AiRuntime
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.coding.core.auth.AuthStorage
 import co.agentmode.agent47.coding.core.auth.CopilotAuthPlugin
 import co.agentmode.agent47.coding.core.auth.OAuthResult
+import co.agentmode.agent47.coding.core.compaction.CompactionResult
+import co.agentmode.agent47.coding.core.compaction.applyCompaction
+import co.agentmode.agent47.coding.core.compaction.buildCompactionMessages
+import co.agentmode.agent47.coding.core.compaction.estimateContextTokens
+import co.agentmode.agent47.coding.core.compaction.findCutPoint
+import co.agentmode.agent47.coding.core.compaction.pruneToolOutputs
 import co.agentmode.agent47.coding.core.config.AgentConfig
+import co.agentmode.agent47.coding.core.instructions.InstructionFile
 import co.agentmode.agent47.coding.core.instructions.InstructionLoader
 import co.agentmode.agent47.coding.core.models.ModelRegistry
 import co.agentmode.agent47.coding.core.models.ModelResolver
@@ -26,6 +34,7 @@ import co.agentmode.agent47.coding.core.tools.SkillReader
 import co.agentmode.agent47.coding.core.tools.TaskTool
 import co.agentmode.agent47.coding.core.tools.TodoState
 import co.agentmode.agent47.coding.core.tools.createCoreTools
+import co.agentmode.agent47.gui.runGui
 import co.agentmode.agent47.tui.runTui
 import co.agentmode.agent47.tui.theme.AVAILABLE_THEMES
 import co.agentmode.agent47.tui.theme.ThemeConfig
@@ -138,6 +147,10 @@ class Agent47Command :
         "--export",
         help = "Export session to HTML"
     ).path()
+    private val gui by option(
+        "--gui",
+        help = "Launch desktop GUI instead of terminal UI"
+    ).flag()
     private val verbose by option(
         "--verbose",
         help = "Verbose output"
@@ -175,6 +188,7 @@ class Agent47Command :
 
         val thinkingLevel = resolveThinkingLevel(settings)
         val sessionManager = resolveSession(config)
+
         val (promptContent, images) = processPrompt(promptArgs)
 
         val agentRegistry = AgentRegistry(config.projectAgentsDir, config.globalAgentsDir)
@@ -254,6 +268,63 @@ class Agent47Command :
             )
         }
 
+        val compactContext: suspend (List<Message>, Model) -> CompactionResult? = { messages, activeModel ->
+            val compactionSettings = settings.get().compaction
+            val pruned = if (compactionSettings.prune) {
+                pruneToolOutputs(messages, compactionSettings.keepRecentTokens)
+            } else {
+                messages
+            }
+            val compactionMessages = buildCompactionMessages(pruned)
+            val context = Context(
+                messages = compactionMessages,
+            )
+            val response = runCatching {
+                AiRuntime.completeSimple(activeModel, context)
+            }.getOrNull()
+            val summaryText = response?.content
+                ?.filterIsInstance<TextContent>()
+                ?.joinToString("\n") { it.text }
+            if (summaryText.isNullOrBlank()) {
+                null
+            } else {
+                val estimate = estimateContextTokens(messages)
+                val cutPoint = findCutPoint(messages, compactionSettings.keepRecentTokens)
+                CompactionResult(
+                    summary = summaryText,
+                    firstKeptEntryId = messages.getOrNull(cutPoint.firstKeptEntryIndex)
+                        ?.timestamp?.toString() ?: "",
+                    tokensBefore = estimate.tokens,
+                )
+            }
+        }
+
+        if (gui) {
+            runGui(
+                client = client,
+                initialUserMessage = userMessage,
+                availableModels = modelRegistry.getAvailable(),
+                sessionManager = sessionManager,
+                sessionsDir = config.sessionsDir,
+                cwd = workingDir,
+                initialThinkingLevel = thinkingLevel,
+                initialModel = resolvedModel,
+                fileCommands = fileCommands,
+                getAllProviders = { modelRegistry.getAllProviders() },
+                storeApiKey = { p, k -> modelRegistry.storeApiKey(p, k) },
+                storeOAuthCredential = { p, c -> modelRegistry.storeOAuthCredential(p, c) },
+                refreshModels = { modelRegistry.getAvailable() },
+                authorizeOAuth = { p -> modelRegistry.getAuthPlugin(p)?.authorize() },
+                pollOAuthToken = { p -> modelRegistry.getAuthPlugin(p)?.pollForToken() },
+                onSettingsChanged = { transform -> settings.update(transform) },
+                todoState = todoState,
+                instructionFiles = instructionLoader.load(),
+                compactContext = compactContext,
+                compactionSettings = settings.get().compaction,
+            )
+            return
+        }
+
         if (runAsPrintMode) {
             val initialMessage = userMessage ?: run {
                 terminal.printError("No prompt provided. Use --help for usage information.")
@@ -274,6 +345,9 @@ class Agent47Command :
                 modelRegistry = modelRegistry,
                 settingsManager = settings,
                 todoState = todoState,
+                instructionFiles = instructionLoader.load(),
+                compactContext = compactContext,
+                compactionSettings = settings.get().compaction,
             )
         }
     }
@@ -562,6 +636,9 @@ class Agent47Command :
         modelRegistry: ModelRegistry,
         settingsManager: SettingsManager,
         todoState: TodoState? = null,
+        instructionFiles: List<InstructionFile> = emptyList(),
+        compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
+        compactionSettings: co.agentmode.agent47.coding.core.compaction.CompactionSettings = co.agentmode.agent47.coding.core.compaction.CompactionSettings(),
     ) {
         val resolvedTheme = settingsManager.get().theme?.let { name ->
             AVAILABLE_THEMES.firstOrNull { it.name == name }?.config
@@ -593,6 +670,9 @@ class Agent47Command :
             onSettingsChanged = { transform -> settingsManager.update(transform) },
             initialShowUsageFooter = initialShowUsageFooter,
             todoState = todoState,
+            instructionFiles = instructionFiles,
+            compactContext = compactContext,
+            compactionSettings = compactionSettings,
         )
     }
 
