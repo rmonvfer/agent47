@@ -1,8 +1,8 @@
 package co.agentmode.agent47.agent.core
 
 import co.agentmode.agent47.ai.types.*
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.atomic.AtomicReference
 
 public data class AgentOptions(
@@ -18,6 +18,24 @@ public data class AgentOptions(
     val maxRetryDelayMs: Long? = null,
 )
 
+/**
+ * Represents a partial state of an agent, encapsulating various components
+ * that contribute to the agent's operation and behavior. Each property is
+ * optional, allowing for the representation of an incomplete state when needed.
+ *
+ * @property systemPrompt The system-level instruction or prompt that provides
+ * context or guidance for the agent's overall operation.
+ * @property model The model configuration used by the agent, defining aspects
+ * such as the underlying model, provider details, and capabilities.
+ * @property thinkingLevel The level of reasoning or "thinking" that the agent
+ * should apply during its tasks, ranging from off to varying degrees of complexity.
+ * @property tools The collection of tools available to the agent. Tools are external
+ * functionalities or utilities that the agent can invoke to perform specific tasks
+ * or retrieve additional information.
+ * @property messages The ordered list of conversation messages, including user input,
+ * assistant responses, and other types of communication, reflecting the agent's
+ * conversational history.
+ */
 public data class PartialAgentState(
     val systemPrompt: String? = null,
     val model: Model? = null,
@@ -27,7 +45,14 @@ public data class PartialAgentState(
 )
 
 public enum class QueueMode {
+    /**
+     * All items in the queue are processed simultaneously.
+     */
     ALL,
+
+    /**
+     * Items in the queue are processed sequentially.
+     */
     ONE_AT_A_TIME,
 }
 
@@ -143,7 +168,7 @@ public class Agent(options: AgentOptions = AgentOptions()) {
      * Forcefully stops the running agent loop by interrupting the daemon thread.
      * This causes the `runBlocking` inside the loop thread to receive an
      * `InterruptedException`, which cancels all coroutines within it (API calls,
-     * tool executions, sub-agent loops). Safe to call from any thread; no-op if
+     * tool executions, subagent loops). Safe to call from any thread; no-op if
      * no loop is running.
      */
     public fun abort() {
@@ -321,6 +346,7 @@ public class Agent(options: AgentOptions = AgentOptions()) {
                 emit(AgentEndEvent(messages = emptyList()))
             }
             throw cancellation
+
         } catch (error: Throwable) {
             if (loopGeneration == generation) {
                 val errText = error.message ?: error.toString()
@@ -375,9 +401,10 @@ public class Agent(options: AgentOptions = AgentOptions()) {
     }
 
     private fun defaultModel(): Model {
+        // TODO this might need some tweaking
         return Model(
-            id = "gpt-4.1-mini",
-            name = "GPT-4.1 mini",
+            id = "gpt-5.3-codex",
+            name = "GPT-5.3 Codex",
             api = KnownApis.OpenAiResponses,
             provider = KnownProviders.OpenAi,
             baseUrl = "https://api.openai.com/v1",
