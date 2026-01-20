@@ -1,20 +1,6 @@
 package co.agentmode.agent47.agent.core
 
-import co.agentmode.agent47.ai.types.AssistantMessage
-import co.agentmode.agent47.ai.types.AssistantMessageEvent
-import co.agentmode.agent47.ai.types.AssistantMessageEventStream
-import co.agentmode.agent47.ai.types.ContentBlock
-import co.agentmode.agent47.ai.types.Context
-import co.agentmode.agent47.ai.types.Message
-import co.agentmode.agent47.ai.types.Model
-import co.agentmode.agent47.ai.types.SimpleStreamOptions
-import co.agentmode.agent47.ai.types.StopReason
-import co.agentmode.agent47.ai.types.TextContent
-import co.agentmode.agent47.ai.types.ToolCall
-import co.agentmode.agent47.ai.types.ToolDefinition
-import co.agentmode.agent47.ai.types.CompactionSummaryMessage
-import co.agentmode.agent47.ai.types.ToolResultMessage
-import co.agentmode.agent47.ai.types.UserMessage
+import co.agentmode.agent47.ai.types.*
 import kotlinx.serialization.json.JsonObject
 
 public fun interface AgentStreamFunction {
@@ -25,6 +11,9 @@ public fun interface AgentStreamFunction {
     ): AssistantMessageEventStream
 }
 
+/**
+ * Specifies the intensity level of an agent's thinking process.
+ */
 public enum class AgentThinkingLevel {
     OFF,
     MINIMAL,
@@ -34,13 +23,17 @@ public enum class AgentThinkingLevel {
     XHIGH,
 }
 
+/**
+ * Encapsulates the output of an agent tool execution as a collection of content blocks
+ * paired with structured result data of type [T].
+ */
 public data class AgentToolResult<T>(
     val content: List<ContentBlock>,
     val details: T,
 )
 
 public fun interface AgentToolUpdateCallback<T> {
-    public fun onUpdate(partialResult: AgentToolResult<T>): Unit
+    public fun onUpdate(partialResult: AgentToolResult<T>)
 }
 
 /**
@@ -150,7 +143,7 @@ public data class ToolExecutionEndEvent(
  * [convertToLlm] transforms the raw message history into the list sent to the LLM,
  * typically via [defaultConvertToLlm] which strips error turns and inserts synthetic
  * tool results for orphaned calls. [transformContext] is an optional second pass that
- * can further modify messages (e.g. for overflow trimming).
+ * can further modify messages (e.g., for overflow trimming).
  *
  * [getSteeringMessages] and [getFollowUpMessages] are polled by the loop between turns.
  * Steering messages interrupt tool execution; follow-up messages are injected after the
@@ -158,9 +151,9 @@ public data class ToolExecutionEndEvent(
  */
 public data class AgentLoopConfig(
     val model: Model,
-    val reasoning: co.agentmode.agent47.ai.types.ThinkingLevel? = null,
+    val reasoning: ThinkingLevel? = null,
     val sessionId: String? = null,
-    val thinkingBudgets: co.agentmode.agent47.ai.types.ThinkingBudgets? = null,
+    val thinkingBudgets: ThinkingBudgets? = null,
     val maxRetryDelayMs: Long? = null,
     val convertToLlm: suspend (List<Message>) -> List<Message>,
     val transformContext: (suspend (List<Message>) -> List<Message>)? = null,
@@ -225,6 +218,7 @@ public fun defaultConvertToLlm(messages: List<Message>): List<Message> {
                     timestamp = message.timestamp,
                 )
             )
+
             message.role == "user" || message.role == "assistant" || message.role == "toolResult" -> listOf(message)
             else -> emptyList()
         }
