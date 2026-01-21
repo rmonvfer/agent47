@@ -151,10 +151,11 @@ public data class AssistantMessage(
 ) : Message
 
 /**
- * The result of executing a tool. The [toolCallId] must match the [ToolCall.id] from
- * the assistant message that requested it. APIs that enforce strict tool call / result
- * pairing (OpenAI, Anthropic) will reject requests with orphaned calls, which is why
- * [co.agentmode.agent47.agent.core.insertSyntheticToolResults] exists as a safety net.
+ * Represents the result of a tool execution returned to the LLM after invoking a tool.
+ * Contains the output content blocks from the tool call along with metadata identifying
+ * which tool was invoked and whether execution succeeded or failed. Serialized as part
+ * of the conversation history and converted to provider-specific formats before being
+ * sent to the LLM.
  */
 @Serializable
 @SerialName("toolResult")
