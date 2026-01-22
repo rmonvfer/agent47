@@ -1,0 +1,17 @@
+Read the current todo list to see all items and their statuses. Returns each item's ID, content, status, and priority.
+
+## When to Use
+
+- Before creating or updating todos, to see what already exists and get item IDs
+- To check progress on a multi-step task
+- When resuming work after a pause to review where things stand
+
+## Output
+
+Returns a formatted list showing each todo item with:
+- ID: Use this to reference items in todoupdate calls
+- Status: pending, in_progress, completed, or cancelled
+- Priority: high, medium, or low
+- Content: The task description
+
+Also includes a summary of status counts.

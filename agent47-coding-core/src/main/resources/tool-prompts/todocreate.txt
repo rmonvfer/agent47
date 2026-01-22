@@ -1,0 +1,15 @@
+Create a single todo item and add it to the list. An ID is auto-generated.
+
+## Parameters
+
+- content (required): Brief, actionable description of the task
+- status (optional): Initial status, defaults to "pending". Values: pending, in_progress, completed, cancelled
+- priority (optional): Priority level, defaults to "medium". Values: high, medium, low
+
+## Best Practices
+
+- Create specific, actionable items with clear descriptions
+- Break complex tasks into smaller, manageable steps
+- Only have one todo as in_progress at a time
+- Set priority to "high" for blocking or time-sensitive work
+- Use this tool instead of todowrite when adding a single item to an existing list

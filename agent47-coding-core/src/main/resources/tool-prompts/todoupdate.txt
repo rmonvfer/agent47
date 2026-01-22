@@ -1,0 +1,23 @@
+Update an existing todo item by ID. Only the fields you provide will be changed.
+
+## Parameters
+
+- id (required): The todo item ID (use todoread to find IDs)
+- content (optional): Updated task description
+- status (optional): Updated status. Values: pending, in_progress, completed, cancelled
+- priority (optional): Updated priority. Values: high, medium, low
+
+## Common Workflows
+
+- Mark a task as started: set status to "in_progress"
+- Mark a task as done: set status to "completed"
+- Cancel a task that is no longer needed: set status to "cancelled"
+- Reprioritize: update the priority field
+- Clarify scope: update the content field
+
+## Tips
+
+- Use todoread first to get item IDs
+- Update status in real-time as you work through tasks
+- Mark tasks complete immediately after finishing (don't batch completions)
+- Only have one task as in_progress at a time
