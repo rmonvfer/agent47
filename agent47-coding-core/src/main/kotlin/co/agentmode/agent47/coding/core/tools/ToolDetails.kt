@@ -46,9 +46,13 @@ public sealed class ToolDetails {
         public fun from(toolName: String, details: Any?): ToolDetails? {
             if (details == null) return null
             return when (toolName) {
-                "todowrite" -> {
+                "todowrite", "todoread" -> {
                     val items = details as? List<*> ?: return null
                     Todo(items.filterIsInstance<TodoItem>())
+                }
+                "todocreate", "todoupdate" -> {
+                    val item = details as? TodoItem ?: return null
+                    Todo(listOf(item))
                 }
                 "batch" -> {
                     val results = details as? List<*> ?: return null

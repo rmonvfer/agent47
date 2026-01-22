@@ -13,10 +13,14 @@ public data class CoreTools(
     val find: FindTool?,
     val ls: LsTool?,
     val todoWrite: TodoWriteTool?,
+    val todoRead: TodoReadTool?,
+    val todoCreate: TodoCreateTool?,
+    val todoUpdate: TodoUpdateTool?,
     val batch: BatchTool?,
 ) {
     public fun all(): List<AgentTool<*>> = listOfNotNull(
-        read, write, edit, multiEdit, bash, grep, find, ls, todoWrite, batch,
+        read, write, edit, multiEdit, bash, grep, find, ls,
+        todoWrite, todoRead, todoCreate, todoUpdate, batch,
     )
 }
 
@@ -28,6 +32,10 @@ public fun createCoreTools(
     commandPrefix: String? = null,
 ): CoreTools {
     val enabledSet = enabled.toSet()
+    val sharedTodoState = todoState ?: TodoState()
+    val todoEnabled = "todowrite" in enabledSet || "todoread" in enabledSet
+            || "todocreate" in enabledSet || "todoupdate" in enabledSet
+    val resolvedTodoState = if (todoEnabled) sharedTodoState else null
     val tools = CoreTools(
         read = if ("read" in enabledSet) ReadTool(cwd, skillReader) else null,
         write = if ("write" in enabledSet) WriteTool(cwd) else null,
@@ -37,11 +45,10 @@ public fun createCoreTools(
         grep = if ("grep" in enabledSet) GrepTool(cwd) else null,
         find = if ("find" in enabledSet) FindTool(cwd) else null,
         ls = if ("ls" in enabledSet) LsTool(cwd) else null,
-        todoWrite = if ("todowrite" in enabledSet) {
-            TodoWriteTool(todoState ?: TodoState())
-        } else {
-            null
-        },
+        todoWrite = if ("todowrite" in enabledSet) TodoWriteTool(resolvedTodoState!!) else null,
+        todoRead = if ("todoread" in enabledSet) TodoReadTool(resolvedTodoState!!) else null,
+        todoCreate = if ("todocreate" in enabledSet) TodoCreateTool(resolvedTodoState!!) else null,
+        todoUpdate = if ("todoupdate" in enabledSet) TodoUpdateTool(resolvedTodoState!!) else null,
         batch = null,
     )
 
@@ -56,4 +63,7 @@ public fun createCoreTools(
     return tools.copy(batch = batchTool)
 }
 
-public val DEFAULT_TOOLS: List<String> = listOf("read", "bash", "edit", "write", "multiedit", "todowrite", "batch")
+public val DEFAULT_TOOLS: List<String> = listOf(
+    "read", "bash", "edit", "write", "multiedit",
+    "todowrite", "todoread", "todocreate", "todoupdate", "batch",
+)
