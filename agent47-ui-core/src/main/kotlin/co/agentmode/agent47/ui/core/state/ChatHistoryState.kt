@@ -116,7 +116,7 @@ public class ChatHistoryState {
 
     public fun updateToolExecution(execution: ToolExecutionView) {
         val key = "tool:${execution.toolCallId}"
-        val index = entries.indexOfFirst { it.key == key }
+        val index = entries.indexOfLast { it.key == key }
         if (index < 0) {
             appendToolExecution(execution)
             return
