@@ -19,6 +19,8 @@ dependencies {
     implementation("org.jetbrains.jewel:jewel-markdown-core:0.33.0-253.29795")
     implementation("org.jetbrains.jewel:jewel-markdown-int-ui-standalone-styling:0.33.0-253.29795")
 
+    implementation("com.woowla.compose.icon.collections:tabler:3.36.1")
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
