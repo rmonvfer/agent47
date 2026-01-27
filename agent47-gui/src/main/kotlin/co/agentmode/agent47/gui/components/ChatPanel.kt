@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -21,15 +23,17 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import co.agentmode.agent47.ai.types.AssistantMessage
 import co.agentmode.agent47.ai.types.BranchSummaryMessage
 import co.agentmode.agent47.ai.types.CompactionSummaryMessage
@@ -40,13 +44,23 @@ import co.agentmode.agent47.ai.types.UserMessage
 import co.agentmode.agent47.coding.core.agents.SubAgentResult
 import co.agentmode.agent47.coding.core.tools.ToolDetails
 import co.agentmode.agent47.gui.rendering.MarkdownView
+import co.agentmode.agent47.gui.theme.AppColors
 import co.agentmode.agent47.ui.core.state.ChatHistoryEntry
 import co.agentmode.agent47.ui.core.state.ChatHistoryState
 import co.agentmode.agent47.ui.core.state.ToolExecutionView
 import co.agentmode.agent47.ui.core.util.formatDuration
 import co.agentmode.agent47.ui.core.util.summarizeToolArguments
+import com.woowla.compose.icon.collections.tabler.Tabler
+import com.woowla.compose.icon.collections.tabler.tabler.Outline
+import com.woowla.compose.icon.collections.tabler.tabler.outline.*
+import org.jetbrains.jewel.foundation.modifier.onHover
 import org.jetbrains.jewel.foundation.theme.JewelTheme
+import org.jetbrains.jewel.ui.typography
+import org.jetbrains.jewel.ui.component.CircularProgressIndicator
+import org.jetbrains.jewel.ui.component.Icon
+import org.jetbrains.jewel.ui.component.InlineInformationBanner
 import org.jetbrains.jewel.ui.component.Text
+import org.jetbrains.jewel.ui.component.VerticalScrollbar
 
 @Composable
 public fun ChatPanel(
@@ -68,21 +82,28 @@ public fun ChatPanel(
     if (state.entries.isEmpty()) {
         BannerView(cwd = cwd, modifier = modifier)
     } else {
-        LazyColumn(
-            modifier = modifier,
-            state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(state.entries, key = { it.key }) { entry ->
-                MessageView(entry = entry, chatState = state)
-            }
+        Box(modifier = modifier) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.entries, key = { it.key }) { entry ->
+                    MessageView(entry = entry, chatState = state)
+                }
 
-            if (isStreaming) {
-                item(key = "activity-indicator") {
-                    ActivityIndicator(label = activityLabel)
+                if (isStreaming) {
+                    item(key = "activity-indicator") {
+                        ActivityIndicator(label = activityLabel)
+                    }
                 }
             }
+
+            VerticalScrollbar(
+                scrollState = listState,
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+            )
         }
     }
 }
@@ -93,18 +114,18 @@ private fun BannerView(cwd: String, modifier: Modifier = Modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = "Agent 47",
-                style = JewelTheme.defaultTextStyle.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold),
-                color = JewelTheme.globalColors.text.normal,
+                style = JewelTheme.typography.h0TextStyle,
+                color = AppColors.textPrimary,
             )
             if (cwd.isNotBlank()) {
                 Text(
                     text = cwd,
-                    color = JewelTheme.globalColors.text.info,
+                    color = AppColors.textSecondary,
                 )
             }
             Text(
                 text = "Target acquired. Awaiting instructions.",
-                color = JewelTheme.globalColors.text.info,
+                color = AppColors.textSecondary,
             )
         }
     }
@@ -116,16 +137,12 @@ private fun ActivityIndicator(label: String) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(vertical = 4.dp),
     ) {
-        val frames = listOf("\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F")
+        CircularProgressIndicator(modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(8.dp))
         val displayLabel = label.ifBlank { "Thinking" }
         Text(
-            text = frames[((System.currentTimeMillis() / 80) % frames.size).toInt()],
-            color = Color(0xFF64B5F6),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
             text = "$displayLabel...",
-            color = JewelTheme.globalColors.text.info,
+            color = AppColors.textSecondary,
             fontStyle = FontStyle.Italic,
         )
     }
@@ -163,7 +180,7 @@ private fun UserMessageBubble(message: UserMessage) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF2D5B8A))
+                .background(AppColors.userMessageBackground)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Text(
@@ -216,35 +233,43 @@ private fun ThinkingBlock(
 ) {
     val isCollapsed = chatState.thinkingCollapsedState[entryKey] ?: true
     val charCount = thinking.length
-    val headerText = if (isCollapsed) {
-        "[+] thinking ($charCount chars)"
-    } else {
-        "[-] thinking ($charCount chars)"
-    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
-            .background(Color(0x15808080)),
+            .background(AppColors.thinkingBackground),
     ) {
-        Text(
-            text = headerText,
-            color = Color(0xFF9E9E9E),
+        var thinkingHovered by remember { mutableStateOf(false) }
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .onHover { thinkingHovered = it }
+                .background(if (thinkingHovered) AppColors.hoverBackground else Color.Transparent)
                 .clickable { chatState.thinkingCollapsedState[entryKey] = !isCollapsed }
                 .padding(8.dp),
-            fontStyle = FontStyle.Italic,
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = if (isCollapsed) Tabler.Outline.ChevronRight else Tabler.Outline.ChevronDown,
+                contentDescription = if (isCollapsed) "Expand" else "Collapse",
+                modifier = Modifier.size(12.dp),
+                tint = AppColors.textMuted,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = "thinking ($charCount chars)",
+                color = AppColors.textMuted,
+                fontStyle = FontStyle.Italic,
+            )
+        }
 
         AnimatedVisibility(visible = !isCollapsed) {
             Text(
                 text = thinking,
-                color = Color(0xFF9E9E9E),
+                color = AppColors.textMuted,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
+                style = JewelTheme.consoleTextStyle,
             )
         }
     }
@@ -257,9 +282,9 @@ private fun ToolExecutionCard(
     chatState: ChatHistoryState,
 ) {
     val statusColor = when {
-        execution.pending -> Color(0xFFFFA726)
-        execution.isError -> Color(0xFFEF5350)
-        else -> Color(0xFF66BB6A)
+        execution.pending -> AppColors.warning
+        execution.isError -> AppColors.error
+        else -> AppColors.success
     }
 
     val isCollapsed = chatState.toolCollapsedState[entryKey] ?: execution.collapsed
@@ -269,26 +294,38 @@ private fun ToolExecutionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
-            .background(Color(0x10808080))
+            .background(AppColors.subtleBackground)
             .padding(1.dp),
     ) {
-        // Header row: status indicator + tool name + argument summary
+        // Header row: status icon + tool name + argument summary
+        var toolHeaderHovered by remember { mutableStateOf(false) }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .onHover { toolHeaderHovered = it }
+                .background(if (toolHeaderHovered) AppColors.hoverBackground else Color.Transparent)
                 .clickable {
                     chatState.toolCollapsedState[entryKey] = !isCollapsed
                 }
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Status dot
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(statusColor),
-            )
+            // Status icon
+            when {
+                execution.pending -> CircularProgressIndicator(modifier = Modifier.size(12.dp))
+                execution.isError -> Icon(
+                    imageVector = Tabler.Outline.X,
+                    contentDescription = "Error",
+                    modifier = Modifier.size(12.dp),
+                    tint = statusColor,
+                )
+                else -> Icon(
+                    imageVector = Tabler.Outline.Check,
+                    contentDescription = "Success",
+                    modifier = Modifier.size(12.dp),
+                    tint = statusColor,
+                )
+            }
             Spacer(Modifier.width(8.dp))
 
             // Tool name
@@ -303,7 +340,7 @@ private fun ToolExecutionCard(
             if (argSummary.isNotBlank()) {
                 Text(
                     text = argSummary,
-                    color = JewelTheme.globalColors.text.info,
+                    color = AppColors.textSecondary,
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
@@ -314,15 +351,18 @@ private fun ToolExecutionCard(
                 val elapsed = System.currentTimeMillis() - execution.startedAt
                 Text(
                     text = formatDuration(elapsed),
-                    color = Color(0xFF9E9E9E),
-                    fontSize = 11.sp,
+                    color = AppColors.textMuted,
+                    style = JewelTheme.typography.small,
                 )
             }
 
             // Collapse indicator
-            Text(
-                text = if (isCollapsed) " [+]" else " [-]",
-                color = Color(0xFF757575),
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                imageVector = if (isCollapsed) Tabler.Outline.ChevronRight else Tabler.Outline.ChevronDown,
+                contentDescription = if (isCollapsed) "Expand" else "Collapse",
+                modifier = Modifier.size(12.dp),
+                tint = AppColors.textDim,
             )
         }
 
@@ -345,15 +385,14 @@ private fun ToolExecutionCard(
                     val preview = execution.output.lines().take(20).joinToString("\n")
                     Text(
                         text = preview,
-                        color = JewelTheme.globalColors.text.info,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
+                        color = AppColors.textSecondary,
+                        style = JewelTheme.consoleTextStyle,
                     )
                     if (execution.output.lines().size > 20) {
                         Text(
                             text = "... ${execution.output.lines().size - 20} more lines",
-                            color = Color(0xFF757575),
-                            fontSize = 11.sp,
+                            color = AppColors.textDim,
+                            style = JewelTheme.typography.small,
                         )
                     }
                 }
@@ -370,15 +409,12 @@ private fun SubAgentDetails(details: ToolDetails.SubAgent) {
             modifier = Modifier.padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "\u2022",
-                color = Color(0xFF64B5F6),
-            )
+            CircularProgressIndicator(modifier = Modifier.size(10.dp))
             Spacer(Modifier.width(6.dp))
             Text(
                 text = "${progress.agent}: ${progress.status}",
-                color = JewelTheme.globalColors.text.info,
-                fontSize = 12.sp,
+                color = AppColors.textSecondary,
+                style = JewelTheme.typography.medium,
             )
         }
     }
@@ -391,43 +427,41 @@ private fun SubAgentDetails(details: ToolDetails.SubAgent) {
 
 @Composable
 private fun SubAgentResultRow(result: SubAgentResult) {
-    val statusIcon = when {
-        result.aborted -> "\u2716"
-        result.error != null -> "\u2716"
-        result.exitCode == 0 -> "\u2714"
-        else -> "\u2716"
-    }
     val statusColor = when {
-        result.aborted -> Color(0xFFFFA726)
-        result.exitCode == 0 -> Color(0xFF66BB6A)
-        else -> Color(0xFFEF5350)
+        result.aborted -> AppColors.warning
+        result.exitCode == 0 -> AppColors.success
+        else -> AppColors.error
     }
 
     Row(
         modifier = Modifier.padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = statusIcon, color = statusColor, fontSize = 12.sp)
+        Icon(
+            imageVector = if (result.exitCode == 0 && !result.aborted) Tabler.Outline.Check else Tabler.Outline.X,
+            contentDescription = if (result.exitCode == 0) "Success" else "Failed",
+            modifier = Modifier.size(12.dp),
+            tint = statusColor,
+        )
         Spacer(Modifier.width(6.dp))
         Text(
             text = "${result.agent}/${result.id}",
-            color = JewelTheme.globalColors.text.info,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
+            color = AppColors.textSecondary,
+            style = JewelTheme.typography.medium.copy(fontWeight = FontWeight.Bold),
         )
         Spacer(Modifier.width(6.dp))
         Text(
             text = "${result.durationMs}ms | ${result.tokens} tokens",
-            color = Color(0xFF9E9E9E),
-            fontSize = 11.sp,
+            color = AppColors.textMuted,
+            style = JewelTheme.typography.small,
         )
     }
     if (result.output.isNotBlank()) {
         val preview = result.output.lines().take(3).joinToString("\n")
         Text(
             text = preview,
-            color = Color(0xFF9E9E9E),
-            fontSize = 11.sp,
+            color = AppColors.textMuted,
+            style = JewelTheme.typography.small,
             modifier = Modifier.padding(start = 20.dp),
         )
     }
@@ -436,27 +470,36 @@ private fun SubAgentResultRow(result: SubAgentResult) {
 @Composable
 private fun TodoDetails(details: ToolDetails.Todo) {
     details.items.forEach { item ->
-        val statusIcon = when (item.status) {
-            "completed" -> "\u2714"
-            "in_progress" -> "\u25CB"
-            else -> "\u2022"
-        }
         val statusColor = when (item.status) {
-            "completed" -> Color(0xFF66BB6A)
-            "in_progress" -> Color(0xFF64B5F6)
-            else -> Color(0xFF9E9E9E)
+            "completed" -> AppColors.success
+            "in_progress" -> AppColors.info
+            else -> AppColors.textMuted
         }
 
         Row(
             modifier = Modifier.padding(vertical = 1.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = statusIcon, color = statusColor, fontSize = 12.sp)
+            when (item.status) {
+                "completed" -> Icon(
+                    imageVector = Tabler.Outline.Check,
+                    contentDescription = "Completed",
+                    modifier = Modifier.size(12.dp),
+                    tint = statusColor,
+                )
+                "in_progress" -> CircularProgressIndicator(modifier = Modifier.size(12.dp))
+                else -> Icon(
+                    imageVector = Tabler.Outline.Point,
+                    contentDescription = "Pending",
+                    modifier = Modifier.size(12.dp),
+                    tint = statusColor,
+                )
+            }
             Spacer(Modifier.width(6.dp))
             Text(
                 text = item.content,
-                color = JewelTheme.globalColors.text.info,
-                fontSize = 12.sp,
+                color = AppColors.textSecondary,
+                style = JewelTheme.typography.medium,
             )
         }
     }
@@ -468,8 +511,8 @@ private fun BatchDetails(details: ToolDetails.Batch) {
     val failureCount = details.results.count { !it.success }
     Text(
         text = "Batch: $successCount succeeded, $failureCount failed",
-        color = if (failureCount > 0) Color(0xFFEF5350) else Color(0xFF66BB6A),
-        fontSize = 12.sp,
+        color = if (failureCount > 0) AppColors.error else AppColors.success,
+        style = JewelTheme.typography.medium,
     )
 }
 
@@ -481,14 +524,13 @@ private fun CustomMessageView(message: CustomMessage) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(4.dp))
-                .background(Color(0x10808080))
+                .background(AppColors.subtleBackground)
                 .padding(8.dp),
         ) {
             Text(
                 text = text,
-                color = JewelTheme.globalColors.text.info,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
+                color = AppColors.textSecondary,
+                style = JewelTheme.consoleTextStyle,
             )
         }
     }
@@ -496,34 +538,16 @@ private fun CustomMessageView(message: CustomMessage) {
 
 @Composable
 private fun CompactionSummaryView(message: CompactionSummaryMessage) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
-            .background(Color(0x10808080))
-            .padding(8.dp),
-    ) {
-        Text(
-            text = "\u2702 Context compacted (${message.tokensBefore} tokens before)",
-            color = Color(0xFF9E9E9E),
-            fontStyle = FontStyle.Italic,
-        )
-    }
+    InlineInformationBanner(
+        text = "Context compacted (${message.tokensBefore} tokens before)",
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
 private fun BranchSummaryView(message: BranchSummaryMessage) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
-            .background(Color(0x10808080))
-            .padding(8.dp),
-    ) {
-        Text(
-            text = "\u2500 Branch summary: ${message.summary.take(120)}",
-            color = Color(0xFF9E9E9E),
-            fontStyle = FontStyle.Italic,
-        )
-    }
+    InlineInformationBanner(
+        text = "Branch summary: ${message.summary.take(120)}",
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
