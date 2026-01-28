@@ -1,7 +1,9 @@
 package co.agentmode.agent47.gui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldState
@@ -28,22 +31,33 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import co.agentmode.agent47.agent.core.AgentThinkingLevel
+import co.agentmode.agent47.ai.types.Model
+import co.agentmode.agent47.gui.theme.AppColors
 import co.agentmode.agent47.ui.core.editor.AutocompleteManager
 import co.agentmode.agent47.ui.core.editor.AutocompletePopupModel
 import co.agentmode.agent47.ui.core.editor.FileCompletionProvider
 import co.agentmode.agent47.ui.core.editor.SlashCommandCompletionProvider
+import com.woowla.compose.icon.collections.tabler.Tabler
+import com.woowla.compose.icon.collections.tabler.tabler.Outline
+import com.woowla.compose.icon.collections.tabler.tabler.outline.*
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
-import org.jetbrains.jewel.ui.component.DefaultButton
+import org.jetbrains.jewel.foundation.theme.JewelTheme
+import org.jetbrains.jewel.ui.Orientation
+import org.jetbrains.jewel.ui.typography
+import org.jetbrains.jewel.ui.component.Divider
+import org.jetbrains.jewel.ui.component.Icon
+import org.jetbrains.jewel.ui.component.IconButton
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.TextArea
 import java.nio.file.Path
@@ -56,6 +70,12 @@ public fun EditorPanel(
     slashCommands: List<String> = emptyList(),
     slashCommandDetails: Map<String, String> = emptyMap(),
     cwd: Path = Path.of("."),
+    modelLabel: String = "",
+    models: List<Model> = emptyList(),
+    selectedModelIndex: Int = -1,
+    onSelectModel: (Model) -> Unit = {},
+    thinkingLevel: AgentThinkingLevel = AgentThinkingLevel.OFF,
+    onSelectThinking: (AgentThinkingLevel) -> Unit = {},
 ) {
     val textFieldState = rememberTextFieldState()
     val autocompleteManager = remember(slashCommands, cwd) {
@@ -80,11 +100,14 @@ public fun EditorPanel(
     }
 
     val currentText = textFieldState.text.toString()
+    val hasText = currentText.isNotBlank()
     val bashMode = currentText.trimStart().startsWith("!")
-    val borderColor = if (bashMode) Color(0xFFEF5350) else Color(0xFF3C3C3C)
 
-    Column(modifier = modifier) {
-        // Autocomplete popup (above editor)
+    val cardShape = RoundedCornerShape(12.dp)
+    val borderColor = if (bashMode) AppColors.error.copy(alpha = 0.5f) else AppColors.border.copy(alpha = 0.3f)
+
+    Column(modifier = modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        // Autocomplete popup (above editor card)
         val currentPopup = popup
         if (currentPopup != null && currentPopup.items.isNotEmpty()) {
             AutocompleteDropdown(
@@ -97,12 +120,14 @@ public fun EditorPanel(
             )
         }
 
-        // Editor row
-        Row(
+        // Card container
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(borderColor.copy(alpha = 0.15f))
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .clip(cardShape)
+                .background(AppColors.surfaceSecondary)
+                .border(1.dp, borderColor, cardShape)
+                .padding(12.dp)
                 .onPreviewKeyEvent { keyEvent ->
                     if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
@@ -143,8 +168,8 @@ public fun EditorPanel(
                         return@onPreviewKeyEvent true
                     }
 
-                    // Ctrl+Enter also submits
-                    if (keyEvent.key == Key.Enter && keyEvent.isCtrlPressed) {
+                    // Ctrl+Enter or Cmd+Enter also submits
+                    if (keyEvent.key == Key.Enter && (keyEvent.isCtrlPressed || keyEvent.isMetaPressed)) {
                         val text = textFieldState.text.toString()
                         if (text.isNotBlank()) {
                             onSubmit(text)
@@ -155,11 +180,11 @@ public fun EditorPanel(
 
                     false
                 },
-            verticalAlignment = Alignment.Bottom,
         ) {
+            // TextArea
             TextArea(
                 state = textFieldState,
-                modifier = Modifier.weight(1f).height(80.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp, max = 200.dp),
                 placeholder = {
                     Text(
                         if (bashMode) "Shell command (! prefix)" else "Message Agent 47... (Enter to send, Shift+Enter for newline)"
@@ -167,17 +192,245 @@ public fun EditorPanel(
                 },
             )
 
-            DefaultButton(
-                modifier = Modifier.padding(start = 8.dp),
-                onClick = {
+            Spacer(Modifier.height(8.dp))
+
+            // Context bar
+            ContextBar(
+                modelLabel = modelLabel,
+                models = models,
+                selectedModelIndex = selectedModelIndex,
+                onSelectModel = onSelectModel,
+                thinkingLevel = thinkingLevel,
+                onSelectThinking = onSelectThinking,
+                hasText = hasText,
+                onSend = {
                     val text = textFieldState.text.toString()
                     if (text.isNotBlank()) {
                         onSubmit(text)
                         textFieldState.edit { replace(0, length, "") }
                     }
                 },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContextBar(
+    modelLabel: String,
+    models: List<Model>,
+    selectedModelIndex: Int,
+    onSelectModel: (Model) -> Unit,
+    thinkingLevel: AgentThinkingLevel,
+    onSelectThinking: (AgentThinkingLevel) -> Unit,
+    hasText: Boolean,
+    onSend: () -> Unit,
+) {
+    var modelDropdownVisible by remember { mutableStateOf(false) }
+    var thinkingPopupVisible by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // Add button (placeholder)
+        IconButton(
+            onClick = { },
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                imageVector = Tabler.Outline.Plus,
+                contentDescription = "Add",
+                modifier = Modifier.size(14.dp),
+                tint = AppColors.textMuted,
+            )
+        }
+
+        // Vertical divider
+        Divider(Orientation.Vertical, modifier = Modifier.height(20.dp))
+
+        // Model selector
+        Box {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { modelDropdownVisible = !modelDropdownVisible }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("Send")
+                Text(
+                    text = modelLabel,
+                    color = AppColors.textLight,
+                    style = JewelTheme.typography.small,
+                )
+                Icon(
+                    imageVector = Tabler.Outline.ChevronDown,
+                    contentDescription = "Select model",
+                    modifier = Modifier.size(12.dp),
+                    tint = AppColors.textMuted,
+                )
+            }
+
+            if (modelDropdownVisible) {
+                ModelDropdownPopup(
+                    models = models,
+                    selectedModelIndex = selectedModelIndex,
+                    onSelectModel = { model ->
+                        onSelectModel(model)
+                        modelDropdownVisible = false
+                    },
+                    onDismiss = { modelDropdownVisible = false },
+                )
+            }
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        // Thinking level button
+        Box {
+            val thinkingActive = thinkingLevel != AgentThinkingLevel.OFF
+            IconButton(
+                onClick = { thinkingPopupVisible = !thinkingPopupVisible },
+                modifier = Modifier.size(28.dp),
+            ) {
+                Icon(
+                    imageVector = Tabler.Outline.Bulb,
+                    contentDescription = "Thinking level",
+                    modifier = Modifier.size(14.dp),
+                    tint = if (thinkingActive) AppColors.warning else AppColors.textMuted,
+                )
+            }
+
+            if (thinkingPopupVisible) {
+                ThinkingLevelPopup(
+                    currentLevel = thinkingLevel,
+                    onSelectLevel = { level ->
+                        onSelectThinking(level)
+                        thinkingPopupVisible = false
+                    },
+                    onDismiss = { thinkingPopupVisible = false },
+                )
+            }
+        }
+
+        // Send button
+        val sendBackground = if (hasText) AppColors.warning else Color.Transparent
+        val sendTextColor = if (hasText) Color.Black else AppColors.textMuted
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(sendBackground)
+                .clickable(enabled = hasText) { onSend() }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "Send",
+                color = sendTextColor,
+                style = JewelTheme.defaultTextStyle.copy(fontWeight = FontWeight.Medium),
+            )
+            Text(
+                text = "\u2318\u21B5",
+                color = if (hasText) Color.Black.copy(alpha = 0.5f) else AppColors.textDim,
+                style = JewelTheme.typography.small,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelDropdownPopup(
+    models: List<Model>,
+    selectedModelIndex: Int,
+    onSelectModel: (Model) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Popup(
+        onDismissRequest = onDismiss,
+        alignment = Alignment.BottomStart,
+    ) {
+        Column(
+            modifier = Modifier
+                .width(320.dp)
+                .heightIn(max = 300.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(AppColors.surfaceElevated)
+                .border(1.dp, AppColors.border.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                .padding(4.dp),
+        ) {
+            models.forEachIndexed { index, model ->
+                val isSelected = index == selectedModelIndex
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isSelected) AppColors.selectionBackground else Color.Transparent)
+                        .clickable { onSelectModel(model) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = model.id,
+                        color = if (isSelected) Color.White else AppColors.textLight,
+                        style = JewelTheme.defaultTextStyle,
+                    )
+                    Text(
+                        text = model.provider.value,
+                        color = AppColors.textDim,
+                        style = JewelTheme.typography.small,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThinkingLevelPopup(
+    currentLevel: AgentThinkingLevel,
+    onSelectLevel: (AgentThinkingLevel) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Popup(
+        onDismissRequest = onDismiss,
+        alignment = Alignment.TopEnd,
+    ) {
+        Column(
+            modifier = Modifier
+                .width(180.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(AppColors.surfaceElevated)
+                .border(1.dp, AppColors.border.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                .padding(4.dp),
+        ) {
+            AgentThinkingLevel.entries.forEach { level ->
+                val isSelected = level == currentLevel
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isSelected) AppColors.warning.copy(alpha = 0.2f) else Color.Transparent)
+                        .clickable { onSelectLevel(level) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Tabler.Outline.Bulb,
+                        contentDescription = level.name,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (isSelected) AppColors.warning else AppColors.textMuted,
+                    )
+                    Text(
+                        text = level.name.lowercase(),
+                        color = if (isSelected) AppColors.warning else AppColors.textLight,
+                        style = JewelTheme.defaultTextStyle,
+                    )
+                }
             }
         }
     }
@@ -188,17 +441,19 @@ private fun AutocompleteDropdown(
     popup: AutocompletePopupModel,
     onSelect: (Int) -> Unit,
 ) {
+    val surfaceElevated = AppColors.surfaceElevated
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 4.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.6f)
                 .heightIn(max = 200.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF2B2B2B))
+                .background(surfaceElevated)
                 .padding(4.dp),
         ) {
             popup.items.forEachIndexed { index, item ->
@@ -207,25 +462,35 @@ private fun AutocompleteDropdown(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(4.dp))
-                        .background(if (isSelected) Color(0xFF3D5A80) else Color.Transparent)
+                        .background(if (isSelected) AppColors.selectionBackground else Color.Transparent)
                         .clickable { onSelect(index) }
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Type icon
+                    val isSlashCommand = item.label.startsWith("/")
+                    Icon(
+                        imageVector = if (isSlashCommand) Tabler.Outline.Terminal else Tabler.Outline.File,
+                        contentDescription = if (isSlashCommand) "Command" else "File",
+                        modifier = Modifier.size(12.dp),
+                        tint = if (isSelected) Color.White else AppColors.textDim,
+                    )
+                    Spacer(Modifier.width(6.dp))
+
                     Text(
                         text = item.label,
-                        color = if (isSelected) Color.White else Color(0xFFBBBBBB),
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) Color.White else AppColors.textLight,
+                        style = JewelTheme.editorTextStyle.copy(
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        ),
                     )
                     val detail = item.detail
                     if (detail != null) {
                         Spacer(Modifier.width(12.dp))
                         Text(
                             text = detail,
-                            color = Color(0xFF757575),
-                            fontSize = 11.sp,
+                            color = AppColors.textDim,
+                            style = JewelTheme.typography.small,
                             maxLines = 1,
                         )
                     }
