@@ -2,25 +2,20 @@ package co.agentmode.agent47.gui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,20 +35,24 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import co.agentmode.agent47.gui.theme.AppColors
 import co.agentmode.agent47.ui.core.state.InfoOverlayEntry
 import co.agentmode.agent47.ui.core.state.OverlayHostState
 import co.agentmode.agent47.ui.core.state.PromptOverlayEntry
 import co.agentmode.agent47.ui.core.state.ScrollableTextOverlayEntry
 import co.agentmode.agent47.ui.core.state.SelectDialogState
 import co.agentmode.agent47.ui.core.state.SelectOverlayEntry
+import org.jetbrains.jewel.foundation.theme.JewelTheme
+import org.jetbrains.jewel.ui.typography
+import org.jetbrains.jewel.ui.component.SimpleListItem
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.TextField
+import org.jetbrains.jewel.ui.component.VerticalScrollbar
+import org.jetbrains.jewel.ui.component.VerticallyScrollableContainer
 
 @Composable
 public fun GuiOverlayHost(
@@ -65,7 +64,7 @@ public fun GuiOverlayHost(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0x80000000))
+            .background(AppColors.dialogScrim)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Escape) {
                     state.dismissTop()
@@ -89,6 +88,8 @@ public fun GuiOverlayHost(
 
 @Composable
 private fun <T> SelectOverlayView(entry: SelectOverlayEntry<T>, hostState: OverlayHostState) {
+    val surfaceElevated = AppColors.surfaceElevated
+
     val dialogState = remember(entry.id) {
         SelectDialogState(entry.items, entry.initialSelectedIndex).also {
             entry.dialogState = it
@@ -102,7 +103,7 @@ private fun <T> SelectOverlayView(entry: SelectOverlayEntry<T>, hostState: Overl
             .fillMaxWidth(0.5f)
             .heightIn(max = 500.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF2B2B2B))
+            .background(surfaceElevated)
             .padding(16.dp)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -153,9 +154,8 @@ private fun <T> SelectOverlayView(entry: SelectOverlayEntry<T>, hostState: Overl
         // Title
         Text(
             text = entry.title,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
+            color = AppColors.textPrimary,
+            style = JewelTheme.typography.h4TextStyle,
         )
 
         Spacer(Modifier.height(8.dp))
@@ -200,63 +200,67 @@ private fun <T> SelectOverlayView(entry: SelectOverlayEntry<T>, hostState: Overl
             }
         }
 
+        Box(modifier = Modifier.fillMaxWidth().weight(1f, fill = false)) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             items(filteredIndices) { index ->
                 val item = entry.items[index]
                 val isSelected = index == dialogState.selectedIndex
                 val matchedPositions = dialogState.matchedPositions(index)
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isSelected) Color(0xFF3D5A80) else Color.Transparent)
-                        .clickable {
-                            dialogState.selectedIndex = index
-                            val value = dialogState.selectedValue()
-                            if (value != null) {
-                                entry.onSubmit(value)
-                                if (!entry.keepOpenOnSubmit) {
-                                    hostState.dismissTopSilent()
+                val clickModifier = Modifier.clickable {
+                    dialogState.selectedIndex = index
+                    val value = dialogState.selectedValue()
+                    if (value != null) {
+                        entry.onSubmit(value)
+                        if (!entry.keepOpenOnSubmit) {
+                            hostState.dismissTopSilent()
+                        }
+                    }
+                }
+
+                if (matchedPositions.isNotEmpty()) {
+                    val annotated = buildAnnotatedString {
+                        item.label.forEachIndexed { i, ch ->
+                            if (i in matchedPositions) {
+                                withStyle(SpanStyle(color = AppColors.info, fontWeight = FontWeight.Bold)) {
+                                    append(ch)
+                                }
+                            } else {
+                                withStyle(SpanStyle(color = if (isSelected) Color.White else AppColors.textLight)) {
+                                    append(ch)
                                 }
                             }
                         }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (matchedPositions.isNotEmpty()) {
-                        Text(
-                            text = buildAnnotatedString {
-                                item.label.forEachIndexed { i, ch ->
-                                    if (i in matchedPositions) {
-                                        withStyle(SpanStyle(color = Color(0xFF64B5F6), fontWeight = FontWeight.Bold)) {
-                                            append(ch)
-                                        }
-                                    } else {
-                                        withStyle(SpanStyle(color = if (isSelected) Color.White else Color(0xFFBBBBBB))) {
-                                            append(ch)
-                                        }
-                                    }
-                                }
-                            },
-                        )
-                    } else {
-                        Text(
-                            text = item.label,
-                            color = if (isSelected) Color.White else Color(0xFFBBBBBB),
-                        )
                     }
+                    SimpleListItem(
+                        text = annotated,
+                        selected = isSelected,
+                        modifier = clickModifier.fillMaxWidth(),
+                    )
+                } else {
+                    SimpleListItem(
+                        text = item.label,
+                        selected = isSelected,
+                        modifier = clickModifier.fillMaxWidth(),
+                    )
                 }
             }
+        }
+
+            VerticalScrollbar(
+                scrollState = listState,
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+            )
         }
     }
 }
 
 @Composable
 private fun PromptOverlayView(entry: PromptOverlayEntry, hostState: OverlayHostState) {
+    val surfaceElevated = AppColors.surfaceElevated
     val textFieldState = rememberTextFieldState()
     val focusRequester = remember { FocusRequester() }
 
@@ -264,7 +268,7 @@ private fun PromptOverlayView(entry: PromptOverlayEntry, hostState: OverlayHostS
         modifier = Modifier
             .fillMaxWidth(0.5f)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF2B2B2B))
+            .background(surfaceElevated)
             .padding(16.dp)
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -285,9 +289,8 @@ private fun PromptOverlayView(entry: PromptOverlayEntry, hostState: OverlayHostS
     ) {
         Text(
             text = entry.title,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
+            color = AppColors.textPrimary,
+            style = JewelTheme.typography.h4TextStyle,
         )
 
         val description = entry.description
@@ -295,8 +298,8 @@ private fun PromptOverlayView(entry: PromptOverlayEntry, hostState: OverlayHostS
             Spacer(Modifier.height(4.dp))
             Text(
                 text = description,
-                color = Color(0xFFAAAAAA),
-                fontSize = 12.sp,
+                color = AppColors.textDescription,
+                style = JewelTheme.typography.medium,
             )
         }
 
@@ -316,24 +319,25 @@ private fun PromptOverlayView(entry: PromptOverlayEntry, hostState: OverlayHostS
 
 @Composable
 private fun InfoOverlayView(entry: InfoOverlayEntry) {
+    val surfaceElevated = AppColors.surfaceElevated
+
     Column(
         modifier = Modifier
             .fillMaxWidth(0.5f)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF2B2B2B))
+            .background(surfaceElevated)
             .padding(16.dp),
     ) {
         Text(
             text = entry.title,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
+            color = AppColors.textPrimary,
+            style = JewelTheme.typography.h4TextStyle,
         )
         Spacer(Modifier.height(8.dp))
         entry.lines.forEach { line ->
             Text(
                 text = line,
-                color = Color(0xFFAAAAAA),
+                color = AppColors.textDescription,
             )
         }
     }
@@ -341,37 +345,36 @@ private fun InfoOverlayView(entry: InfoOverlayEntry) {
 
 @Composable
 private fun ScrollableTextOverlayView(entry: ScrollableTextOverlayEntry) {
+    val surfaceElevated = AppColors.surfaceElevated
+
     Column(
         modifier = Modifier
             .fillMaxWidth(0.6f)
             .heightIn(max = 600.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF2B2B2B))
+            .background(surfaceElevated)
             .padding(16.dp),
     ) {
         Text(
             text = entry.title,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
+            color = AppColors.textPrimary,
+            style = JewelTheme.typography.h4TextStyle,
         )
         Spacer(Modifier.height(8.dp))
 
-        val scrollState = rememberScrollState()
-
-        Column(
+        VerticallyScrollableContainer(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f, fill = false)
-                .verticalScroll(scrollState),
+                .weight(1f, fill = false),
         ) {
-            entry.lines.forEach { line ->
-                Text(
-                    text = line,
-                    color = Color(0xFFBBBBBB),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                )
+            Column {
+                entry.lines.forEach { line ->
+                    Text(
+                        text = line,
+                        color = AppColors.textLight,
+                        style = JewelTheme.consoleTextStyle,
+                    )
+                }
             }
         }
     }
