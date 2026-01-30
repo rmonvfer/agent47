@@ -3,25 +3,23 @@ package co.agentmode.agent47.gui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.application
 import co.agentmode.agent47.agent.core.AgentThinkingLevel
 import co.agentmode.agent47.ai.types.Message
@@ -39,17 +37,27 @@ import co.agentmode.agent47.coding.core.models.ProviderInfo
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.coding.core.tools.TodoState
+import co.agentmode.agent47.gui.theme.AppColors
 import co.agentmode.agent47.gui.components.ChatPanel
 import co.agentmode.agent47.gui.components.EditorPanel
 import co.agentmode.agent47.gui.components.GuiOverlayHost
-import co.agentmode.agent47.gui.components.GuiStatusBar
+
 import co.agentmode.agent47.gui.components.GuiTaskBar
+import co.agentmode.agent47.gui.components.SettingsDialog
 import co.agentmode.agent47.gui.components.Sidebar
 import co.agentmode.agent47.gui.theme.Agent47Theme
+import com.woowla.compose.icon.collections.tabler.Tabler
+import com.woowla.compose.icon.collections.tabler.tabler.Outline
+import com.woowla.compose.icon.collections.tabler.tabler.outline.Settings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.jewel.foundation.theme.JewelTheme
+import org.jetbrains.jewel.ui.component.HorizontalSplitLayout
+import org.jetbrains.jewel.ui.component.Icon
+import org.jetbrains.jewel.ui.component.IconButton
+import org.jetbrains.jewel.ui.component.SplitLayoutState
 import org.jetbrains.jewel.ui.component.Text
+import org.jetbrains.jewel.ui.component.rememberSplitLayoutState
 import org.jetbrains.jewel.window.DecoratedWindow
 import org.jetbrains.jewel.window.TitleBar
 import org.jetbrains.jewel.window.newFullscreenControls
@@ -129,13 +137,29 @@ public fun runGui(
 
                 // Title bar
                 TitleBar(Modifier.newFullscreenControls()) {
-                    Text(title, fontSize = 13.sp, color = Color(0xFFBBBBBB))
+                    Text(
+                        text = title,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        style = JewelTheme.defaultTextStyle,
+                    )
+                    IconButton(
+                        onClick = { controller.openSettingsOverlay() },
+                        modifier = Modifier.align(Alignment.End).size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = Tabler.Outline.Settings,
+                            contentDescription = "Settings",
+                            modifier = Modifier.size(14.dp),
+                            tint = AppColors.textMuted,
+                        )
+                    }
                 }
 
-                val backgroundColor = JewelTheme.globalColors.panelBackground
+                val backgroundColor = AppColors.panelBackground
+                val splitState = rememberSplitLayoutState(0.15f)
 
                 // Main layout: sidebar | chat area
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(backgroundColor)
@@ -215,59 +239,76 @@ public fun runGui(
                             }
                         },
                 ) {
-                    // Sidebar
-                    Sidebar(
-                        onNewSession = { controller.startNewSession() },
-                        onOpenSkills = { controller.openSkillsOverlay() },
-                        onOpenSettings = { controller.openSettingsOverlay() },
-                        loadSessionGroups = { controller.loadSessionGroups() },
-                        onLoadSession = { path -> controller.loadSessionByPath(path) },
-                        currentCwd = cwd.toString(),
-                        modifier = Modifier.fillMaxHeight(),
-                    )
-
-                    // Divider
-                    Box(Modifier.width(1.dp).fillMaxHeight().background(Color(0xFF27272A)))
-
-                    // Chat area (chat + task bar + editor + status bar)
-                    Column(Modifier.weight(1f).fillMaxHeight()) {
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            ChatPanel(
-                                state = controller.chatHistoryState,
-                                listState = chatListState,
-                                isStreaming = controller.isStreaming,
-                                activityLabel = controller.liveActivityLabel,
-                                cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
-                                modifier = Modifier.fillMaxSize(),
+                    HorizontalSplitLayout(
+                        first = {
+                            Sidebar(
+                                onNewSession = { controller.startNewSession() },
+                                onOpenSkills = { controller.openSkillsOverlay() },
+                                loadSessionGroups = { controller.loadSessionGroups() },
+                                onLoadSession = { path -> controller.loadSessionByPath(path) },
+                                currentCwd = cwd.toString(),
+                                modifier = Modifier.fillMaxHeight(),
                             )
-                        }
+                        },
+                        second = {
+                            Column(Modifier.fillMaxSize()) {
+                                Box(Modifier.weight(1f).fillMaxWidth()) {
+                                    ChatPanel(
+                                        state = controller.chatHistoryState,
+                                        listState = chatListState,
+                                        isStreaming = controller.isStreaming,
+                                        activityLabel = controller.liveActivityLabel,
+                                        cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
 
-                        GuiTaskBar(
-                            state = controller.taskBarState,
-                            isStreaming = controller.isStreaming,
-                            activityLabel = controller.liveActivityLabel,
-                        )
+                                GuiTaskBar(
+                                    state = controller.taskBarState,
+                                    isStreaming = controller.isStreaming,
+                                    activityLabel = controller.liveActivityLabel,
+                                )
 
-                        EditorPanel(
-                            modifier = Modifier.fillMaxWidth(),
-                            onSubmit = { text -> controller.handleSubmit(text.trimEnd(), scope) },
-                            slashCommands = controller.slashCommands.map { it.command },
-                            slashCommandDetails = controller.slashCommands.associate { spec ->
-                                spec.command.removePrefix("/") to spec.description
-                            },
-                            cwd = cwd,
-                        )
-
-                        // Status bar (only covers the chat section)
-                        GuiStatusBar(
-                            state = controller.statusBarState,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+                                EditorPanel(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onSubmit = { text -> controller.handleSubmit(text.trimEnd(), scope) },
+                                    slashCommands = controller.slashCommands.map { it.command },
+                                    slashCommandDetails = controller.slashCommands.associate { spec ->
+                                        spec.command.removePrefix("/") to spec.description
+                                    },
+                                    cwd = cwd,
+                                    modelLabel = controller.currentModel?.id ?: "No model",
+                                    models = controller.currentModels,
+                                    selectedModelIndex = controller.selectedModelIndex,
+                                    onSelectModel = { model -> controller.applyModel(model) },
+                                    thinkingLevel = controller.thinkingLevel,
+                                    onSelectThinking = { level -> controller.setThinkingLevel(level) },
+                                )
+                            }
+                        },
+                        firstPaneMinWidth = 160.dp,
+                        secondPaneMinWidth = 400.dp,
+                        state = splitState,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
 
                 // Overlay host (renders on top of everything)
                 GuiOverlayHost(state = controller.overlayHostState)
+
+                // Settings dialog
+                if (controller.settingsDialogVisible) {
+                    SettingsDialog(
+                        models = controller.currentModels,
+                        selectedModelIndex = controller.selectedModelIndex,
+                        thinkingLevel = controller.thinkingLevel,
+                        providers = controller.getProviders(),
+                        onSelectModel = { model -> controller.applyModel(model) },
+                        onSelectThinking = { level -> controller.setThinkingLevel(level) },
+                        onConnectProvider = { info -> controller.connectProvider(info) },
+                        onDismiss = { controller.settingsDialogVisible = false },
+                    )
+                }
             }
         }
     }
