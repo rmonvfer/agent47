@@ -7,15 +7,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import co.agentmode.agent47.gui.theme.AppColors
 import co.agentmode.agent47.ui.core.state.TaskBarState
+import com.woowla.compose.icon.collections.tabler.Tabler
+import com.woowla.compose.icon.collections.tabler.tabler.Outline
+import com.woowla.compose.icon.collections.tabler.tabler.outline.*
+import org.jetbrains.jewel.ui.Orientation
+import org.jetbrains.jewel.foundation.theme.JewelTheme
+import org.jetbrains.jewel.ui.typography
+import org.jetbrains.jewel.ui.component.CircularProgressIndicator
+import org.jetbrains.jewel.ui.component.Divider
+import org.jetbrains.jewel.ui.component.Icon
 import org.jetbrains.jewel.ui.component.Text
 
 @Composable
@@ -27,70 +36,74 @@ public fun GuiTaskBar(
 ) {
     if (!state.visible) return
 
+    Divider(Orientation.Horizontal, modifier = Modifier.fillMaxWidth())
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color(0x08FFFFFF))
+            .background(AppColors.taskBarBackground)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         // Header
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (isStreaming && activityLabel.isNotBlank()) {
-                val frames = listOf("\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F")
-                Text(
-                    text = frames[((System.currentTimeMillis() / 80) % frames.size).toInt()],
-                    color = Color(0xFF64B5F6),
-                    fontSize = 12.sp,
-                )
+                CircularProgressIndicator(modifier = Modifier.size(12.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = activityLabel,
-                    color = Color(0xFF64B5F6),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
+                    color = AppColors.info,
+                    style = JewelTheme.typography.medium.copy(fontWeight = FontWeight.Bold),
                 )
             } else {
                 Text(
                     text = "Tasks",
-                    color = Color(0xFF9E9E9E),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
+                    color = AppColors.textMuted,
+                    style = JewelTheme.typography.medium.copy(fontWeight = FontWeight.Bold),
                 )
             }
         }
 
         // Items
         state.items.forEach { item ->
-            val statusIcon = when (item.status) {
-                "completed" -> "\u2714"
-                "in_progress" -> "\u25CB"
-                else -> "\u2022"
-            }
             val statusColor = when (item.status) {
-                "completed" -> Color(0xFF66BB6A)
-                "in_progress" -> Color(0xFF64B5F6)
-                else -> Color(0xFF9E9E9E)
+                "completed" -> AppColors.success
+                "in_progress" -> AppColors.info
+                else -> AppColors.textMuted
             }
 
             Row(
                 modifier = Modifier.padding(start = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(text = statusIcon, color = statusColor, fontSize = 11.sp)
+                when (item.status) {
+                    "completed" -> Icon(
+                        imageVector = Tabler.Outline.Check,
+                        contentDescription = "Completed",
+                        modifier = Modifier.size(12.dp),
+                        tint = statusColor,
+                    )
+                    "in_progress" -> CircularProgressIndicator(modifier = Modifier.size(12.dp))
+                    else -> Icon(
+                        imageVector = Tabler.Outline.Circle,
+                        contentDescription = "Pending",
+                        modifier = Modifier.size(12.dp),
+                        tint = statusColor,
+                    )
+                }
                 Spacer(Modifier.width(6.dp))
                 if (item.priority.isNotBlank()) {
                     Text(
                         text = "[${item.priority}]",
-                        color = Color(0xFFFFA726),
-                        fontSize = 11.sp,
+                        color = AppColors.warning,
+                        style = JewelTheme.typography.small,
                     )
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
                     text = item.content,
-                    color = Color(0xFFBBBBBB),
-                    fontSize = 11.sp,
+                    color = AppColors.textLight,
+                    style = JewelTheme.typography.small,
                 )
             }
         }
