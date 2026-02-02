@@ -16,7 +16,6 @@ import co.agentmode.agent47.agent.core.ToolExecutionStartEvent
 import co.agentmode.agent47.agent.core.ToolExecutionUpdateEvent
 import co.agentmode.agent47.agent.core.TurnEndEvent
 import co.agentmode.agent47.ai.types.AssistantMessage
-import co.agentmode.agent47.ai.types.CompactionSummaryMessage
 import co.agentmode.agent47.ai.types.CustomMessage
 import co.agentmode.agent47.ai.types.Message
 import co.agentmode.agent47.ai.types.Model
@@ -138,6 +137,7 @@ internal class GuiAppController(
         private set
     var currentModels by mutableStateOf(availableModels)
         private set
+    var settingsDialogVisible by mutableStateOf(false)
 
     private var scope: CoroutineScope? = null
 
@@ -434,7 +434,7 @@ internal class GuiAppController(
             is ToolExecutionStartEvent -> {
                 toolArgumentsById[event.toolCallId] = event.arguments.toString()
                 liveActivityLabel = "Running ${event.toolName}"
-                chatHistoryState.updateToolExecution(
+                chatHistoryState.appendToolExecution(
                     ToolExecutionView(
                         toolCallId = event.toolCallId,
                         toolName = event.toolName,
@@ -821,37 +821,13 @@ internal class GuiAppController(
     }
 
     fun openSettingsOverlay() {
-        val options = listOf(
-            SelectItem("Model - choose model", SettingsAction.Model),
-            SelectItem("Provider - connect provider", SettingsAction.Provider),
-            SelectItem("Thinking - choose level", SettingsAction.Thinking),
-            SelectItem("Session - load session", SettingsAction.Session),
-            SelectItem("Commands - list slash cmds", SettingsAction.Commands),
-            SelectItem("Help - show shortcuts", SettingsAction.Help),
-            SelectItem("Exit", SettingsAction.Exit),
-        )
-        overlayHostState.push(
-            title = "Settings",
-            items = options,
-            selectedIndex = 0,
-            keepOpenOnSubmit = true,
-            onSubmit = { action ->
-                when (action) {
-                    SettingsAction.Model -> openModelOverlay()
-                    SettingsAction.Provider -> openProviderOverlay()
-                    SettingsAction.Thinking -> openThinkingOverlay()
-                    SettingsAction.Session -> openSessionOverlay()
-                    SettingsAction.Commands -> openCommandsOverlay()
-                    SettingsAction.Help -> appendCommandResult(helpText())
-                    SettingsAction.Exit -> {
-                        client.rawAgent().abort()
-                        currentPromptJob?.cancel(CancellationException("Exiting"))
-                        currentPromptJob = null
-                        kotlin.system.exitProcess(0)
-                    }
-                }
-            },
-        )
+        settingsDialogVisible = true
+    }
+
+    fun getProviders(): List<ProviderInfo> = getAllProviders()
+
+    fun connectProvider(info: ProviderInfo) {
+        startProviderAuth(info)
     }
 
     fun openMemoryOverlay() {
