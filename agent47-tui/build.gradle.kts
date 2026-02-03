@@ -11,7 +11,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("io.github.java-diff-utils:java-diff-utils:4.15")
-    implementation("com.jakewharton.mosaic:mosaic-runtime:0.18.0")
+    implementation("com.jakewharton.mosaic:mosaic-runtime:0.19.0-SNAPSHOT")
+    implementation("com.jakewharton.mosaic:mosaic-animation:0.19.0-SNAPSHOT")
+    implementation("org.commonmark:commonmark:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.24.0")
+    implementation("org.commonmark:commonmark-ext-autolink:0.24.0")
 
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
