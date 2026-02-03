@@ -29,6 +29,7 @@ public data class MosaicThemeColors(
  */
 public data class ThemeConfig(
     val colors: MosaicThemeColors = MosaicThemeColors(),
+    val background: Color = Color.Unspecified,
     val userMessageBg: Color = Color(35, 35, 35),
     val toolPendingBg: Color = Color(35, 35, 35),
     val toolSuccessBg: Color = Color(20, 20, 20),
@@ -200,6 +201,7 @@ internal val MosaicBubbleTheme = ThemeConfig(
         muted = TerminalColors.BRIGHT_BLACK,
         dim = TerminalColors.BRIGHT_BLACK,
     ),
+    background = TerminalColors.BG_BLACK,
     userMessageBg = TerminalColors.BG_CYAN,
     toolPendingBg = TerminalColors.BG_BRIGHT_BLACK,
     toolSuccessBg = TerminalColors.BG_BLACK,
@@ -298,6 +300,7 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
                 muted = textMuted.color,
                 dim = color("borderSubtle", rgb(72, 72, 72)).color,
             ),
+            background = background.color,
             userMessageBg = backgroundElement.color,
             toolPendingBg = backgroundElement.color,
             toolSuccessBg = background.color,
