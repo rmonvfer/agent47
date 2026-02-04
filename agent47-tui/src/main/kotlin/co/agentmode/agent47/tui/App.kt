@@ -40,6 +40,7 @@ import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import androidx.compose.runtime.CompositionLocalProvider
 import com.jakewharton.mosaic.LocalTerminalState
+import com.jakewharton.mosaic.layout.background
 import com.jakewharton.mosaic.layout.fillMaxWidth
 import com.jakewharton.mosaic.layout.height
 import com.jakewharton.mosaic.layout.onKeyEvent
@@ -48,12 +49,14 @@ import com.jakewharton.mosaic.runMosaicMain
 import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.text.withStyle
+import com.jakewharton.mosaic.layout.width
 import com.jakewharton.mosaic.ui.Box
 import com.jakewharton.mosaic.ui.Column
+import com.jakewharton.mosaic.ui.Filler
 import com.jakewharton.mosaic.ui.Text
+import com.jakewharton.mosaic.ui.isSpecifiedColor
 import co.agentmode.agent47.coding.core.tools.TodoState
 import kotlinx.coroutines.*
-import kotlinx.serialization.json.JsonObject
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -189,7 +192,10 @@ private fun Agent47AppContent(
     val mosaicTheme = LocalThemeConfig.current
     val terminalState = LocalTerminalState.current
     val width = terminalState.size.columns.coerceAtLeast(1)
-    val height = terminalState.size.rows.coerceAtLeast(4)
+    // Mosaic appends \r\n after every row including the last. When content fills
+    // the full terminal height, the trailing \r\n scrolls everything up by one row.
+    // Using rows-1 avoids this (same approach as Mosaic's own rrtop sample).
+    val height = (terminalState.size.rows - 1).coerceAtLeast(4)
     val promptScope = rememberCoroutineScope()
 
     // Mutable model list that updates when providers are connected
@@ -373,6 +379,7 @@ private fun Agent47AppContent(
             .indexOfFirst { it.id == model.id && it.provider == model.provider }
             .takeIf { it >= 0 }
             ?: selectedModelIndex
+
         if (recordSessionEntry) {
             activeSessionManager?.append(
                 ModelChangeEntry(
@@ -411,13 +418,6 @@ private fun Agent47AppContent(
             appendCommandResult("Thinking set to ${level.name.lowercase()}")
         }
         onSettingsChanged { it.copy(defaultThinkingLevel = level.name.lowercase()) }
-    }
-
-    fun parseThinkingLevel(value: String): AgentThinkingLevel {
-        return parseThinkingLevelOrNull(value) ?: run {
-            appendCommandResult("Unknown thinking level: $value")
-            thinkingLevel
-        }
     }
 
     fun tryExpandFileCommand(text: String): String? {
@@ -671,7 +671,7 @@ private fun Agent47AppContent(
         }
         val currentIndex = AVAILABLE_THEMES.indexOfFirst { it.config == activeTheme }
             .coerceAtLeast(0)
-        val previousTheme = activeTheme
+
         overlayHostState.push(
             title = "Theme",
             items = options,
@@ -680,7 +680,7 @@ private fun Agent47AppContent(
                 setActiveTheme(namedTheme.config)
                 onSettingsChanged { it.copy(theme = namedTheme.name) }
             },
-            onClose = { setActiveTheme(previousTheme) },
+            onClose = { setActiveTheme(activeTheme) },
             onSelectionChanged = { namedTheme -> setActiveTheme(namedTheme.config) },
         )
     }
@@ -764,8 +764,7 @@ private fun Agent47AppContent(
     // --- Compaction ---
 
     fun runCompaction() {
-        val model = currentModel
-        if (compactContext == null || model == null) {
+        if (compactContext == null || currentModel == null) {
             appendCommandResult("Compaction unavailable")
             return
         }
@@ -775,7 +774,7 @@ private fun Agent47AppContent(
             try {
                 val messages = client.rawAgent().state.messages
                 val estimate = estimateContextTokens(messages)
-                val result = compactContext.invoke(messages, model)
+                val result = compactContext.invoke(messages, currentModel)
                 if (result != null) {
                     val cutPoint = findCutPoint(messages, compactionSettings.keepRecentTokens)
                     val compacted = applyCompaction(
@@ -863,11 +862,10 @@ private fun Agent47AppContent(
                 compactionSettings.auto && compactionSettings.enabled &&
                 compactContext != null
             ) {
-                val activeModel = currentModel
-                if (activeModel != null) {
+                if (currentModel != null) {
                     val messages = client.rawAgent().state.messages
                     val estimate = estimateContextTokens(messages)
-                    if (shouldCompact(estimate.tokens, activeModel.contextWindow, compactionSettings)) {
+                    if (shouldCompact(estimate.tokens, currentModel.contextWindow, compactionSettings)) {
                         runCompaction()
                     }
                 }
@@ -1064,6 +1062,7 @@ private fun Agent47AppContent(
         modifier = Modifier
             .height(height)
             .fillMaxWidth()
+            .background(mosaicTheme.background)
             .onKeyEvent { event ->
                 if (overlayHostState.hasOverlay) {
                     // Let overlay handle via its own Modifier.onKeyEvent
@@ -1266,13 +1265,7 @@ private fun ActivityLine(
 private fun EditorBorder(width: Int, bashMode: Boolean = false) {
     val theme = LocalThemeConfig.current
     val color = if (bashMode) theme.colors.error else theme.colors.muted
-    Text(
-        buildAnnotatedString {
-            withStyle(SpanStyle(color = color)) {
-                append("─".repeat(width.coerceAtLeast(1)))
-            }
-        },
-    )
+    Filler('─', modifier = Modifier.width(width).height(1), foreground = color)
 }
 
 // ---------------------------------------------------------------------------
@@ -1340,7 +1333,7 @@ private fun handleAgentEvent(
         is ToolExecutionStartEvent -> {
             toolArgumentsById[event.toolCallId] = event.arguments.toString()
             setLiveActivityLabel("Running ${event.toolName}")
-            chatHistoryState.updateToolExecution(
+            chatHistoryState.appendToolExecution(
                 ToolExecutionView(
                     toolCallId = event.toolCallId,
                     toolName = event.toolName,
@@ -1953,6 +1946,19 @@ public fun runTui(
     // which shadows Mosaic's broken version that throws for codepoints outside ASCII.
     out.write("\u001b[?1049h\u001b[?25l\u001b[>1u".toByteArray())
     out.flush()
+
+    // Fill the alternate screen with the theme background color. Mosaic renders
+    // rows-1 rows of content (to avoid a scroll caused by the trailing \r\n it
+    // appends after every row). Pre-filling ensures the unused last terminal row
+    // matches the app background instead of showing the terminal's native color.
+    if (theme.background.isSpecifiedColor) {
+        val (r, g, b) = theme.background
+        val red = (r * 255).toInt()
+        val green = (g * 255).toInt()
+        val blue = (b * 255).toInt()
+        out.write("\u001b[48;2;${red};${green};${blue}m\u001b[2J\u001b[H\u001b[0m".toByteArray())
+        out.flush()
+    }
     try {
         runMosaicMain {
             Agent47App(
