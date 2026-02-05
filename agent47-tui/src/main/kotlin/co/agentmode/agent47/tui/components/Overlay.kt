@@ -58,6 +58,7 @@ public fun ModalSurface(
             .height(height)
             .drawBehind {
                 drawRect(background = theme.overlayBg, drawStyle = DrawStyle.Fill)
+                drawRect(foreground = theme.colors.muted, drawStyle = DrawStyle.Stroke(1))
             },
     ) {
         body()

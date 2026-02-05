@@ -33,7 +33,7 @@ public class DiffRenderer(
         unified.forEach { line: String ->
             val colored = colorLine(line)
             if (width > 0) {
-                output += wrapAnnotated(colored, width)
+                output += wrapAnnotatedRaw(colored, width)
             } else {
                 output += colored
             }
