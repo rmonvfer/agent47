@@ -1,0 +1,11 @@
+┌─────────┬────────┬───────────────────────────┐
+│ Feature │ Status │ Description               │
+├─────────┼────────┼───────────────────────────┤
+│ Core    │  Done  │ Basic agent functionality │
+│ Web UI  │   No   │ Not planned               │
+│ TUI     │  Done  │ Terminal user interface   │
+└─────────┴────────┴───────────────────────────┘
+
+# Blockquotes
+
+│ This is a quote
