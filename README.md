@@ -1,75 +1,83 @@
-# agent47
+<p align="center">
+  <!-- <img src="docs/assets/logo.png" width="120" alt="agent47 logo"> -->
+  <h1 align="center">agent47</h1>
+  <p align="center">An open-source, hackable agentic coding assistant.</p>
+</p>
 
-A lightweight, hackable agentic coding harness built with Kotlin.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://github.com/rmonvfer/agent47/releases/latest"><img src="https://img.shields.io/github/v/release/rmonvfer/agent47" alt="Latest Release"></a>
+  <a href="https://github.com/rmonvfer/agent47/actions/workflows/ci.yml"><img src="https://github.com/rmonvfer/agent47/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
-agent47 connects to any LLM provider (Anthropic, OpenAI, Google, Ollama, and others) and gives the model a set of coding tools, file reading, editing, writing, shell execution, grep, find, so it can work on your codebase autonomously. It runs as a native binary or on the JVM, with a full interactive terminal UI or a non-interactive print mode for scripting.
+<p align="center">
+  <!-- Replace with your terminal recording: drop a GIF at docs/assets/demo.gif -->
+  <img src="docs/assets/demo.gif" width="720" alt="agent47 terminal demo">
+</p>
 
-## What it can do
+---
 
-agent47 ships with core tools that let the model read files, make precise edits, write files, run shell commands, search with grep, find files by pattern, and list directories. The model picks the right tool for the job and works through multi-step tasks on its own.
+agent47 connects to any LLM provider and gives it coding tools — file reading, editing, shell execution, grep, glob — so it can work on your codebase autonomously. It ships as a single native binary with an interactive terminal UI.
 
-Sub-agents let the model delegate work. A top-level agent can spawn specialized sub-agents for exploration, planning, or executing isolated tasks. Each sub-agent gets its own conversation history and tool set but shares auth, models, and settings with the parent. Agent definitions are markdown files with YAML frontmatter, drop one into `.agent47/agents/` to define your own.
+## Install
 
-Skills are domain-specific knowledge files the model can load on demand. Place a `SKILL.md` in `.agent47/skills/your-skill/` and the model can read it via `skill://your-skill` when it needs that context. Skills appear in the system prompt so the model knows what's available without loading everything upfront.
+**Install script** (macOS and Linux):
 
-Slash commands are file-based prompt templates. Place a markdown file in `.agent47/commands/` and invoke it with `/commandname args`. Arguments are substituted into the template using `$1`, `$2`, and `$@` placeholders. Built-in commands handle model switching, thinking level, sessions, and settings.
-
-Model management supports multiple providers simultaneously. Configure custom models, API keys, and provider overrides in `~/.agent47/models.yml`. Ollama models are discovered automatically. Models can be switched on the fly in the interactive UI.
-
-Sessions persist conversation history to disk as JSONL files. You can continue previous sessions, and the model/thinking level state is restored along with the messages.
-
-## Goals
-
-**Hackable.** Everything is file-based and overridable. Agents, skills, and commands are markdown files you can edit, version, and share. Project-level overrides take precedence over user-level ones, which take precedence over bundled defaults.
-
-**Lightweight.** agent47 is a single binary (via GraalVM native image) or a JVM application. No Electron, no browser, no daemon. It starts fast and stays out of your way.
-
-**Multi-provider.** Swap between Anthropic, OpenAI, Google, Ollama, or any OpenAI-compatible API. The model abstraction is uniform, tools, thinking, and streaming work the same across providers.
-
-**Composable.** Sub-agents can spawn sub-agents. Skills compose with tools. Commands compose with the agent. The pieces are simple and they combine.
-
-## Non-goals
-
-**IDE replacement.** agent47 is a terminal tool. It doesn't provide syntax highlighting, LSP integration, or a file tree. Use it alongside your editor.
-
-**Framework or platform.** agent47 is an end-user tool, not a library for building other agents. The internal APIs exist to serve the harness, not as a public SDK.
-
-**Maximal feature surface.** Features that add complexity without clear value don't ship. The codebase should stay small enough that one person can understand all of it.
-
-## Quick start
-
-```
-./gradlew :agent47-app:run --args="'what files are in this project?'"
+```bash
+curl -fsSL https://agent47.co/install.sh | bash
 ```
 
-For interactive mode, run without arguments:
+**Homebrew**:
 
-```
-./gradlew :agent47-app:run
+```bash
+brew install rmonvfer/tap/agent47
 ```
 
-Build a native binary:
+**Build from source** (requires JDK 21):
 
-```
+```bash
+git clone https://github.com/rmonvfer/agent47.git
+cd agent47
 ./gradlew :agent47-app:nativeCompile
+# Binary at agent47-app/build/native/nativeCompile/agent47
 ```
 
-Set at least one API key in your environment: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`.
+## Quick Start
 
-## Extending agent47
+Set at least one API key:
 
-agent47 is designed to be extended without modifying source code. See the guides in [`docs/`](docs/) for details:
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+# or OPENAI_API_KEY, GEMINI_API_KEY, etc.
+```
 
-- [Agents](docs/agents.md) - define custom agents with their own system prompts, tools, and spawning policies
-- [Skills](docs/skills.md) - create domain-specific knowledge files that agents load on demand
-- [Commands](docs/commands.md) - write reusable prompt templates invoked with `/command args`
-- [Tools](docs/tools.md) - implement custom tools via the `AgentTool<T>` interface
-- [Extensions](docs/extensions.md) - programmatic hooks for intercepting and modifying agent behavior
-- [Configuration](docs/configuration.md) - settings, model configuration, authentication, and discovery hierarchy
+Run interactively:
+
+```bash
+agent47
+```
+
+Run a one-shot command:
+
+```bash
+agent47 "what files are in this project?"
+```
+
+## Features
+
+**Multi-provider.** agent47 works with Anthropic, OpenAI, Google, Ollama, and any OpenAI-compatible API. Switch between models at runtime. Configure custom model definitions, API keys, and provider overrides in `~/.agent47/models.yml`. Ollama models are discovered automatically.
+
+**Coding tools.** The model gets a set of tools for working with code: read files, make precise edits, write files, run shell commands, search with grep, find files by glob pattern, and list directories. It picks the right tool for each step and works through multi-step tasks on its own.
+
+**Sub-agents and skills.** A top-level agent can spawn specialized sub-agents for exploration, planning, or isolated tasks. Each sub-agent gets its own conversation and tool set. Skills are domain-specific knowledge files the model loads on demand — drop a markdown file into `.agent47/skills/` and the model can pull it in when it needs that context.
+
+**Interactive TUI.** The terminal UI renders markdown, displays diffs, and supports theming. Sessions persist to disk as JSONL so you can pick up where you left off. Slash commands provide quick access to model switching, session management, and custom prompt templates.
+
+**Hackable and extensible.** Everything is file-based and overridable. Agents, skills, and commands are markdown files you can edit, version, and share. Project-level configuration takes precedence over user-level, which takes precedence over bundled defaults. The codebase is small enough that one person can understand all of it.
 
 ## Configuration
 
-Global config lives in `~/.agent47/`. Project-level config lives in `.agent47/` at your project root. Project settings override global settings.
+Global configuration lives in `~/.agent47/`. Project-level configuration lives in `.agent47/` at your project root. Project settings override global settings.
 
 | Path | Purpose |
 |------|---------|
@@ -83,30 +91,33 @@ Global config lives in `~/.agent47/`. Project-level config lives in `.agent47/` 
 | `.agent47/skills/*/SKILL.md` | Project-level skills |
 | `.agent47/commands/*.md` | Project-level slash commands |
 
-## Module structure
+See [docs/configuration.md](docs/configuration.md) for full details.
 
-The project is split into Gradle modules organized in layers, where each layer depends only on the ones below it.
+## Documentation
 
-**agent47-ai-types** contains all foundational data types: messages, content blocks, models, events, streaming primitives. It has no internal dependencies and no runtime behavior, so modules that only need to describe or display AI data can depend on it without pulling in HTTP clients or provider logic.
+- [Agents](docs/agents.md) — define custom agents with their own system prompts, tools, and spawning policies
+- [Skills](docs/skills.md) — create domain-specific knowledge files that agents load on demand
+- [Commands](docs/commands.md) — write reusable prompt templates invoked with `/command args`
+- [Tools](docs/tools.md) — implement custom tools via the `AgentTool<T>` interface
+- [Extensions](docs/extensions.md) — programmatic hooks for intercepting and modifying agent behavior
+- [Configuration](docs/configuration.md) — settings, model configuration, authentication, and discovery hierarchy
 
-**agent47-ai-core** is the AI runtime. It owns the `ApiRegistry` (provider plugin system), `HttpTransport`, tool validation, token overflow handling, and message transforms. Providers register themselves here but are implemented elsewhere.
+## How Is This Different?
 
-**agent47-ai-providers** implements all LLM provider integrations: Anthropic, OpenAI (and OpenAI-compatible APIs), and Google. Each provider lives in its own package but shares a single module since they have identical dependencies and are always deployed together.
+**vs Claude Code.** Claude Code is a proprietary tool locked to Anthropic's models. agent47 is open-source, works with any provider, and is designed to be extended through file-based configuration. You can define custom agents, skills, and commands without modifying source code.
 
-**agent47-agent-core** is the agentic execution engine. It contains the `Agent` state machine, the multi-turn `AgentLoop` (tool calling, steering, follow-ups), and the `AgentTool<T>` interface. It knows how to orchestrate LLM calls and tool execution but has no opinion about what tools exist.
+**vs Cursor / Windsurf.** These are full IDE forks with AI bolted on. agent47 is a terminal tool that works alongside your editor of choice. It's lighter, faster to start, and doesn't require you to switch editors.
 
-**agent47-coding-core** is the domain layer for coding. This is where tool implementations live (`BashTool`, `EditTool`, `ReadTool`, `GrepTool`, etc.), along with sub-agent execution, model resolution, auth, slash commands, skills, settings, sessions, and compaction. It is the thickest module and the one most likely to grow.
+**vs OpenCode.** Similar space, different trade-offs. agent47 is built in Kotlin with a native binary option, has a richer sub-agent and skills system, and uses a layered module architecture. OpenCode is Go-based and more minimal.
 
-**agent47-ext-core** provides extension utilities that bridge agent-core and coding-core.
+## Contributing
 
-**agent47-tui** is the terminal UI, built with Mosaic (Compose for terminal). It handles chat rendering, the input editor, markdown/diff rendering, and theming.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding conventions, and the PR process.
 
-**agent47-app** is the CLI entry point. It wires providers, models, and settings together and launches either the interactive TUI or non-interactive print mode.
+## Security
 
-**agent47-model-generator** is a standalone build-time tool that generates Kotlin model definitions from JSON schemas.
-
-**agent47-test-fixtures** provides shared test utilities and mock objects.
+See [SECURITY.md](SECURITY.md) for the threat model and vulnerability reporting instructions.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

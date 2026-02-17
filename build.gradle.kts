@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "co.agentmode"
-version = "0.1.0-SNAPSHOT"
+version = "0.1.0"
 
 allprojects {
     group = rootProject.group
