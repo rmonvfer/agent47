@@ -4,8 +4,8 @@ Contributions are welcome. This document covers the basics of getting set up, ma
 
 ## Prerequisites
 
-- **JDK 21** — [JetBrains Runtime](https://github.com/JetBrains/JetBrains-Runtime) is recommended, but any JDK 21 distribution works.
-- **Git** — for cloning and version control.
+- **JDK 21** - [JetBrains Runtime](https://github.com/JetBrains/JetBrains-Runtime) is recommended, but any JDK 21 distribution works.
+- **Git** - for cloning and version control.
 - The Gradle wrapper (`./gradlew`) handles everything else. You do not need to install Gradle separately.
 
 ## Getting Started
@@ -40,15 +40,15 @@ Build a native binary (requires GraalVM):
 
 agent47 is a multi-module Gradle project. The modules form a layered architecture where each layer depends only on the ones below it:
 
-- **agent47-ai-types** — data models (messages, content blocks, tool definitions)
-- **agent47-ai-core** — AI runtime, provider registry, HTTP transport
-- **agent47-ai-providers** — LLM provider implementations (Anthropic, OpenAI, Google)
-- **agent47-agent-core** — agentic loop, tool execution, state management
-- **agent47-coding-core** — coding tools, sub-agents, skills, configuration
-- **agent47-ext-core** — extension handling
-- **agent47-ui-core** — shared UI state
-- **agent47-tui** — terminal user interface
-- **agent47-app** — CLI entry point
+- **agent47-ai-types** - data models (messages, content blocks, tool definitions)
+- **agent47-ai-core** - AI runtime, provider registry, HTTP transport
+- **agent47-ai-providers** - LLM provider implementations (Anthropic, OpenAI, Google)
+- **agent47-agent-core** - agentic loop, tool execution, state management
+- **agent47-coding-core** - coding tools, sub-agents, skills, configuration
+- **agent47-ext-core** - extension handling
+- **agent47-ui-core** - shared UI state
+- **agent47-tui** - terminal user interface
+- **agent47-app** - CLI entry point
 
 For detailed architecture information, see the [README](README.md).
 
