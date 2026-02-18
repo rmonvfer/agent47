@@ -1,4 +1,7 @@
 import org.gradle.jvm.toolchain.JavaLanguageVersion
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 
 plugins {
     id("agent47.kotlin-application-conventions")
@@ -52,6 +55,9 @@ tasks.withType<AbstractCopyTask> {
 graalvmNative {
     binaries {
         named("main") {
+            // Force a fat classpath JAR so the stripping task below can remove
+            // multi-release FFM entries before native-image processes the classpath.
+            useFatJar.set(true)
             imageName.set("agent47")
             mainClass.set("co.agentmode.agent47.app.MainKt")
             javaLauncher.set(
@@ -63,5 +69,34 @@ graalvmNative {
             buildArgs.add("--no-fallback")
             buildArgs.add("-H:+ReportExceptionStackTraces")
         }
+    }
+}
+
+// Mosaic's multi-release JAR ships FFM/Panama bindings under META-INF/versions/22/ that
+// replace the JNI bindings on JDK 22+. GraalVM 25 picks up the FFM path, but FFM downcalls
+// require explicit registration in reachability-metadata.json for every function descriptor
+// (and Mosaic doesn't ship those registrations). Stripping the version-22 entries from the
+// native image classpath JAR forces Mosaic to use its JNI fallback, which GraalVM handles
+// without additional configuration.
+tasks.named("nativeCompileClasspathJar") {
+    doLast {
+        val jar = outputs.files.singleFile
+        val tmpJar = File(jar.parentFile, "${jar.name}.tmp")
+
+        ZipFile(jar).use { zip ->
+            ZipOutputStream(tmpJar.outputStream()).use { zos ->
+                for (entry in zip.entries()) {
+                    if (entry.name.startsWith("META-INF/versions/")) continue
+                    zos.putNextEntry(ZipEntry(entry.name))
+                    if (!entry.isDirectory) {
+                        zip.getInputStream(entry).use { it.copyTo(zos) }
+                    }
+                    zos.closeEntry()
+                }
+            }
+        }
+
+        jar.delete()
+        tmpJar.renameTo(jar)
     }
 }
