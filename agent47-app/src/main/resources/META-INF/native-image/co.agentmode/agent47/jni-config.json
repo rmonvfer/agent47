@@ -1,0 +1,11 @@
+[
+  {
+    "name": "com.jakewharton.mosaic.tty.Tty$Callback",
+    "methods": [
+      {"name": "onFocus", "parameterTypes": ["boolean"]},
+      {"name": "onKey", "parameterTypes": []},
+      {"name": "onMouse", "parameterTypes": []},
+      {"name": "onResize", "parameterTypes": ["int", "int", "int", "int"]}
+    ]
+  }
+]
