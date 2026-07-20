@@ -37,60 +37,68 @@ public class SettingsManager private constructor(
 
     public companion object {
         public fun create(globalPath: Path, projectPath: Path): SettingsManager {
-            val global = loadFromFile(globalPath) ?: Settings()
-            val project = loadFromFile(projectPath)
-            val merged = merge(global, project)
-            return SettingsManager(merged, global, globalPath, projectPath)
+            val globalPatch = loadPatch(globalPath)
+            val projectPatch = loadPatch(projectPath)
+            val merged = materialize(globalPatch, projectPatch)
+            // The global-only view is what save() persists, so a project scope never leaks globally.
+            val globalOnly = materialize(globalPatch, null)
+            return SettingsManager(merged, globalOnly, globalPath, projectPath)
         }
 
         public fun inMemory(settings: Settings = Settings()): SettingsManager {
             return SettingsManager(settings, settings, null, null)
         }
 
-        private fun loadFromFile(path: Path): Settings? {
+        private fun loadPatch(path: Path): SettingsPatch? {
             if (!path.exists()) return null
             return runCatching {
-                Agent47Json.decodeFromString(Settings.serializer(), path.readText())
+                Agent47Json.decodeFromString(SettingsPatch.serializer(), path.readText())
             }.getOrNull()
         }
 
-        private fun merge(global: Settings?, project: Settings?): Settings {
-            if (global == null && project == null) return Settings()
-            if (global == null) return project!!
-            if (project == null) return global
-
+        // Deep-merge two scopes: a null field takes the other scope's value, and nested
+        // compaction/retry merge field-by-field so an absent object doesn't reset the other scope.
+        private fun materialize(global: SettingsPatch?, project: SettingsPatch?): Settings {
+            val defaults = Settings()
             return Settings(
-                defaultProvider = project.defaultProvider ?: global.defaultProvider,
-                defaultModel = project.defaultModel ?: global.defaultModel,
-                defaultThinkingLevel = project.defaultThinkingLevel ?: global.defaultThinkingLevel,
-                compaction = mergeCompaction(global.compaction, project.compaction),
-                retry = mergeRetry(global.retry, project.retry),
-                shellPath = project.shellPath ?: global.shellPath,
-                shellCommandPrefix = project.shellCommandPrefix ?: global.shellCommandPrefix,
-                modelRoles = global.modelRoles + project.modelRoles,
-                taskMaxRecursionDepth = project.taskMaxRecursionDepth,
-                theme = project.theme ?: global.theme,
-                showUsageFooter = project.showUsageFooter ?: global.showUsageFooter,
-                instructions = global.instructions + project.instructions,
+                defaultProvider = project?.defaultProvider ?: global?.defaultProvider,
+                defaultModel = project?.defaultModel ?: global?.defaultModel,
+                defaultThinkingLevel = project?.defaultThinkingLevel ?: global?.defaultThinkingLevel,
+                compaction = mergeCompaction(global?.compaction, project?.compaction),
+                retry = mergeRetry(global?.retry, project?.retry),
+                shellPath = project?.shellPath ?: global?.shellPath,
+                shellCommandPrefix = project?.shellCommandPrefix ?: global?.shellCommandPrefix,
+                modelRoles = (global?.modelRoles ?: emptyMap()) + (project?.modelRoles ?: emptyMap()),
+                taskMaxRecursionDepth = project?.taskMaxRecursionDepth
+                    ?: global?.taskMaxRecursionDepth
+                    ?: defaults.taskMaxRecursionDepth,
+                theme = project?.theme ?: global?.theme,
+                showUsageFooter = project?.showUsageFooter ?: global?.showUsageFooter,
+                instructions = (global?.instructions ?: emptyList()) + (project?.instructions ?: emptyList()),
             )
         }
 
-        private fun mergeCompaction(global: CompactionSettings, project: CompactionSettings): CompactionSettings {
+        private fun mergeCompaction(
+            global: CompactionSettingsPatch?,
+            project: CompactionSettingsPatch?,
+        ): CompactionSettings {
+            val d = CompactionSettings()
             return CompactionSettings(
-                enabled = project.enabled,
-                auto = project.auto,
-                prune = project.prune,
-                reserveTokens = project.reserveTokens,
-                keepRecentTokens = project.keepRecentTokens,
+                enabled = project?.enabled ?: global?.enabled ?: d.enabled,
+                auto = project?.auto ?: global?.auto ?: d.auto,
+                prune = project?.prune ?: global?.prune ?: d.prune,
+                reserveTokens = project?.reserveTokens ?: global?.reserveTokens ?: d.reserveTokens,
+                keepRecentTokens = project?.keepRecentTokens ?: global?.keepRecentTokens ?: d.keepRecentTokens,
             )
         }
 
-        private fun mergeRetry(global: RetrySettings, project: RetrySettings): RetrySettings {
+        private fun mergeRetry(global: RetrySettingsPatch?, project: RetrySettingsPatch?): RetrySettings {
+            val d = RetrySettings()
             return RetrySettings(
-                enabled = project.enabled,
-                maxRetries = project.maxRetries,
-                baseDelayMs = project.baseDelayMs,
-                maxDelayMs = project.maxDelayMs,
+                enabled = project?.enabled ?: global?.enabled ?: d.enabled,
+                maxRetries = project?.maxRetries ?: global?.maxRetries ?: d.maxRetries,
+                baseDelayMs = project?.baseDelayMs ?: global?.baseDelayMs ?: d.baseDelayMs,
+                maxDelayMs = project?.maxDelayMs ?: global?.maxDelayMs ?: d.maxDelayMs,
             )
         }
     }

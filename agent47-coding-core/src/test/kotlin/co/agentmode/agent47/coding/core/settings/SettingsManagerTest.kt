@@ -275,6 +275,30 @@ class SettingsManagerTest {
     }
 
     @Test
+    fun `project scope without compaction or depth preserves global values`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        globalPath.writeText(
+            """
+            {
+              "compaction": { "keepRecentTokens": 9999, "reserveTokens": 4242 },
+              "taskMaxRecursionDepth": 7
+            }
+            """.trimIndent(),
+        )
+        // Project file exists but sets only an unrelated field.
+        projectPath.writeText("""{ "defaultModel": "openai/gpt-5.1" }""")
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        assertEquals(9999, manager.get().compaction.keepRecentTokens)
+        assertEquals(4242, manager.get().compaction.reserveTokens)
+        assertEquals(7, manager.get().taskMaxRecursionDepth)
+        assertEquals("openai/gpt-5.1", manager.get().defaultModel)
+    }
+
+    @Test
     fun `loads theme and showUsageFooter`() {
         val dir = createTempDirectory("settings-test")
         val globalPath = dir.resolve("global-settings.json")
