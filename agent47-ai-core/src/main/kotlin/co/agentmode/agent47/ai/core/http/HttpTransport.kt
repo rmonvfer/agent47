@@ -5,9 +5,10 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.future.await
 import kotlin.concurrent.thread
 
@@ -73,57 +74,75 @@ public class HttpTransport(
             builder.header(name, value)
         }
 
-        val response = client.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofLines()).await()
+        // ofInputStream so the reading thread can be unblocked by closing the body when the
+        // collector goes away; ofLines would leave the daemon thread draining the whole response.
+        val response = client.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofInputStream()).await()
         val statusCode = response.statusCode()
-        val lines = response.body()
+        val body = response.body()
 
-        val channel = Channel<SseEvent>(Channel.UNLIMITED)
+        val events = callbackFlow {
+            val reader = body.bufferedReader()
+            val parser = thread(name = "agent47-sse-parser", isDaemon = true) {
+                try {
+                    var currentEvent: String? = null
+                    var dataLines = mutableListOf<String>()
 
-        thread(name = "agent47-sse-parser", isDaemon = true) {
-            try {
-                var currentEvent: String? = null
-                var dataLines = mutableListOf<String>()
-
-                lines.forEach { line ->
-                    when {
-                        line.startsWith("event:") -> {
-                            currentEvent = line.removePrefix("event:").trim()
-                        }
-                        line.startsWith("data:") -> {
-                            dataLines.add(line.removePrefix("data:").trimStart())
-                        }
-                        line.startsWith(":") -> {
-                            // SSE comment, ignore
-                        }
-                        line.isBlank() -> {
-                            if (dataLines.isNotEmpty()) {
-                                val data = dataLines.joinToString("\n")
-                                if (data != "[DONE]") {
-                                    channel.trySend(SseEvent(event = currentEvent, data = data))
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        when {
+                            line.startsWith("event:") -> {
+                                currentEvent = line.removePrefix("event:").trim()
+                            }
+                            line.startsWith("data:") -> {
+                                dataLines.add(line.removePrefix("data:").trimStart())
+                            }
+                            line.startsWith(":") -> {
+                                // SSE comment, ignore
+                            }
+                            line.isBlank() -> {
+                                if (dataLines.isNotEmpty()) {
+                                    val data = dataLines.joinToString("\n")
+                                    if (data != "[DONE]") {
+                                        // trySendBlocking applies backpressure: the parser blocks
+                                        // when the bounded buffer is full instead of buffering the
+                                        // entire response in memory.
+                                        trySendBlocking(SseEvent(event = currentEvent, data = data))
+                                    }
+                                    currentEvent = null
+                                    dataLines = mutableListOf()
                                 }
-                                currentEvent = null
-                                dataLines = mutableListOf()
+                            }
+                            else -> {
+                                // Non-SSE line (e.g. JSON error body). Capture as a raw event
+                                // so handleSseError can include it in the error message.
+                                trySendBlocking(SseEvent(event = null, data = line))
                             }
                         }
-                        else -> {
-                            // Non-SSE line (e.g. JSON error body). Capture as a raw event
-                            // so handleSseError can include it in the error message.
-                            channel.trySend(SseEvent(event = null, data = line))
+                    }
+
+                    if (dataLines.isNotEmpty()) {
+                        val data = dataLines.joinToString("\n")
+                        if (data != "[DONE]") {
+                            trySendBlocking(SseEvent(event = currentEvent, data = data))
                         }
                     }
+                } catch (_: Throwable) {
+                    // Reader closed or an IO error (e.g. the collector cancelled and closed the
+                    // body); end the flow instead of surfacing the interruption.
+                } finally {
+                    close()
                 }
+            }
 
-                if (dataLines.isNotEmpty()) {
-                    val data = dataLines.joinToString("\n")
-                    if (data != "[DONE]") {
-                        channel.trySend(SseEvent(event = currentEvent, data = data))
-                    }
-                }
-            } finally {
-                channel.close()
+            awaitClose {
+                // Collector cancelled or the flow completed: unblock the parser and release the
+                // socket so an aborted request stops consuming the network stream.
+                runCatching { body.close() }
+                runCatching { reader.close() }
+                parser.interrupt()
             }
         }
 
-        return SseResponse(statusCode = statusCode, events = channel.receiveAsFlow())
+        return SseResponse(statusCode = statusCode, events = events)
     }
 }
