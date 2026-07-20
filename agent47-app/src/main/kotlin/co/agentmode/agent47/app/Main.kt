@@ -338,6 +338,7 @@ class Agent47Command :
                 instructionFiles = instructionLoader.load(),
                 compactContext = compactContext,
                 compactionSettings = settings.get().compaction,
+                backgroundAgents = backgroundAgents,
             )
         }
     }
@@ -667,6 +668,7 @@ class Agent47Command :
         instructionFiles: List<InstructionFile> = emptyList(),
         compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
         compactionSettings: co.agentmode.agent47.coding.core.compaction.CompactionSettings = co.agentmode.agent47.coding.core.compaction.CompactionSettings(),
+        backgroundAgents: BackgroundAgents,
     ) {
         val resolvedTheme = settingsManager.get().theme?.let { name ->
             AVAILABLE_THEMES.firstOrNull { it.name == name }?.config
@@ -701,6 +703,7 @@ class Agent47Command :
             instructionFiles = instructionFiles,
             compactContext = compactContext,
             compactionSettings = compactionSettings,
+            backgroundAgents = backgroundAgents,
         )
     }
 

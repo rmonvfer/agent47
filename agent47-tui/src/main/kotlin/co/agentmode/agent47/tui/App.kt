@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import co.agentmode.agent47.agent.core.*
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.coding.core.agents.BackgroundAgents
 import co.agentmode.agent47.coding.core.compaction.CompactionResult
 import co.agentmode.agent47.coding.core.compaction.CompactionSettings
 import co.agentmode.agent47.coding.core.compaction.applyCompaction
@@ -136,6 +137,7 @@ internal fun Agent47App(
     instructionFiles: List<InstructionFile> = emptyList(),
     compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
     compactionSettings: CompactionSettings = CompactionSettings(),
+    backgroundAgents: BackgroundAgents? = null,
 ) {
     var activeTheme by remember { mutableStateOf(theme) }
     CompositionLocalProvider(LocalThemeConfig provides activeTheme) {
@@ -163,6 +165,7 @@ internal fun Agent47App(
             instructionFiles = instructionFiles,
             compactContext = compactContext,
             compactionSettings = compactionSettings,
+            backgroundAgents = backgroundAgents,
         )
     }
 }
@@ -192,6 +195,7 @@ private fun Agent47AppContent(
     instructionFiles: List<InstructionFile> = emptyList(),
     compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
     compactionSettings: CompactionSettings = CompactionSettings(),
+    backgroundAgents: BackgroundAgents? = null,
 ) {
     val mosaicTheme = LocalThemeConfig.current
     val terminalState = LocalTerminalState.current
@@ -321,7 +325,9 @@ private fun Agent47AppContent(
     val activityHeight = if (isStreaming && !taskBarState.visible) 2 else 0
     val marginHeight = 1
     val borderHeight = 2
-    val historyHeight = max(1, height - statusHeight - borderHeight - popupHeight - baseInputHeight - activityHeight - taskBarHeight - marginHeight)
+    val runningAgents = backgroundAgents?.runningStatus().orEmpty()
+    val backgroundPanelHeight = if (runningAgents.isEmpty()) 0 else runningAgents.size + 1
+    val historyHeight = max(1, height - statusHeight - borderHeight - popupHeight - baseInputHeight - activityHeight - taskBarHeight - marginHeight - backgroundPanelHeight)
 
     // --- Helper lambdas (closures over state) ---
 
@@ -365,6 +371,7 @@ private fun Agent47AppContent(
     fun startNewSession() {
         currentPromptJob?.cancel(CancellationException("Starting new session"))
         currentPromptJob = null
+        backgroundAgents?.cancelAll()
         client.rawAgent().clearMessages()
         chatHistoryState.entries.clear()
         toolArgumentsById.clear()
@@ -894,6 +901,17 @@ private fun Agent47AppContent(
         }
     }
 
+    // Keep the background-agents panel (and its elapsed times) live while agents run, even
+    // when the main loop is idle between turns.
+    if (backgroundAgents != null) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(250L)
+                if (backgroundAgents.hasRunning()) spinnerFrame++
+            }
+        }
+    }
+
     // --- Render the editor ---
 
     // Read editorVersion to trigger recomposition when the editor state changes.
@@ -1202,6 +1220,9 @@ private fun Agent47AppContent(
                     spinnerFrame = spinnerFrame,
                     activityLabel = liveActivityLabel,
                 )
+
+                // Live background sub-agents launched via the task tool
+                BackgroundAgentsPanel(agents = runningAgents, width = width)
 
                 // Margin between chat area and editor border
                 Text("")
@@ -1976,6 +1997,7 @@ public fun runTui(
     instructionFiles: List<InstructionFile> = emptyList(),
     compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
     compactionSettings: CompactionSettings = CompactionSettings(),
+    backgroundAgents: BackgroundAgents? = null,
 ) {
     val out = System.out
     val restoreTerminal = "\u001b[<u\u001b[?25h\u001b[?1049l"
@@ -2034,6 +2056,7 @@ public fun runTui(
                 instructionFiles = instructionFiles,
                 compactContext = compactContext,
                 compactionSettings = compactionSettings,
+                backgroundAgents = backgroundAgents,
             )
         }
     } catch (e: UnsupportedOperationException) {
