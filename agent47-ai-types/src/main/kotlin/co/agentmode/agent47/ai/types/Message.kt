@@ -40,6 +40,17 @@ public data class ThinkingContent(
     val thinkingSignature: String? = null,
 ) : ContentBlock
 
+/**
+ * Opaque, encrypted thinking that a provider (Anthropic) redacted for safety. The [data] is not
+ * human-readable but must be preserved and replayed verbatim on the next turn.
+ */
+@Serializable
+@SerialName("redacted_thinking")
+public data class RedactedThinkingContent(
+    override val type: String = "redacted_thinking",
+    val data: String,
+) : ContentBlock
+
 @Serializable
 @SerialName("image")
 public data class ImageContent(

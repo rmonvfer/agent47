@@ -9,6 +9,7 @@ import co.agentmode.agent47.ai.types.ContentBlock
 import co.agentmode.agent47.ai.types.CustomMessage
 import co.agentmode.agent47.ai.types.ImageContent
 import co.agentmode.agent47.ai.types.Message
+import co.agentmode.agent47.ai.types.RedactedThinkingContent
 import co.agentmode.agent47.ai.types.ThinkingContent
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.ToolCall
@@ -515,6 +516,10 @@ private fun encodeContent(content: List<ContentBlock>): JsonArray = buildJsonArr
                     put("type", "thinking")
                     put("thinking", block.thinking)
                     put("thinkingSignature", block.thinkingSignature?.let(::JsonPrimitive) ?: JsonNull)
+                }
+                is RedactedThinkingContent -> buildJsonObject {
+                    put("type", "redacted_thinking")
+                    put("data", block.data)
                 }
                 is ImageContent -> buildJsonObject {
                     put("type", "image")

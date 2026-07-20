@@ -24,6 +24,7 @@ import co.agentmode.agent47.ai.types.Context
 import co.agentmode.agent47.ai.types.CustomMessage
 import co.agentmode.agent47.ai.types.KnownApis
 import co.agentmode.agent47.ai.types.Model
+import co.agentmode.agent47.ai.types.RedactedThinkingContent
 import co.agentmode.agent47.ai.types.SimpleStreamOptions
 import co.agentmode.agent47.ai.types.StartEvent
 import co.agentmode.agent47.ai.types.StopReason
@@ -130,6 +131,14 @@ public class AnthropicMessagesProvider(
                             currentToolName = contentBlock["name"]?.jsonPrimitive?.contentOrNull
                             currentPartialJson = StringBuilder()
                             stream.push(ToolCallStartEvent(contentIndex = index, partial = acc.buildPartial()))
+                        }
+                        "redacted_thinking" -> {
+                            // Delivered whole (no deltas); preserve the opaque data so it can be
+                            // replayed on the next turn.
+                            val data = contentBlock["data"]?.jsonPrimitive?.contentOrNull ?: ""
+                            if (data.isNotEmpty()) {
+                                acc.blocks += RedactedThinkingContent(data = data)
+                            }
                         }
                     }
                 }
@@ -337,6 +346,11 @@ private fun buildPayload(model: Model, context: Context, options: StreamOptions?
                                                     put("thinking", JsonPrimitive(block.thinking))
                                                     // Anthropic requires the original signature to replay a thinking block.
                                                     block.thinkingSignature?.let { put("signature", JsonPrimitive(it)) }
+                                                })
+
+                                                is RedactedThinkingContent -> add(buildJsonObject {
+                                                    put("type", JsonPrimitive("redacted_thinking"))
+                                                    put("data", JsonPrimitive(block.data))
                                                 })
 
                                                 is ToolCall -> add(buildJsonObject {
