@@ -75,6 +75,17 @@ public class MultiEditTool(
             val normalizedOld = normalizeToLf(oldText)
             val normalizedNew = normalizeToLf(newText)
 
+            if (normalizedOld.isEmpty()) {
+                return AgentToolResult(
+                    content = listOf(
+                        TextContent(
+                            text = "Error: Edit $index failed - oldText must not be empty. No edits were applied.",
+                        ),
+                    ),
+                    details = null,
+                )
+            }
+
             val match = fuzzyFindText(currentContent, normalizedOld)
             if (!match.found) {
                 return AgentToolResult(
@@ -104,10 +115,8 @@ public class MultiEditTool(
                 )
             }
 
-            val base = match.contentForReplacement
-            val edited =
-                base.substring(0, match.index) + normalizedNew + base.substring(match.index + match.matchLength)
-            if (base == edited) {
+            val edited = applyMatchedReplacement(currentContent, match, normalizedNew)
+            if (currentContent == edited) {
                 return AgentToolResult(
                     content = listOf(
                         TextContent(

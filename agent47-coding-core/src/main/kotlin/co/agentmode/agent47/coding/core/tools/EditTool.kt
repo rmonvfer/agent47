@@ -44,6 +44,8 @@ public class EditTool(
         val normalizedOld = normalizeToLf(oldText)
         val normalizedNew = normalizeToLf(newText)
 
+        require(normalizedOld.isNotEmpty()) { "oldText must not be empty in $path." }
+
         val match = fuzzyFindText(normalizedContent, normalizedOld)
         require(match.found) {
             "Could not find the exact text in $path. The old text must match exactly including all whitespace and newlines."
@@ -56,9 +58,8 @@ public class EditTool(
             "Found $occurrences occurrences of the text in $path. The text must be unique. Please provide more context."
         }
 
-        val base = match.contentForReplacement
-        val edited = base.substring(0, match.index) + normalizedNew + base.substring(match.index + match.matchLength)
-        require(base != edited) {
+        val edited = applyMatchedReplacement(normalizedContent, match, normalizedNew)
+        require(normalizedContent != edited) {
             "No changes made to $path. The replacement produced identical content."
         }
 
@@ -67,7 +68,7 @@ public class EditTool(
             Files.writeString(absolutePath, final)
         }
 
-        val diff = generateDiffString(base, edited)
+        val diff = generateDiffString(normalizedContent, edited)
         val details = buildJsonObject {
             put("diff", diff.diff)
             diff.firstChangedLine?.let { put("firstChangedLine", it) }

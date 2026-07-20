@@ -131,6 +131,28 @@ class EditDiffTest {
         assertEquals(3, result.matchLength)
     }
 
+    // --- applyMatchedReplacement ---
+
+    @Test
+    fun `applyMatchedReplacement splices an exact match`() {
+        val match = fuzzyFindText("hello world", "world")
+        assertEquals("hello there", applyMatchedReplacement("hello world", match, "there"))
+    }
+
+    @Test
+    fun `applyMatchedReplacement fuzzy edit preserves untouched lines exactly`() {
+        // Lines 0 and 2 carry an em-dash and trailing whitespace that whole-file
+        // normalization would mangle; line 1 requires a fuzzy match (smart quotes).
+        val original = "first — line   \nedit “target” now\nlast — one  "
+        val match = fuzzyFindText(original, "edit \"target\" now")
+        assertTrue(match.usedFuzzyMatch)
+
+        val result = applyMatchedReplacement(original, match, "edit \"target\" DONE")
+
+        val expected = "first — line   \nedit \"target\" DONE\nlast — one  "
+        assertEquals(expected, result)
+    }
+
     // --- stripBom ---
 
     @Test
