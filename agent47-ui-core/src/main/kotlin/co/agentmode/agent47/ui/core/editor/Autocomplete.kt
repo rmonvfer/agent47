@@ -87,49 +87,68 @@ public class FileCompletionProvider(
     private val root: Path,
     private val walkLimit: Int = 5_000,
     private val resultLimit: Int = 100,
+    private val cacheTtlMs: Long = 5_000,
 ) : AutocompleteProvider {
+    // The file listing is cached and reused for the (short) TTL. Walking the tree per keystroke on
+    // the UI thread froze the editor in large repos; filtering a cached list is cheap.
+    private val lock = Any()
+    private var cachedCandidates: List<String> = emptyList()
+    private var cacheTimestampMs: Long = 0
+    private var cacheLoaded: Boolean = false
+
     override fun supports(trigger: Char): Boolean = trigger == '@'
 
     override fun complete(context: CompletionContext): List<CompletionItem> {
         val query = context.query
-        val results = mutableListOf<CompletionItem>()
+        return candidates().asSequence()
+            .filter { query.isBlank() || it.startsWith(query, ignoreCase = true) }
+            .sortedWith(compareBy<String> { it.length }.thenComparing(String.CASE_INSENSITIVE_ORDER))
+            .take(resultLimit)
+            .map { candidate ->
+                val isDirectory = candidate.endsWith('/')
+                CompletionItem(
+                    label = "@$candidate",
+                    insertText = "@$candidate",
+                    detail = if (isDirectory) "directory" else "file",
+                    kind = CompletionItemKind.File,
+                )
+            }
+            .toList()
+    }
 
-        try {
+    private fun candidates(): List<String> {
+        synchronized(lock) {
+            val now = System.currentTimeMillis()
+            if (cacheLoaded && now - cacheTimestampMs < cacheTtlMs) {
+                return cachedCandidates
+            }
+            cachedCandidates = walk()
+            cacheTimestampMs = now
+            cacheLoaded = true
+            return cachedCandidates
+        }
+    }
+
+    private fun walk(): List<String> {
+        return try {
             Files.walk(root).use { stream ->
-                val candidates = stream
-                    .limit(walkLimit.toLong())
+                stream
                     .filter { it != root }
+                    .filter { path ->
+                        val relative = path.relativeTo(root)
+                        relative.none { segment -> segment.toString() == "node_modules" || segment.toString() == ".git" }
+                    }
                     .filter { Files.isRegularFile(it) || Files.isDirectory(it) }
+                    .limit(walkLimit.toLong())
                     .map { path ->
                         val relative = path.relativeTo(root).toString().replace('\\', '/')
-                        val isDirectory = Files.isDirectory(path)
-                        if (isDirectory) "$relative/" else relative
+                        if (Files.isDirectory(path)) "$relative/" else relative
                     }
-                    .filter { candidate ->
-                        query.isBlank() || candidate.startsWith(query, ignoreCase = true)
-                    }
-                    .sorted(
-                        Comparator.comparingInt<String> { it.length }
-                            .thenComparing(String.CASE_INSENSITIVE_ORDER),
-                    )
-                    .limit(resultLimit.toLong())
                     .toList()
-
-                for (candidate in candidates) {
-                    val isDirectory = candidate.endsWith('/')
-                    results += CompletionItem(
-                        label = "@$candidate",
-                        insertText = "@$candidate",
-                        detail = if (isDirectory) "directory" else "file",
-                        kind = CompletionItemKind.File,
-                    )
-                }
             }
         } catch (_: Exception) {
-            return emptyList()
+            emptyList()
         }
-
-        return results
     }
 }
 
