@@ -250,6 +250,7 @@ private fun Agent47AppContent(
     var ctrlCArmed by remember { mutableStateOf(false) }
     var spinnerFrame by remember { mutableIntStateOf(0) }
     var editorVersion by remember { mutableIntStateOf(0) }
+    val promptHistory = remember { mutableListOf<String>() }
     var liveActivityLabel by remember { mutableStateOf("Thinking") }
     val taskBarState = remember { TaskBarState() }
     var thinkingLevel by remember { mutableStateOf(initialThinkingLevel) }
@@ -1100,6 +1101,9 @@ private fun Agent47AppContent(
                         editorVersion++
                         return@onKeyEvent true
                     }
+                    // Record the submission so Up-arrow / Ctrl+P recall previous prompts.
+                    promptHistory.add(text)
+                    editor.setHistory(promptHistory.toList())
                     editor.setText("")
                     editorVersion++
                     handleSubmit(
