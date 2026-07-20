@@ -5,6 +5,7 @@ import co.agentmode.agent47.ai.core.http.HttpTransport
 import co.agentmode.agent47.ai.core.providers.ApiProvider
 import co.agentmode.agent47.ai.core.providers.StreamAccumulator
 import co.agentmode.agent47.ai.core.providers.contentOrNull
+import co.agentmode.agent47.ai.core.providers.emitError
 import co.agentmode.agent47.ai.core.providers.emitStreamFinale
 import co.agentmode.agent47.ai.core.providers.handleSseError
 import co.agentmode.agent47.ai.core.providers.intOrNull
@@ -86,6 +87,7 @@ public class AnthropicMessagesProvider(
         var currentPartialJson = StringBuilder()
         var currentText = StringBuilder()
         var currentThinking = StringBuilder()
+        var currentSignature = StringBuilder()
 
         sseResponse.events.collect { sseEvent ->
             val eventType = sseEvent.event ?: return@collect
@@ -109,20 +111,21 @@ public class AnthropicMessagesProvider(
                     val blockType = contentBlock?.get("type")?.jsonPrimitive?.contentOrNull
 
                     currentBlockIndex = index
+                    // Always track the current block type so content_block_stop finalizes the
+                    // right block; an unhandled type must not reuse the previous block's type.
+                    currentBlockType = blockType
 
                     when (blockType) {
                         "text" -> {
-                            currentBlockType = "text"
                             currentText = StringBuilder()
                             stream.push(TextStartEvent(contentIndex = index, partial = acc.buildPartial()))
                         }
                         "thinking" -> {
-                            currentBlockType = "thinking"
                             currentThinking = StringBuilder()
+                            currentSignature = StringBuilder()
                             stream.push(ThinkingStartEvent(contentIndex = index, partial = acc.buildPartial()))
                         }
                         "tool_use" -> {
-                            currentBlockType = "tool_use"
                             currentToolId = contentBlock["id"]?.jsonPrimitive?.contentOrNull
                             currentToolName = contentBlock["name"]?.jsonPrimitive?.contentOrNull
                             currentPartialJson = StringBuilder()
@@ -151,6 +154,10 @@ public class AnthropicMessagesProvider(
                             currentPartialJson.append(partialJson)
                             stream.push(ToolCallDeltaEvent(contentIndex = currentBlockIndex, delta = partialJson, partial = acc.buildPartial()))
                         }
+                        "signature_delta" -> {
+                            // The thinking signature is required to replay thinking blocks on the next turn.
+                            currentSignature.append(delta["signature"]?.jsonPrimitive?.contentOrNull ?: "")
+                        }
                     }
                 }
 
@@ -165,8 +172,9 @@ public class AnthropicMessagesProvider(
                         }
                         "thinking" -> {
                             val thinking = currentThinking.toString()
+                            val signature = currentSignature.toString().ifEmpty { null }
                             if (thinking.isNotBlank()) {
-                                acc.blocks += ThinkingContent(thinking = thinking)
+                                acc.blocks += ThinkingContent(thinking = thinking, thinkingSignature = signature)
                             }
                             stream.push(ThinkingEndEvent(contentIndex = currentBlockIndex, content = thinking, partial = acc.buildPartial()))
                         }
@@ -198,6 +206,14 @@ public class AnthropicMessagesProvider(
                 "message_stop" -> {
                     emitStreamFinale(stream, acc)
                 }
+
+                "error" -> {
+                    // Anthropic reports overloaded/rate-limit and other mid-stream failures as an
+                    // error event; surface it instead of silently ending without a response.
+                    val message = data["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+                        ?: sseEvent.data
+                    emitError(stream, model, "Anthropic stream error: $message")
+                }
             }
         }
     }
@@ -217,6 +233,7 @@ private fun mapStopReason(reason: String?): StopReason {
         "max_tokens" -> StopReason.LENGTH
         "tool_use" -> StopReason.TOOL_USE
         "stop_sequence" -> StopReason.STOP
+        "refusal" -> StopReason.ERROR
         else -> StopReason.STOP
     }
 }
@@ -295,6 +312,8 @@ private fun buildPayload(model: Model, context: Context, options: StreamOptions?
                                                 is ThinkingContent -> add(buildJsonObject {
                                                     put("type", JsonPrimitive("thinking"))
                                                     put("thinking", JsonPrimitive(block.thinking))
+                                                    // Anthropic requires the original signature to replay a thinking block.
+                                                    block.thinkingSignature?.let { put("signature", JsonPrimitive(it)) }
                                                 })
 
                                                 is ToolCall -> add(buildJsonObject {
