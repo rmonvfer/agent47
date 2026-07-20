@@ -3,6 +3,7 @@ package co.agentmode.agent47.agent.core
 import co.agentmode.agent47.ai.types.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicReference
 
 public data class AgentOptions(
@@ -69,6 +70,8 @@ public enum class QueueMode {
  * turn completes. [abort] forcefully stops the loop by interrupting its thread.
  */
 public class Agent(options: AgentOptions = AgentOptions()) {
+    // Mutated from both the loop's collector coroutine and abort() on a foreign thread.
+    @Volatile
     private var stateValue: AgentState = AgentState(
         systemPrompt = options.initialState?.systemPrompt ?: "",
         model = options.initialState?.model ?: defaultModel(),
@@ -81,7 +84,9 @@ public class Agent(options: AgentOptions = AgentOptions()) {
         error = null,
     )
 
-    private val listeners: MutableSet<(AgentEvent) -> Unit> = linkedSetOf()
+    // CopyOnWriteArraySet so emit() can iterate while abort()/subscribe() run on another thread.
+    private val listeners: MutableSet<(AgentEvent) -> Unit> = CopyOnWriteArraySet()
+    private val queueLock = Any()
     private val steeringQueue: MutableList<Message> = mutableListOf()
     private val followUpQueue: MutableList<Message> = mutableListOf()
 
@@ -148,11 +153,11 @@ public class Agent(options: AgentOptions = AgentOptions()) {
     }
 
     public fun steer(message: Message) {
-        steeringQueue.add(message)
+        synchronized(queueLock) { steeringQueue.add(message) }
     }
 
     public fun followUp(message: Message) {
-        followUpQueue.add(message)
+        synchronized(queueLock) { followUpQueue.add(message) }
     }
 
     public fun clearMessages() {
@@ -160,8 +165,10 @@ public class Agent(options: AgentOptions = AgentOptions()) {
     }
 
     public fun clearQueues() {
-        steeringQueue.clear()
-        followUpQueue.clear()
+        synchronized(queueLock) {
+            steeringQueue.clear()
+            followUpQueue.clear()
+        }
     }
 
     /**
@@ -231,12 +238,12 @@ public class Agent(options: AgentOptions = AgentOptions()) {
         require(messages.isNotEmpty()) { "No messages to continue from" }
 
         if (messages.last().role == "assistant") {
-            val steering = dequeueMessages()
+            val steering = dequeueSteeringMessages()
             if (steering.isNotEmpty()) {
                 runLoop(steering, skipInitialSteeringPoll = true)
                 return
             }
-            val followUp = dequeueMessages()
+            val followUp = dequeueFollowUpMessages()
             if (followUp.isNotEmpty()) {
                 runLoop(followUp)
                 return
@@ -281,11 +288,11 @@ public class Agent(options: AgentOptions = AgentOptions()) {
                     skipInitialSteering = false
                     emptyList()
                 } else {
-                    dequeueMessages()
+                    dequeueSteeringMessages()
                 }
             },
             getFollowUpMessages = {
-                dequeueMessages()
+                dequeueFollowUpMessages()
             },
         )
 
@@ -378,20 +385,21 @@ public class Agent(options: AgentOptions = AgentOptions()) {
         }
     }
 
-    private fun dequeueMessages(): List<Message> {
-        return when (followUpMode) {
-            QueueMode.ONE_AT_A_TIME -> {
-                if (followUpQueue.isEmpty()) {
-                    emptyList()
-                } else {
-                    listOf(followUpQueue.removeAt(0))
-                }
-            }
+    private fun dequeueSteeringMessages(): List<Message> = drainQueue(steeringQueue, steeringMode)
 
-            QueueMode.ALL -> {
-                val messages = followUpQueue.toList()
-                followUpQueue.clear()
-                messages
+    private fun dequeueFollowUpMessages(): List<Message> = drainQueue(followUpQueue, followUpMode)
+
+    private fun drainQueue(queue: MutableList<Message>, mode: QueueMode): List<Message> {
+        return synchronized(queueLock) {
+            when (mode) {
+                QueueMode.ONE_AT_A_TIME ->
+                    if (queue.isEmpty()) emptyList() else listOf(queue.removeAt(0))
+
+                QueueMode.ALL -> {
+                    val messages = queue.toList()
+                    queue.clear()
+                    messages
+                }
             }
         }
     }

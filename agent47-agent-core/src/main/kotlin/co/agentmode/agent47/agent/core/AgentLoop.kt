@@ -166,14 +166,21 @@ private suspend fun runLoop(
 
             val toolResults = mutableListOf<ToolResultMessage>()
             if (hasMoreToolCalls) {
-                val toolExecution = executeToolCalls(
-                    tools = currentContext.tools,
-                    assistantMessage = assistantMessage,
-                    stream = stream,
-                    getSteeringMessages = config.getSteeringMessages,
-                )
-                toolResults.addAll(toolExecution.toolResults)
-                steeringAfterTools = toolExecution.steeringMessages
+                if (assistantMessage.stopReason == StopReason.LENGTH) {
+                    // The output was cut off by the token limit, so every tool call may carry
+                    // silently truncated arguments. Fail them all instead of executing calls
+                    // whose salvaged JSON happens to parse.
+                    toolResults.addAll(failToolCallsFromTruncatedMessage(assistantMessage, stream))
+                } else {
+                    val toolExecution = executeToolCalls(
+                        tools = currentContext.tools,
+                        assistantMessage = assistantMessage,
+                        stream = stream,
+                        getSteeringMessages = config.getSteeringMessages,
+                    )
+                    toolResults.addAll(toolExecution.toolResults)
+                    steeringAfterTools = toolExecution.steeringMessages
+                }
                 toolResults.forEach { toolResult ->
                     currentContext.messages.add(toolResult)
                     newMessages.add(toolResult)
@@ -297,6 +304,43 @@ private data class ToolExecutionResult(
     val toolResults: List<ToolResultMessage>,
     val steeringMessages: List<Message>?,
 )
+
+/**
+ * Fail every tool call from an assistant message that was truncated by the output token limit.
+ * Streamed arguments are finalized with a best-effort JSON salvage parser, so a truncated message
+ * can yield tool calls whose arguments parse yet are silently incomplete; none are safe to execute.
+ * Each is reported as an error so the model can re-issue it with complete arguments.
+ */
+private suspend fun failToolCallsFromTruncatedMessage(
+    assistantMessage: AssistantMessage,
+    stream: EventStream<AgentEvent, List<Message>>,
+): List<ToolResultMessage> {
+    val toolCalls = assistantMessage.content.filterIsInstance<ToolCall>()
+    val results = mutableListOf<ToolResultMessage>()
+    for (toolCall in toolCalls) {
+        stream.push(ToolExecutionStartEvent(toolCall.id, toolCall.name, toolCall.arguments))
+        val message =
+            "Tool call \"${toolCall.name}\" was not executed: the response hit the output token limit, " +
+                "so its arguments may be truncated. Re-issue the tool call with complete arguments."
+        val executionResult = AgentToolResult(
+            content = listOf(TextContent(text = message)),
+            details = buildJsonObject { },
+        )
+        stream.push(ToolExecutionEndEvent(toolCall.id, toolCall.name, executionResult, true))
+        val resultMessage = ToolResultMessage(
+            toolCallId = toolCall.id,
+            toolName = toolCall.name,
+            content = executionResult.content,
+            details = executionResult.details as? JsonObject,
+            isError = true,
+            timestamp = System.currentTimeMillis(),
+        )
+        results.add(resultMessage)
+        stream.push(MessageStartEvent(resultMessage))
+        stream.push(MessageEndEvent(resultMessage))
+    }
+    return results
+}
 
 private suspend fun executeToolCalls(
     tools: List<AgentTool<*>>,
