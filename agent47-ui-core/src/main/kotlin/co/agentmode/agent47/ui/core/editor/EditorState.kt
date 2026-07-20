@@ -203,8 +203,16 @@ public class EditorState(initialText: String = "") {
                 column = 0
                 break
             }
-            while (i >= 0 && isWordChar(text[i])) {
-                i--
+            // Consume a run of the same class as the character under the cursor: either word
+            // characters or a punctuation run. Without the punctuation branch the cursor stalls.
+            if (isWordChar(text[i])) {
+                while (i >= 0 && isWordChar(text[i])) {
+                    i--
+                }
+            } else {
+                while (i >= 0 && !text[i].isWhitespace() && !isWordChar(text[i])) {
+                    i--
+                }
             }
             column = i + 1
             break
@@ -230,8 +238,16 @@ public class EditorState(initialText: String = "") {
             while (i < text.length && text[i].isWhitespace()) {
                 i++
             }
-            while (i < text.length && isWordChar(text[i])) {
-                i++
+            // Consume a run of the same class as the character under the cursor: either word
+            // characters or a punctuation run. Without the punctuation branch the cursor stalls.
+            if (i < text.length && isWordChar(text[i])) {
+                while (i < text.length && isWordChar(text[i])) {
+                    i++
+                }
+            } else {
+                while (i < text.length && !text[i].isWhitespace() && !isWordChar(text[i])) {
+                    i++
+                }
             }
             column = i
             break

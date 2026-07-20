@@ -154,7 +154,14 @@ public object WordWrap {
         val result = mutableListOf<String>()
         var start = 0
         while (start < text.length) {
-            val end = (start + width).coerceAtMost(text.length)
+            var end = (start + width).coerceAtMost(text.length)
+            // Never split a UTF-16 surrogate pair across segments; push the whole pair to the next
+            // segment. The end > start + 1 guard keeps the segment non-empty so we can't loop forever.
+            if (end < text.length && end > start + 1 &&
+                Character.isHighSurrogate(text[end - 1]) && Character.isLowSurrogate(text[end])
+            ) {
+                end -= 1
+            }
             result += text.substring(start, end)
             start = end
         }
