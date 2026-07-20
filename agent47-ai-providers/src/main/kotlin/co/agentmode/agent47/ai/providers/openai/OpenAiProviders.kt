@@ -121,7 +121,7 @@ public class OpenAiCompletionsProvider(
                     ThinkingDeltaEvent(
                         contentIndex = thinkingContentIndex,
                         delta = reasoningDelta,
-                        partial = acc.buildPartial()
+                        partial = acc.buildPartialWith(ThinkingContent(thinking = thinkingBuffer.toString()))
                     )
                 )
             }
@@ -135,7 +135,11 @@ public class OpenAiCompletionsProvider(
                 }
                 textBuffer.append(textDelta)
                 stream.push(
-                    TextDeltaEvent(contentIndex = textContentIndex, delta = textDelta, partial = acc.buildPartial())
+                    TextDeltaEvent(
+                        contentIndex = textContentIndex,
+                        delta = textDelta,
+                        partial = acc.buildPartialWith(TextContent(text = textBuffer.toString()))
+                    )
                 )
             }
 
@@ -159,7 +163,7 @@ public class OpenAiCompletionsProvider(
                             ToolCallDeltaEvent(
                                 contentIndex = tcAcc.contentIndex,
                                 delta = argsDelta,
-                                partial = acc.buildPartial()
+                                partial = acc.buildPartialWith(ToolCall(id = tcAcc.id, name = tcAcc.name))
                             )
                         )
                     }
@@ -323,7 +327,7 @@ public class OpenAiResponsesProvider(
                         TextDeltaEvent(
                             contentIndex = acc.blocks.size,
                             delta = delta,
-                            partial = acc.buildPartial()
+                            partial = acc.buildPartialWith(TextContent(text = textBuffer.toString()))
                         )
                     )
                 }
@@ -339,7 +343,7 @@ public class OpenAiResponsesProvider(
                         ThinkingDeltaEvent(
                             contentIndex = acc.blocks.size,
                             delta = delta,
-                            partial = acc.buildPartial()
+                            partial = acc.buildPartialWith(ThinkingContent(thinking = thinkingBuffer.toString()))
                         )
                     )
                 }
@@ -355,7 +359,9 @@ public class OpenAiResponsesProvider(
                         ToolCallDeltaEvent(
                             contentIndex = toolContentIndex,
                             delta = delta,
-                            partial = acc.buildPartial()
+                            partial = acc.buildPartialWith(
+                                ToolCall(id = currentToolId ?: "unknown", name = currentToolName ?: "unknown")
+                            )
                         )
                     )
                 }

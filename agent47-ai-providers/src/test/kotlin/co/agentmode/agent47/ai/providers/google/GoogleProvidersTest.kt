@@ -12,6 +12,7 @@ import co.agentmode.agent47.ai.types.ModelInputKind
 import co.agentmode.agent47.ai.types.ProviderId
 import co.agentmode.agent47.ai.types.StopReason
 import co.agentmode.agent47.ai.types.TextContent
+import co.agentmode.agent47.ai.types.TextDeltaEvent
 import co.agentmode.agent47.ai.types.ToolCall
 import co.agentmode.agent47.ai.types.ToolResultMessage
 import co.agentmode.agent47.ai.types.Usage
@@ -103,6 +104,43 @@ class GoogleProvidersTest {
         val text = result.content.filterIsInstance<TextContent>().joinToString("") { it.text }
         assertEquals("hello from google", text)
         assertEquals(5, result.usage.totalTokens)
+    }
+
+    @Test
+    fun `text delta partial carries the accumulated text for live streaming`() = runTest {
+        server = HttpServer.create(InetSocketAddress(0), 0)
+        server!!.createContext("/models/gemini-2.5-pro:streamGenerateContent") { exchange ->
+            val payload =
+                """[{"candidates":[{"content":{"parts":[{"text":"hello "}]}}]},{"candidates":[{"content":{"parts":[{"text":"world"}]},"finishReason":"STOP"}]}]"""
+            exchange.sendResponseHeaders(200, payload.toByteArray().size.toLong())
+            exchange.responseBody.use { it.write(payload.toByteArray()) }
+        }
+        server!!.start()
+
+        registerGoogleProviders()
+
+        val model = Model(
+            id = "gemini-2.5-pro",
+            name = "Gemini",
+            api = KnownApis.GoogleGenerativeAi,
+            provider = ProviderId("google"),
+            baseUrl = "http://127.0.0.1:${server!!.address.port}",
+            reasoning = true,
+            input = listOf(ModelInputKind.TEXT),
+            cost = ModelCost(0.0, 0.0, 0.0, 0.0),
+            contextWindow = 1_000_000,
+            maxTokens = 4096,
+        )
+
+        val stream = AiRuntime.streamSimple(
+            model = model,
+            context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hi")), timestamp = 1L))),
+        )
+        val deltas = stream.events.toList().filterIsInstance<TextDeltaEvent>()
+
+        // Each delta's partial must already include the text streamed so far, not an empty body.
+        val lastPartialText = deltas.last().partial.content.filterIsInstance<TextContent>().joinToString("") { it.text }
+        assertEquals("hello world", lastPartialText)
     }
 
     @Test

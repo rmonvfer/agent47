@@ -149,7 +149,7 @@ public class GoogleFamilyProvider(
                         TextDeltaEvent(
                             contentIndex = acc.blocks.size,
                             delta = text,
-                            partial = acc.buildPartial()
+                            partial = acc.buildPartialWith(TextContent(text = textBuffer.toString()))
                         )
                     )
                 }

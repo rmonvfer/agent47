@@ -100,6 +100,16 @@ public class StreamAccumulator(
         )
     }
 
+    /**
+     * Build a partial that also includes the block currently being streamed (which is not yet
+     * committed to [blocks]), so consumers rendering `partial.content` see text/thinking/tool
+     * output grow live instead of only appearing once the block finishes.
+     */
+    public fun buildPartialWith(vararg inProgress: ContentBlock): AssistantMessage {
+        if (inProgress.isEmpty()) return buildPartial()
+        return buildPartial().copy(content = blocks.toList() + inProgress.toList())
+    }
+
     public fun buildFinal(): AssistantMessage {
         // A recorded error is authoritative: a truncated stream that happens to carry a
         // partial tool call must not be reported as a clean tool-use turn.

@@ -142,17 +142,40 @@ public class AnthropicMessagesProvider(
                         "text_delta" -> {
                             val text = delta["text"]?.jsonPrimitive?.contentOrNull ?: ""
                             currentText.append(text)
-                            stream.push(TextDeltaEvent(contentIndex = currentBlockIndex, delta = text, partial = acc.buildPartial()))
+                            stream.push(
+                                TextDeltaEvent(
+                                    contentIndex = currentBlockIndex,
+                                    delta = text,
+                                    partial = acc.buildPartialWith(TextContent(text = currentText.toString())),
+                                ),
+                            )
                         }
                         "thinking_delta" -> {
                             val thinking = delta["thinking"]?.jsonPrimitive?.contentOrNull ?: ""
                             currentThinking.append(thinking)
-                            stream.push(ThinkingDeltaEvent(contentIndex = currentBlockIndex, delta = thinking, partial = acc.buildPartial()))
+                            stream.push(
+                                ThinkingDeltaEvent(
+                                    contentIndex = currentBlockIndex,
+                                    delta = thinking,
+                                    partial = acc.buildPartialWith(ThinkingContent(thinking = currentThinking.toString())),
+                                ),
+                            )
                         }
                         "input_json_delta" -> {
                             val partialJson = delta["partial_json"]?.jsonPrimitive?.contentOrNull ?: ""
                             currentPartialJson.append(partialJson)
-                            stream.push(ToolCallDeltaEvent(contentIndex = currentBlockIndex, delta = partialJson, partial = acc.buildPartial()))
+                            stream.push(
+                                ToolCallDeltaEvent(
+                                    contentIndex = currentBlockIndex,
+                                    delta = partialJson,
+                                    partial = acc.buildPartialWith(
+                                        ToolCall(
+                                            id = currentToolId ?: "unknown",
+                                            name = normalizeToolName(currentToolName ?: "unknown"),
+                                        ),
+                                    ),
+                                ),
+                            )
                         }
                         "signature_delta" -> {
                             // The thinking signature is required to replay thinking blocks on the next turn.
