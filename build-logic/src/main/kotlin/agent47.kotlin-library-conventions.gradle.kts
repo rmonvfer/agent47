@@ -9,7 +9,9 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(21)
+    // JDK 25: on JDK 22+ Mosaic uses its FFM terminal backend. The JNI backend (JDK <22)
+    // segfaults in its native SIGWINCH callback on macOS/aarch64 when the terminal is resized.
+    jvmToolchain(25)
     explicitApiWarning()
 }
 

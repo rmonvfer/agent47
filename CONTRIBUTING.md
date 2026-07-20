@@ -4,7 +4,7 @@ Contributions are welcome. This document covers the basics of getting set up, ma
 
 ## Prerequisites
 
-- **JDK 21** - [JetBrains Runtime](https://github.com/JetBrains/JetBrains-Runtime) is recommended, but any JDK 21 distribution works.
+- **JDK 25** - any JDK 25 distribution works (Temurin recommended). Java 22+ is required so the terminal UI uses its FFM backend; the older JNI backend crashes on terminal resize.
 - **Git** - for cloning and version control.
 - The Gradle wrapper (`./gradlew`) handles everything else. You do not need to install Gradle separately.
 

@@ -34,7 +34,7 @@ curl -fsSL https://agent47.co/install.sh | bash
 brew install rmonvfer/tap/agent47
 ```
 
-**Build from source** (requires JDK 21):
+**Build from source** (requires JDK 25):
 
 ```bash
 git clone https://github.com/rmonvfer/agent47.git
