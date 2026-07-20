@@ -53,7 +53,8 @@ public class FindTool(
                 if (rel.toString().isEmpty()) {
                     return@forEach
                 }
-                if (rel.toString().contains("/node_modules/") || rel.toString().contains("/.git/")) {
+                val relSegments = rel.toString().replace("\\", "/").split("/")
+                if (relSegments.any { it == "node_modules" || it == ".git" }) {
                     return@forEach
                 }
                 if (

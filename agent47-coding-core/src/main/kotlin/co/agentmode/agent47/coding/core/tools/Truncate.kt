@@ -38,6 +38,17 @@ public fun formatSize(bytes: Int): String {
     }
 }
 
+/**
+ * Split content into lines for counting, treating a trailing newline as a line terminator rather
+ * than the start of an extra empty line. Empty content is zero lines.
+ */
+private fun splitLinesForCounting(content: String): List<String> {
+    if (content.isEmpty()) return emptyList()
+    val lines = content.split("\n").toMutableList()
+    if (content.endsWith("\n")) lines.removeAt(lines.lastIndex)
+    return lines
+}
+
 private fun checkNoTruncationNeeded(
     content: String,
     totalLines: Int,
@@ -64,7 +75,7 @@ private fun checkNoTruncationNeeded(
 
 public fun truncateHead(content: String, options: TruncationOptions = TruncationOptions()): TruncationResult {
     val totalBytes = content.toByteArray(StandardCharsets.UTF_8).size
-    val lines = content.split("\n")
+    val lines = splitLinesForCounting(content)
     val totalLines = lines.size
 
     checkNoTruncationNeeded(content, totalLines, totalBytes, options)?.let { return it }
@@ -125,7 +136,7 @@ public fun truncateHead(content: String, options: TruncationOptions = Truncation
 
 public fun truncateTail(content: String, options: TruncationOptions = TruncationOptions()): TruncationResult {
     val totalBytes = content.toByteArray(StandardCharsets.UTF_8).size
-    val lines = content.split("\n")
+    val lines = splitLinesForCounting(content)
     val totalLines = lines.size
 
     checkNoTruncationNeeded(content, totalLines, totalBytes, options)?.let { return it }

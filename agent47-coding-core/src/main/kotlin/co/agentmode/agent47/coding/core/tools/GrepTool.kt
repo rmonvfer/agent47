@@ -48,16 +48,17 @@ public class GrepTool(
         }
 
         val matches = mutableListOf<String>()
+        var matchCount = 0
         var linesTruncated = false
 
         withContext(Dispatchers.IO) {
             Files.walk(searchRoot)
         }.use { stream ->
             val iterator = stream.filter { Files.isRegularFile(it) }.iterator()
-            while (iterator.hasNext() && matches.size < limit) {
+            while (iterator.hasNext() && matchCount < limit) {
                 val file = iterator.next()
                 val relative = searchRoot.relativize(file).toString().replace("\\", "/")
-                if (relative.contains("/node_modules/") || relative.contains("/.git/")) {
+                if (relative.split("/").any { it == "node_modules" || it == ".git" }) {
                     continue
                 }
                 if (glob != null && !Path.of(relative).matchesGlob(glob)) {
@@ -66,10 +67,11 @@ public class GrepTool(
 
                 val lines = runCatching { Files.readAllLines(file) }.getOrNull() ?: continue
                 for ((index, line) in lines.withIndex()) {
-                    if (matches.size >= limit) {
+                    if (matchCount >= limit) {
                         break
                     }
                     if (regex.matcher(line).find()) {
+                        matchCount++
                         val start = (index - context).coerceAtLeast(0)
                         val end = (index + context).coerceAtMost(lines.lastIndex)
                         for (lineIndex in start..end) {
@@ -93,7 +95,7 @@ public class GrepTool(
         val truncation = truncateHead(matches.joinToString("\n"), TruncationOptions(maxLines = Int.MAX_VALUE))
 
         return buildToolOutput(truncation) {
-            if (matches.size >= limit) limitReached("matches", limit, "matchLimitReached")
+            if (matchCount >= limit) limitReached("matches", limit, "matchLimitReached")
             truncationNotice()
             if (linesTruncated) {
                 notice("Some lines truncated to $GREP_MAX_LINE_LENGTH chars. Use read tool to see full lines", "linesTruncated")

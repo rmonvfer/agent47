@@ -44,7 +44,7 @@ public class ReadTool(
         if (looksLikeImage(absolutePath)) {
             val mimeType = withContext(Dispatchers.IO) {
                 Files.probeContentType(absolutePath)
-            } ?: "image/png"
+            } ?: mimeFromExtension(absolutePath)
             val data = java.util.Base64.getEncoder().encodeToString(withContext(Dispatchers.IO) {
                 Files.readAllBytes(absolutePath)
             })
@@ -83,12 +83,21 @@ public class ReadTool(
         }
 
         val textOut = buildString {
-            append(truncation.content)
-            if (truncation.truncated) {
-                val endLine = start + truncation.outputLines
-                append("\n\n[Showing lines ${start + 1}-$endLine of ${lines.size}. Use offset=${endLine + 1} to continue.]")
-            } else if (limit != null && start + limit < lines.size) {
-                append("\n\n[${lines.size - (start + limit)} more lines in file. Use offset=${start + limit + 1} to continue.]")
+            if (truncation.firstLineExceedsLimit) {
+                // The line itself is larger than the byte limit, so no offset can advance past it.
+                // Point the model at a bash fallback instead of a range that would re-read nothing.
+                append(
+                    "[Line ${start + 1} exceeds the ${truncation.maxBytes}-byte limit and cannot be displayed here. " +
+                        "Inspect part of it with a bash command, e.g. `sed -n '${start + 1}p' '$path' | cut -c1-2000`.]",
+                )
+            } else {
+                append(truncation.content)
+                if (truncation.truncated) {
+                    val endLine = start + truncation.outputLines
+                    append("\n\n[Showing lines ${start + 1}-$endLine of ${lines.size}. Use offset=${endLine + 1} to continue.]")
+                } else if (limit != null && start + limit < lines.size) {
+                    append("\n\n[${lines.size - (start + limit)} more lines in file. Use offset=${start + limit + 1} to continue.]")
+                }
             }
         }
 
@@ -147,9 +156,19 @@ public class ReadTool(
 
     private fun looksLikeImage(path: Path): Boolean {
         val name = path.fileName.toString().lowercase()
-        return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".gif") || name.endsWith(
-            ".webp"
-        )
+        return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") ||
+            name.endsWith(".gif") || name.endsWith(".webp") || name.endsWith(".bmp")
+    }
+
+    private fun mimeFromExtension(path: Path): String {
+        val name = path.fileName.toString().lowercase()
+        return when {
+            name.endsWith(".jpg") || name.endsWith(".jpeg") -> "image/jpeg"
+            name.endsWith(".gif") -> "image/gif"
+            name.endsWith(".webp") -> "image/webp"
+            name.endsWith(".bmp") -> "image/bmp"
+            else -> "image/png"
+        }
     }
 }
 
