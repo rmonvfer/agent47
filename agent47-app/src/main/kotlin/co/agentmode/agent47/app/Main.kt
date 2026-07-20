@@ -27,10 +27,12 @@ import co.agentmode.agent47.coding.core.models.ModelResolver
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.settings.SettingsManager
 import co.agentmode.agent47.coding.core.agents.AgentRegistry
+import co.agentmode.agent47.coding.core.agents.BackgroundAgents
 import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.coding.core.commands.SlashCommandDiscovery
 import co.agentmode.agent47.coding.core.skills.Skill
 import co.agentmode.agent47.coding.core.skills.SkillRegistry
+import co.agentmode.agent47.coding.core.tools.CheckInboxTool
 import co.agentmode.agent47.coding.core.tools.SkillReader
 import co.agentmode.agent47.coding.core.tools.TaskTool
 import co.agentmode.agent47.coding.core.tools.TodoState
@@ -215,12 +217,14 @@ class Agent47Command :
         val toolRegistry = createCoreTools(workingDir, toolsEnabled, skillReader, todoState)
         val allTools = toolRegistry.all().toMutableList<co.agentmode.agent47.agent.core.AgentTool<*>>()
 
+        val backgroundAgents = BackgroundAgents()
         if (!noTools) {
             val taskTool = TaskTool(
                 agentRegistry = agentRegistry,
                 modelRegistry = modelRegistry,
                 settings = settings.get(),
                 cwd = workingDir,
+                backgroundAgents = backgroundAgents,
                 currentDepth = 0,
                 maxDepth = settings.get().taskMaxRecursionDepth,
                 getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
@@ -228,6 +232,7 @@ class Agent47Command :
                 parentSessionId = sessionManager?.getHeader()?.id,
             )
             allTools += taskTool
+            allTools += CheckInboxTool(backgroundAgents)
         }
 
         val builtSystemPrompt = buildSystemPrompt(

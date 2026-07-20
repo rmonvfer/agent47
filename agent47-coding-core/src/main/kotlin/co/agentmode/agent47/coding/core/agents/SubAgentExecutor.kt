@@ -44,6 +44,8 @@ public data class SubAgentOptions(
     val onEvent: ((AgentEvent) -> Unit)?,
     val sessionsDir: Path? = null,
     val parentSessionId: String? = null,
+    val onAgentReady: ((Agent) -> Unit)? = null,
+    val backgroundAgents: BackgroundAgents? = null,
 )
 
 public data class SubAgentResult(
@@ -108,6 +110,9 @@ public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult {
             getApiKey = options.getApiKey,
         ),
     )
+
+    // Expose the live Agent so a background registry can steer it with inter-agent messages.
+    options.onAgentReady?.invoke(agent)
 
     val unsubscribe = agent.subscribe { event ->
         when (event) {
@@ -225,19 +230,22 @@ private fun buildToolList(
 
     val tools = coreTools.all().toMutableList()
 
-    if (options.currentDepth < options.maxDepth && definition.spawns !is SpawnsPolicy.None && options.agentRegistry != null) {
-        val taskTool = co.agentmode.agent47.coding.core.tools.TaskTool(
+    val bg = options.backgroundAgents
+    if (options.currentDepth < options.maxDepth && definition.spawns !is SpawnsPolicy.None &&
+        options.agentRegistry != null && bg != null
+    ) {
+        tools += co.agentmode.agent47.coding.core.tools.TaskTool(
             agentRegistry = options.agentRegistry,
             modelRegistry = options.modelRegistry,
             settings = options.settings,
             cwd = options.cwd,
+            backgroundAgents = bg,
             currentDepth = options.currentDepth + 1,
             maxDepth = options.maxDepth,
             getApiKey = options.getApiKey,
             sessionsDir = options.sessionsDir,
             parentSessionId = options.parentSessionId,
         )
-        tools += taskTool
     }
 
     return tools

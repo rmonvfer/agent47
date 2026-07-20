@@ -1,5 +1,6 @@
 package co.agentmode.agent47.coding.core.tools
 
+import co.agentmode.agent47.agent.core.Agent
 import co.agentmode.agent47.agent.core.AgentTool
 import co.agentmode.agent47.agent.core.AgentToolResult
 import co.agentmode.agent47.agent.core.AgentToolUpdateCallback
@@ -8,6 +9,7 @@ import co.agentmode.agent47.ai.types.ToolDefinition
 import co.agentmode.agent47.agent.core.MessageEndEvent
 import co.agentmode.agent47.coding.core.agents.AgentDefinition
 import co.agentmode.agent47.coding.core.agents.AgentRegistry
+import co.agentmode.agent47.coding.core.agents.BackgroundAgents
 import co.agentmode.agent47.coding.core.agents.SubAgentOptions
 import co.agentmode.agent47.coding.core.agents.SubAgentProgress
 import co.agentmode.agent47.coding.core.agents.SubAgentResult
@@ -16,15 +18,10 @@ import co.agentmode.agent47.coding.core.models.ModelRegistry
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.ai.types.Model
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.supervisorScope
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import java.nio.file.Path
-import java.util.Collections
-import java.util.concurrent.ConcurrentHashMap
 
 public data class TaskToolProgressState(
     val results: List<SubAgentResult>,
@@ -37,6 +34,7 @@ public class TaskTool(
     private val modelRegistry: ModelRegistry,
     private val settings: Settings,
     private val cwd: Path,
+    private val backgroundAgents: BackgroundAgents,
     private val currentDepth: Int = 0,
     private val maxDepth: Int = 2,
     private val getApiKey: (suspend (provider: String) -> String?)? = null,
@@ -91,7 +89,6 @@ public class TaskTool(
 
         val context = parameters.string("context", required = false)
         val schemaOverride = parameters["schema"]?.jsonObject
-        val parallel = parameters.boolean("parallel") ?: false
 
         val effectiveSchema = schemaOverride ?: agentDefinition.output
 
@@ -123,114 +120,52 @@ public class TaskTool(
             parsedTasks += ParsedTask(index, taskId, assignment, description)
         }
 
-        val results = if (parallel) {
-            executeParallel(parsedTasks, definitionWithSchema, context, parentModel, onUpdate, tasks.size)
-        } else {
-            executeSequential(parsedTasks, definitionWithSchema, context, parentModel, onUpdate, tasks.size)
+        // Launch each task as a background agent and return immediately with their ids. The
+        // orchestrator keeps working and collects results/messages later via check_inbox.
+        val launched = parsedTasks.map { task ->
+            val agentId = backgroundAgents.uniqueId(task.id)
+            backgroundAgents.launch(
+                id = agentId,
+                agentName = definitionWithSchema.name,
+                description = task.description,
+                task = task.assignment,
+            ) {
+                executeTask(
+                    task = task,
+                    definition = definitionWithSchema,
+                    context = context,
+                    parentModel = parentModel,
+                    onProgress = { p -> backgroundAgents.updateProgress(agentId, p) },
+                    onAgentReady = { a -> backgroundAgents.setAgentRef(agentId, a) },
+                )
+            }
+            agentId
         }
 
-        val summary = formatFinalSummary(results)
+        val summary = buildString {
+            appendLine("Launched ${launched.size} background agent${if (launched.size != 1) "s" else ""}: ${launched.joinToString(", ")}")
+            appendLine()
+            append(
+                "They run in the background — keep working on other things, then call check_inbox to " +
+                    "collect their results and read any messages they send. Use send_message(\"<id>\", " +
+                    "\"…\") to steer a running one.",
+            )
+        }
         return AgentToolResult(
             content = listOf(TextContent(text = summary)),
-            details = results,
+            details = emptyList(),
         )
     }
 
     private data class ParsedTask(val index: Int, val id: String, val assignment: String, val description: String?)
-
-    private suspend fun executeSequential(
-        parsedTasks: List<ParsedTask>,
-        definition: AgentDefinition,
-        context: String?,
-        parentModel: Model,
-        onUpdate: AgentToolUpdateCallback<List<SubAgentResult>>?,
-        totalCount: Int,
-    ): List<SubAgentResult> {
-        val results = mutableListOf<SubAgentResult>()
-
-        for (task in parsedTasks) {
-            val result = executeTask(task, definition, context, parentModel, onUpdate) { progress ->
-                val updatedProgress = progress.copy(index = task.index)
-                emitProgress(onUpdate, results, updatedProgress)
-            }
-            results += result
-            emitProgressUpdate(onUpdate, formatProgressSummary(results, totalCount), TaskToolProgressState(results.toList()))
-        }
-
-        return results
-    }
-
-    private suspend fun executeParallel(
-        parsedTasks: List<ParsedTask>,
-        definition: AgentDefinition,
-        context: String?,
-        parentModel: Model,
-        onUpdate: AgentToolUpdateCallback<List<SubAgentResult>>?,
-        totalCount: Int,
-    ): List<SubAgentResult> {
-        val progressMap = ConcurrentHashMap<Int, SubAgentProgress>()
-        val completedResults = Collections.synchronizedList(mutableListOf<SubAgentResult>())
-        val updateLock = Any()
-
-        fun emitParallelProgress() {
-            val snapshot = synchronized(updateLock) {
-                TaskToolProgressState(
-                    results = completedResults.toList(),
-                    activeProgressList = progressMap.values.toList().sortedBy { it.index },
-                )
-            }
-            val progressText = buildString {
-                appendLine("Completed ${snapshot.results.size}/$totalCount tasks (parallel)")
-                snapshot.activeProgressList.forEach { p ->
-                    appendLine("  [${p.index + 1}] ${p.agent}/${p.id}: ${p.status}")
-                }
-            }
-            emitProgressUpdate(onUpdate, progressText, snapshot)
-        }
-
-        val allResults = supervisorScope {
-            parsedTasks.map { task ->
-                async {
-                    runCatching {
-                        executeTask(task, definition, context, parentModel, onUpdate) { progress ->
-                            val updatedProgress = progress.copy(index = task.index)
-                            progressMap[task.index] = updatedProgress
-                            emitParallelProgress()
-                        }
-                    }.getOrElse { error ->
-                        SubAgentResult(
-                            id = task.id,
-                            agent = definition.name,
-                            agentSource = definition.source,
-                            task = task.assignment,
-                            description = task.description,
-                            exitCode = 1,
-                            output = "Sub-agent failed: ${error.message ?: error::class.simpleName}",
-                            truncated = false,
-                            durationMs = 0,
-                            tokens = 0,
-                            error = error.message ?: error::class.simpleName ?: "Unknown error",
-                            aborted = false,
-                        )
-                    }.also { result ->
-                        progressMap.remove(task.index)
-                        completedResults += result
-                        emitParallelProgress()
-                    }
-                }
-            }.awaitAll()
-        }
-
-        return allResults
-    }
 
     private suspend fun executeTask(
         task: ParsedTask,
         definition: AgentDefinition,
         context: String?,
         parentModel: Model,
-        onUpdate: AgentToolUpdateCallback<List<SubAgentResult>>?,
         onProgress: (SubAgentProgress) -> Unit,
+        onAgentReady: (Agent) -> Unit,
     ): SubAgentResult {
         val childSessionManager = if (sessionsDir != null) {
             val childPath = sessionsDir.resolve("subagent-${parentSessionId ?: "none"}-${task.id}.jsonl")
@@ -264,75 +199,14 @@ public class TaskTool(
                 },
                 sessionsDir = sessionsDir,
                 parentSessionId = parentSessionId,
+                onAgentReady = onAgentReady,
+                backgroundAgents = backgroundAgents,
             ),
         )
 
         val sessionFilePath = childSessionManager?.let { sessionsDir?.resolve("subagent-${parentSessionId ?: "none"}-${task.id}.jsonl")?.toString() }
 
         return result.copy(sessionFile = sessionFilePath)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun emitProgressUpdate(
-        onUpdate: AgentToolUpdateCallback<List<SubAgentResult>>?,
-        content: String,
-        progressState: TaskToolProgressState,
-    ) {
-        onUpdate ?: return
-        val erased = onUpdate as AgentToolUpdateCallback<Any?>
-        val result: AgentToolResult<Any?> = AgentToolResult(
-            content = listOf(TextContent(text = content)),
-            details = progressState,
-        )
-        erased.onUpdate(result)
-    }
-
-    private fun emitProgress(
-        onUpdate: AgentToolUpdateCallback<List<SubAgentResult>>?,
-        completedResults: List<SubAgentResult>,
-        progress: SubAgentProgress,
-    ) {
-        val progressText = buildString {
-            appendLine("[${progress.index + 1}] ${progress.agent}/${progress.id}: ${progress.status}")
-            if (progress.currentTool != null) {
-                appendLine("  Running: ${progress.currentTool}")
-            }
-            appendLine("  Tools: ${progress.toolCount} | Tokens: ${progress.tokens}")
-        }
-        emitProgressUpdate(onUpdate, progressText, TaskToolProgressState(completedResults, progress))
-    }
-
-    private fun formatProgressSummary(results: List<SubAgentResult>, total: Int): String {
-        return buildString {
-            appendLine("Completed ${results.size}/$total tasks")
-            results.forEach { result ->
-                val status = if (result.exitCode == 0) "OK" else "FAILED"
-                appendLine("  [${result.id}] $status (${result.durationMs}ms, ${result.tokens} tokens)")
-            }
-        }
-    }
-
-    private fun formatFinalSummary(results: List<SubAgentResult>): String {
-        return buildString {
-            appendLine("All ${results.size} task(s) completed.")
-            appendLine()
-            for (result in results) {
-                val status = when {
-                    result.aborted -> "ABORTED"
-                    result.error != null -> "ERROR"
-                    result.exitCode == 0 -> "SUCCESS"
-                    else -> "FAILED"
-                }
-                appendLine("--- Task: ${result.id} [$status] ---")
-                appendLine("Agent: ${result.agent} | Duration: ${result.durationMs}ms | Tokens: ${result.tokens}")
-                if (result.error != null) {
-                    appendLine("Error: ${result.error}")
-                }
-                appendLine()
-                appendLine(result.output)
-                appendLine()
-            }
-        }
     }
 
     private fun errorResult(message: String): AgentToolResult<List<SubAgentResult>> {
