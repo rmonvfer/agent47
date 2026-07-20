@@ -24,6 +24,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.math.max
 import kotlin.text.StringBuilder
 import kotlin.text.contains
 import kotlin.text.isNotBlank
@@ -124,10 +125,10 @@ public class GoogleFamilyProvider(
             // Process usage metadata
             val usageMetadata = chunk["usageMetadata"]?.jsonObject
             if (usageMetadata != null) {
-                acc.inputTokens = usageMetadata["promptTokenCount"]?.jsonPrimitive?.intOrNull ?: acc.inputTokens
-                acc.outputTokens = usageMetadata["candidatesTokenCount"]?.jsonPrimitive?.intOrNull ?: acc.outputTokens
-                acc.cacheReadTokens =
-                    usageMetadata["cachedContentTokenCount"]?.jsonPrimitive?.intOrNull ?: acc.cacheReadTokens
+                val tokens = parseGoogleTokens(usageMetadata)
+                acc.inputTokens = tokens.input
+                acc.outputTokens = tokens.output
+                acc.cacheReadTokens = tokens.cacheRead
             }
 
             if (candidate == null) return@forEach
@@ -197,11 +198,7 @@ public class GoogleFamilyProvider(
 
             val finishReason = candidate["finishReason"]?.jsonPrimitive?.contentOrNull
             if (finishReason != null) {
-                acc.stopReason = when (finishReason.uppercase()) {
-                    "MAX_TOKENS" -> StopReason.LENGTH
-                    "STOP" -> StopReason.STOP
-                    else -> StopReason.STOP
-                }
+                acc.stopReason = mapGoogleFinishReason(finishReason)
             }
         }
 
@@ -210,6 +207,12 @@ public class GoogleFamilyProvider(
         if (text.isNotBlank()) {
             acc.blocks += TextContent(text = text)
             stream.push(TextEndEvent(contentIndex = acc.blocks.size - 1, content = text, partial = acc.buildPartial()))
+        }
+
+        // A completed generation that produced tool calls is a tool-use turn, even
+        // though Gemini reports finishReason STOP alongside the functionCall parts.
+        if (acc.stopReason != StopReason.ERROR && acc.blocks.any { it is ToolCall }) {
+            acc.stopReason = StopReason.TOOL_USE
         }
 
         emitStreamFinale(stream, acc)
@@ -226,10 +229,8 @@ public class GoogleFamilyProvider(
         val parsed = parseCandidate(candidate)
         val stopReason = if (parsed.toolCalls.isNotEmpty()) StopReason.TOOL_USE else mapFinishReason(candidate)
 
-        val inputTokens = usageMetadata?.get("promptTokenCount")?.jsonPrimitive?.intOrNull ?: 0
-        val outputTokens = usageMetadata?.get("candidatesTokenCount")?.jsonPrimitive?.intOrNull ?: 0
-        val cacheReadTokens = usageMetadata?.get("cachedContentTokenCount")?.jsonPrimitive?.intOrNull ?: 0
-        val usage = UsageUtils.withTokenTotals(inputTokens, outputTokens, cacheReadTokens, 0, model)
+        val tokens = parseGoogleTokens(usageMetadata)
+        val usage = UsageUtils.withTokenTotals(tokens.input, tokens.output, tokens.cacheRead, 0, model)
 
         val blocks = mutableListOf<ContentBlock>()
         if (parsed.text.isNotBlank()) {
@@ -326,14 +327,29 @@ private fun buildPayload(context: Context, options: StreamOptions?): JsonObject 
                                             put("functionResponse", buildJsonObject {
                                                 put("name", JsonPrimitive(message.toolName))
                                                 put("response", buildJsonObject {
-                                                    put("content", JsonPrimitive(text))
+                                                    // Gemini has no dedicated error flag; signal failures
+                                                    // through the response key so they aren't read as success.
+                                                    if (message.isError) {
+                                                        put("error", JsonPrimitive(text))
+                                                    } else {
+                                                        put("output", JsonPrimitive(text))
+                                                    }
                                                 })
                                             })
                                         })
+                                        message.content.filterIsInstance<ImageContent>().forEach { image ->
+                                            add(inlineDataPart(image))
+                                        }
                                     } else {
                                         val blocks = when (message) {
                                             is UserMessage -> message.content
                                             is AgentAssistantMessage -> message.content
+                                            is CustomMessage -> message.content
+                                            is BashExecutionMessage -> listOf(
+                                                TextContent(text = "<bash command=\"${message.command}\">\n${message.output}\n</bash>"),
+                                            )
+                                            is BranchSummaryMessage -> listOf(TextContent(text = message.summary))
+                                            is CompactionSummaryMessage -> listOf(TextContent(text = message.summary))
                                             else -> emptyList()
                                         }
                                         val text = blocks.filterIsInstance<TextContent>().joinToString("\n") { it.text }
@@ -341,6 +357,19 @@ private fun buildPayload(context: Context, options: StreamOptions?): JsonObject 
                                             add(buildJsonObject {
                                                 put("text", JsonPrimitive(text))
                                             })
+                                        }
+                                        // Assistant tool calls must be sent back as functionCall parts so
+                                        // Gemini can pair each functionResponse with its originating call.
+                                        blocks.filterIsInstance<ToolCall>().forEach { call ->
+                                            add(buildJsonObject {
+                                                put("functionCall", buildJsonObject {
+                                                    put("name", JsonPrimitive(call.name))
+                                                    put("args", call.arguments)
+                                                })
+                                            })
+                                        }
+                                        blocks.filterIsInstance<ImageContent>().forEach { image ->
+                                            add(inlineDataPart(image))
                                         }
                                     }
                                 },
@@ -378,16 +407,36 @@ private fun buildPayload(context: Context, options: StreamOptions?): JsonObject 
             )
         }
 
-        options?.temperature?.let {
-            put(
-                "generationConfig",
-                buildJsonObject {
-                    put("temperature", JsonPrimitive(it))
-                    options.maxTokens?.let { maxTokens -> put("maxOutputTokens", JsonPrimitive(maxTokens)) }
-                },
-            )
+        val generationConfig = buildJsonObject {
+            options?.temperature?.let { put("temperature", JsonPrimitive(it)) }
+            options?.maxTokens?.let { put("maxOutputTokens", JsonPrimitive(it)) }
+        }
+        if (generationConfig.isNotEmpty()) {
+            put("generationConfig", generationConfig)
         }
     }
+}
+
+private fun inlineDataPart(image: ImageContent): JsonObject = buildJsonObject {
+    put("inlineData", buildJsonObject {
+        put("mimeType", JsonPrimitive(image.mimeType))
+        put("data", JsonPrimitive(image.data))
+    })
+}
+
+private data class GoogleTokens(val input: Int, val output: Int, val cacheRead: Int)
+
+/**
+ * Extract token usage from Gemini `usageMetadata`. `promptTokenCount` already includes cached
+ * tokens, so the billable input is the prompt minus the cached portion; reasoning ("thoughts")
+ * tokens are added to the output count.
+ */
+private fun parseGoogleTokens(usageMetadata: JsonObject?): GoogleTokens {
+    val prompt = usageMetadata?.get("promptTokenCount")?.jsonPrimitive?.intOrNull ?: 0
+    val cached = usageMetadata?.get("cachedContentTokenCount")?.jsonPrimitive?.intOrNull ?: 0
+    val candidates = usageMetadata?.get("candidatesTokenCount")?.jsonPrimitive?.intOrNull ?: 0
+    val thoughts = usageMetadata?.get("thoughtsTokenCount")?.jsonPrimitive?.intOrNull ?: 0
+    return GoogleTokens(input = max(0, prompt - cached), output = candidates + thoughts, cacheRead = cached)
 }
 
 private data class ParsedCandidate(
@@ -427,9 +476,21 @@ private fun parseCandidate(candidate: JsonObject): ParsedCandidate {
 }
 
 private fun mapFinishReason(candidate: JsonObject): StopReason {
-    return when (candidate["finishReason"]?.jsonPrimitive?.contentOrNull?.uppercase()) {
+    return mapGoogleFinishReason(candidate["finishReason"]?.jsonPrimitive?.contentOrNull)
+}
+
+/**
+ * Map a Gemini `finishReason` to a stop reason. Safety/recitation/blocklist and other abnormal
+ * terminations become [StopReason.ERROR] instead of a silent [StopReason.STOP] so the agent loop
+ * and retry logic can see that the generation did not complete normally.
+ */
+private fun mapGoogleFinishReason(reason: String?): StopReason {
+    return when (reason?.uppercase()) {
+        "STOP", null -> StopReason.STOP
         "MAX_TOKENS" -> StopReason.LENGTH
-        "STOP" -> StopReason.STOP
+        "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII",
+        "IMAGE_SAFETY", "MALFORMED_FUNCTION_CALL", "OTHER", "FINISH_REASON_UNSPECIFIED",
+        -> StopReason.ERROR
         else -> StopReason.STOP
     }
 }
