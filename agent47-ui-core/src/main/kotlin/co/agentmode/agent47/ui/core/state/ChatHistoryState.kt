@@ -72,6 +72,7 @@ public class ChatHistoryState {
             entries[index].toolExecution = toolExecutionFor(message)
                 ?: entries[index].toolExecution
         }
+        version++
         if (pinnedToBottom) scrollToBottom = true
     }
 
@@ -98,6 +99,7 @@ public class ChatHistoryState {
         }
         entries[index].message = message
         activeAssistantKey = entries[index].key
+        version++
         if (pinnedToBottom) scrollToBottom = true
     }
 
@@ -131,6 +133,7 @@ public class ChatHistoryState {
             collapsed = toolCollapsedState[key] ?: execution.collapsed,
             startedAt = preservedStartedAt,
         )
+        version++
     }
 
     public fun scrollUp(lines: Int = 1) {

@@ -161,6 +161,7 @@ internal class GuiAppController(
         private set
 
     private var currentPromptJob: Job? = null
+    private var compactionJob: Job? = null
     private val toolArgumentsById = mutableMapOf<String, String>()
     private val usageHolder = UsageHolder()
 
@@ -337,7 +338,7 @@ internal class GuiAppController(
         }
     }
 
-    private fun handleBashCommand(rawInput: String, @Suppress("UNUSED_PARAMETER") scope: CoroutineScope) {
+    private fun handleBashCommand(rawInput: String, scope: CoroutineScope) {
         val command = rawInput.removePrefix("!").trim()
         if (command.isBlank()) {
             appendSystemMessage("No command provided after !")
@@ -350,18 +351,21 @@ internal class GuiAppController(
         chatHistoryState.appendMessage(start)
         activeSessionManager?.appendMessage(start)
 
-        val output = executeShell(command, cwd)
-        val id = "local-${System.currentTimeMillis()}"
-        chatHistoryState.appendToolExecution(
-            ToolExecutionView(
-                toolCallId = id,
-                toolName = "bash",
-                arguments = command,
-                output = output.first,
-                isError = output.second != 0,
-                pending = false,
-            ),
-        )
+        // executeShell blocks up to the shell timeout; run it off the Compose UI thread.
+        scope.launch(Dispatchers.IO) {
+            val output = executeShell(command, cwd)
+            val id = "local-${System.currentTimeMillis()}"
+            chatHistoryState.appendToolExecution(
+                ToolExecutionView(
+                    toolCallId = id,
+                    toolName = "bash",
+                    arguments = command,
+                    output = output.first,
+                    isError = output.second != 0,
+                    pending = false,
+                ),
+            )
+        }
     }
 
     private fun submitMessage(message: UserMessage, scope: CoroutineScope) {
@@ -1075,10 +1079,19 @@ internal class GuiAppController(
             appendCommandResult("Compaction unavailable")
             return
         }
+        if (compactionJob?.isActive == true) {
+            appendCommandResult("Compaction already in progress")
+            return
+        }
+        val boundScope = scope ?: run {
+            appendCommandResult("Compaction unavailable")
+            return
+        }
         liveActivityLabel = "Compacting"
         isStreaming = true
-        @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        // Run on the window-bound scope (not GlobalScope) and keep the job so a second trigger
+        // can't launch a concurrent compaction that races replaceMessages/isStreaming.
+        compactionJob = boundScope.launch(Dispatchers.IO) {
             try {
                 val messages = client.rawAgent().state.messages
                 val estimate = estimateContextTokens(messages)

@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,9 +74,23 @@ public fun ChatPanel(
 ) {
     val version = state.version
 
+    // Follow the bottom of the log only while the user is already there. Sampled continuously so
+    // scrolling up during a run stops the auto-scroll, and scrolling back to the end resumes it.
+    var followBottom by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            last == null || last.index >= info.totalItemsCount - 1
+        }.collect { followBottom = it }
+    }
+
+    // Keyed on version, which now also bumps on streaming content updates, so growing text and
+    // tool output are followed, not just newly appended entries.
     LaunchedEffect(version) {
-        if (state.pinnedToBottom && state.entries.isNotEmpty()) {
-            listState.animateScrollToItem(state.entries.lastIndex)
+        if (followBottom && state.entries.isNotEmpty()) {
+            val lastIndex = (state.entries.size - 1 + if (isStreaming) 1 else 0).coerceAtLeast(0)
+            listState.animateScrollToItem(lastIndex)
         }
     }
 

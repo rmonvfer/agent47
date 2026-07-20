@@ -507,7 +507,8 @@ private fun applyCompletion(
 ) {
     val selected = popup.items.getOrNull(selectedIndex) ?: return
     val text = textFieldState.text.toString()
-    val cursorPos = text.length
+    // Use the real caret, not the end of the buffer, so mid-text completion replaces the right token.
+    val cursorPos = textFieldState.selection.max.coerceIn(0, text.length)
 
     // Find the start of the current line in the flat text
     val lineStart = text.lastIndexOf('\n', (cursorPos - 1).coerceAtLeast(0)).let {
