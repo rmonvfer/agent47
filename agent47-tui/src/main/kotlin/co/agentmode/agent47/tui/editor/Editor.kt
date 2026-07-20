@@ -60,6 +60,10 @@ public class Editor(
     private var lastRenderHeight: Int = 1
     private var previousEditWasKill: Boolean = false
 
+    // Length (in chars) of the text inserted by the most recent yank/yank-pop, or -1 when the last
+    // action was not a yank. yank-pop deletes this much before inserting the next ring entry.
+    private var lastYankLength: Int = -1
+
     public fun setText(text: String) {
         state.setText(text)
         undoStack.clearAndReset(state.snapshot())
@@ -192,6 +196,7 @@ public class Editor(
                     state.yank(yank)
                     pushUndo(null)
                     resetEditState()
+                    lastYankLength = yank.length
                     preferredColumn = null
                     updateAutocomplete()
                 }
@@ -199,13 +204,19 @@ public class Editor(
             }
 
             event.alt && eventCharacter(event) == 'y' -> {
-                val yank = killRing.yankPop().orEmpty()
-                if (yank.isNotEmpty()) {
-                    state.yank(yank)
-                    pushUndo(null)
-                    resetEditState()
-                    preferredColumn = null
-                    updateAutocomplete()
+                // yank-pop only acts immediately after a yank/yank-pop: replace the text just
+                // yanked with the next kill-ring entry instead of appending a second copy.
+                if (lastYankLength >= 0) {
+                    val next = killRing.yankPop().orEmpty()
+                    if (next.isNotEmpty()) {
+                        repeat(lastYankLength) { state.deleteBackward() }
+                        state.yank(next)
+                        pushUndo(null)
+                        resetEditState()
+                        lastYankLength = next.length
+                        preferredColumn = null
+                        updateAutocomplete()
+                    }
                 }
                 return true
             }
@@ -560,6 +571,7 @@ public class Editor(
 
     private fun resetEditState() {
         previousEditWasKill = false
+        lastYankLength = -1
     }
 
     private fun ensureCursorVisible(cursorVisualRow: Int, height: Int, totalRows: Int) {

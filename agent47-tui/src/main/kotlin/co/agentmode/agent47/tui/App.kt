@@ -981,15 +981,23 @@ private fun Agent47AppContent(
                 }
 
                 'e' -> {
-                    if (!chatHistoryState.toggleLatestToolCollapsed()) {
-                        appendSystemMessage("No tool execution available to toggle.")
+                    // With text in the editor, Ctrl+E is move-to-end-of-line; only act globally
+                    // when the editor is empty so the line-editing shortcut isn't shadowed.
+                    if (editor.text().isBlank()) {
+                        if (!chatHistoryState.toggleLatestToolCollapsed()) {
+                            appendSystemMessage("No tool execution available to toggle.")
+                        }
+                        return true
                     }
-                    return true
                 }
 
                 'u' -> {
-                    chatHistoryState.scrollUp(12)
-                    return true
+                    // With text in the editor, Ctrl+U is kill-to-start-of-line; only scroll the
+                    // chat globally when the editor is empty.
+                    if (editor.text().isBlank()) {
+                        chatHistoryState.scrollUp(12)
+                        return true
+                    }
                 }
 
                 'd' -> {

@@ -278,11 +278,15 @@ private fun <T> handleSelectDialogKeyboardEvent(
 
             Key.Backspace -> {
                 state.deleteChar()
+                onSelectionChanged?.let { cb -> state.selectedValue()?.let(cb) }
                 true
             }
 
             is Key.Character -> {
-                if (!event.ctrl && !event.alt) {
+                if (event.ctrl && event.key.value.lowercaseChar() == 'u') {
+                    state.clearFilter()
+                    onSelectionChanged?.let { cb -> state.selectedValue()?.let(cb) }
+                } else if (!event.ctrl && !event.alt) {
                     state.appendChar(event.key.value)
                 }
                 true
@@ -307,6 +311,7 @@ private fun <T> handleSelectDialogKeyboardEvent(
 
         Key.Backspace -> {
             state.deleteChar()
+            onSelectionChanged?.let { cb -> state.selectedValue()?.let(cb) }
             true
         }
 
@@ -329,6 +334,8 @@ private fun <T> handleSelectDialogKeyboardEvent(
             } else if (!event.ctrl && !event.alt) {
                 state.appendChar(event.key.value)
             }
+            // Filtering changes the highlighted item, so refresh any live preview (e.g. theme).
+            onSelectionChanged?.let { cb -> state.selectedValue()?.let(cb) }
             true
         }
 

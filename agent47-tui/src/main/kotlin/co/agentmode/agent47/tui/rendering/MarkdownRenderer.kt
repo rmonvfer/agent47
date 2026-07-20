@@ -167,7 +167,7 @@ private class BlockRenderer(
         lines += renderCodeBlockTop(language, w)
         val literal = fencedCodeBlock.literal.trimEnd('\n')
         literal.split("\n").forEach { codeLine ->
-            lines += renderCodeBlockLine(codeLine, w)
+            lines += renderCodeBlockLines(codeLine, w)
         }
         lines += renderCodeBlockBottom(w)
         addBlankLineAfterBlock(fencedCodeBlock)
@@ -178,7 +178,7 @@ private class BlockRenderer(
         lines += renderCodeBlockTop(null, w)
         val literal = indentedCodeBlock.literal.trimEnd('\n')
         literal.split("\n").forEach { codeLine ->
-            lines += renderCodeBlockLine(codeLine, w)
+            lines += renderCodeBlockLines(codeLine, w)
         }
         lines += renderCodeBlockBottom(w)
         addBlankLineAfterBlock(indentedCodeBlock)
@@ -443,13 +443,17 @@ private class BlockRenderer(
         }
     }
 
-    private fun renderCodeBlockLine(codeLine: String, w: Int): AnnotatedString {
+    private fun renderCodeBlockLines(codeLine: String, w: Int): List<AnnotatedString> {
         val prefixWidth = 2
         val contentWidth = (w - prefixWidth).coerceAtLeast(1)
-        val padded = codeLine.take(contentWidth).padEnd(contentWidth)
-        return buildAnnotatedString {
-            withStyle(theme.codeBlockBorderStyle) { append("│ ") }
-            withStyle(theme.codeBlockStyle) { append(padded) }
+        // Wrap onto continuation lines instead of truncating, so overflowing code is never dropped.
+        val chunks = if (codeLine.isEmpty()) listOf("") else codeLine.chunked(contentWidth)
+        return chunks.map { chunk ->
+            val padded = chunk.padEnd(contentWidth)
+            buildAnnotatedString {
+                withStyle(theme.codeBlockBorderStyle) { append("│ ") }
+                withStyle(theme.codeBlockStyle) { append(padded) }
+            }
         }
     }
 
@@ -551,9 +555,15 @@ private class InlineCollector(
 
     override fun visit(link: Link) {
         styleStack += theme.linkStyle
+        val before = segments.size
         visitChildren(link)
         styleStack.removeAt(styleStack.lastIndex)
-        segments += " (${link.destination})" to (styleStack + theme.linkUrlStyle)
+        // Only show the destination when it differs from the visible text; a bare/autolinked URL
+        // renders its own address, so appending it again would duplicate it.
+        val visibleText = segments.subList(before, segments.size).joinToString("") { it.first }
+        if (visibleText != link.destination) {
+            segments += " (${link.destination})" to (styleStack + theme.linkUrlStyle)
+        }
     }
 
     override fun visit(image: Image) {
@@ -691,7 +701,9 @@ public fun wrapAnnotatedRaw(text: AnnotatedString, width: Int): List<AnnotatedSt
     if (width <= 0 || text.text.isEmpty()) return listOf(text)
 
     val plainText = text.text
-    if (plainText.length <= width && !plainText.contains('\n')) return listOf(text)
+    // Gate the fast path on cell width, not code-unit length: a CJK line can be within the char
+    // count yet overflow the terminal, and must still be wrapped.
+    if (cellWidth(plainText) <= width && !plainText.contains('\n')) return listOf(text)
 
     val lines = mutableListOf<AnnotatedString>()
     var lineStart = 0
