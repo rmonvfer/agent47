@@ -16,7 +16,6 @@
           </compositeBuild>
         </compositeConfiguration>
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
-        <option name="gradleHome" value="" />
         <option name="gradleJvm" value="21" />
         <option name="modules">
           <set>
@@ -28,7 +27,6 @@
             <option value="$PROJECT_DIR$/agent47-app" />
             <option value="$PROJECT_DIR$/agent47-coding-core" />
             <option value="$PROJECT_DIR$/agent47-ext-core" />
-            <option value="$PROJECT_DIR$/agent47-gui" />
             <option value="$PROJECT_DIR$/agent47-model-generator" />
             <option value="$PROJECT_DIR$/agent47-test-fixtures" />
             <option value="$PROJECT_DIR$/agent47-tui" />
