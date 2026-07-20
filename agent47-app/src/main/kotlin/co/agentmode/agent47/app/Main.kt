@@ -180,6 +180,15 @@ class Agent47Command :
         registerProviders()
         modelRegistry.registerAuthPlugin(CopilotAuthPlugin())
 
+        // An explicit --api-key must reach the registry before model resolution so first-time setup
+        // (with no stored credentials) can find and use the requested provider's models.
+        apiKey?.let { key ->
+            val targetProvider = parseModelSpec().first ?: provider ?: settings.get().defaultProvider
+            if (targetProvider != null) {
+                modelRegistry.storeApiKey(targetProvider, key)
+            }
+        }
+
         val resolvedModel = resolveModel(modelRegistry, settings)
         if (resolvedModel == null) {
             terminal.printError("No API key found. Set one of: $VALID_ENV_HINT")
@@ -219,7 +228,7 @@ class Agent47Command :
                 currentDepth = 0,
                 maxDepth = settings.get().taskMaxRecursionDepth,
                 getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
-                sessionsDir = config.sessionsDir,
+                sessionsDir = sessionsBaseDir(config),
                 parentSessionId = sessionManager?.getHeader()?.id,
             )
             allTools += taskTool
@@ -303,9 +312,9 @@ class Agent47Command :
             runGui(
                 client = client,
                 initialUserMessage = userMessage,
-                availableModels = modelRegistry.getAvailable(),
+                availableModels = scopedModels(modelRegistry.getAvailable()),
                 sessionManager = sessionManager,
-                sessionsDir = config.sessionsDir,
+                sessionsDir = sessionsBaseDir(config),
                 cwd = workingDir,
                 initialThinkingLevel = thinkingLevel,
                 initialModel = resolvedModel,
@@ -313,7 +322,7 @@ class Agent47Command :
                 getAllProviders = { modelRegistry.getAllProviders() },
                 storeApiKey = { p, k -> modelRegistry.storeApiKey(p, k) },
                 storeOAuthCredential = { p, c -> modelRegistry.storeOAuthCredential(p, c) },
-                refreshModels = { modelRegistry.getAvailable() },
+                refreshModels = { scopedModels(modelRegistry.getAvailable()) },
                 authorizeOAuth = { p -> modelRegistry.getAuthPlugin(p)?.authorize() },
                 pollOAuthToken = { p -> modelRegistry.getAuthPlugin(p)?.pollForToken() },
                 onSettingsChanged = { transform -> settings.update(transform) },
@@ -338,9 +347,9 @@ class Agent47Command :
                 userMessage = userMessage,
                 model = resolvedModel,
                 thinkingLevel = thinkingLevel,
-                availableModels = modelRegistry.getAvailable(),
+                availableModels = scopedModels(modelRegistry.getAvailable()),
                 sessionManager = sessionManager,
-                sessionsDir = config.sessionsDir,
+                sessionsDir = sessionsBaseDir(config),
                 fileCommands = fileCommands,
                 modelRegistry = modelRegistry,
                 settingsManager = settings,
@@ -440,7 +449,9 @@ class Agent47Command :
     }
 
     private fun resolveThinkingLevel(settings: SettingsManager): AgentThinkingLevel {
-        val level = thinking ?: settings.get().defaultThinkingLevel ?: "off"
+        // A `--model sonnet:high` suffix sets the thinking level when --thinking is not given.
+        val suffix = parseModelSpec().third
+        val level = thinking ?: suffix ?: settings.get().defaultThinkingLevel ?: "off"
         return when (level.lowercase()) {
             "minimal" -> AgentThinkingLevel.MINIMAL
             "low" -> AgentThinkingLevel.LOW
@@ -468,26 +479,62 @@ class Agent47Command :
         return SessionManager(sessionPath)
     }
 
+    private fun sessionsBaseDir(config: AgentConfig): Path =
+        sessionDir ?: config.sessionsDir
+
     private fun createNewSession(config: AgentConfig): Path {
-        val dir = config.sessionsDir
+        val dir = sessionsBaseDir(config)
         Files.createDirectories(dir)
         return dir.resolve("session-${System.currentTimeMillis()}.jsonl")
     }
 
     private fun findLatestSession(config: AgentConfig): Path? {
-        val dir = config.sessionsDir
+        val dir = sessionsBaseDir(config)
         if (!dir.exists()) return null
 
-        return Files.list(dir)
-            .filter { it.toString().endsWith(".jsonl") }
-            .sorted { a, b -> b.fileName.compareTo(a.fileName) }
-            .findFirst()
-            .orElse(null)
+        return Files.list(dir).use { stream ->
+            stream
+                .filter { it.toString().endsWith(".jsonl") }
+                .sorted { a, b -> b.fileName.compareTo(a.fileName) }
+                .findFirst()
+                .orElse(null)
+        }
     }
 
     private fun resolveTools(): List<String> {
         val defaultTools = listOf("read", "bash", "edit", "write")
         return tools?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: defaultTools
+    }
+
+    /**
+     * Restrict the models offered for cycling (Ctrl+P/N) to those matching the `--models` glob
+     * patterns. Falls back to all models when the flag is absent or matches nothing.
+     */
+    private fun scopedModels(all: List<Model>): List<Model> {
+        val patterns = models?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
+        if (patterns.isNullOrEmpty()) return all
+
+        val regexes = patterns.map { globToRegex(it) }
+        val scoped = all.filter { model ->
+            val full = "${model.provider.value}/${model.id}"
+            regexes.any { it.matches(full) || it.matches(model.id) }
+        }
+        return scoped.ifEmpty { all }
+    }
+
+    private fun globToRegex(pattern: String): Regex {
+        val specials = "\\.[]{}()+-^$|"
+        val sb = StringBuilder("^")
+        for (c in pattern) {
+            when {
+                c == '*' -> sb.append(".*")
+                c == '?' -> sb.append('.')
+                specials.contains(c) -> sb.append('\\').append(c)
+                else -> sb.append(c)
+            }
+        }
+        sb.append('$')
+        return Regex(sb.toString(), RegexOption.IGNORE_CASE)
     }
 
     private fun processPrompt(args: List<String>): Pair<String, List<ImageContent>> {
