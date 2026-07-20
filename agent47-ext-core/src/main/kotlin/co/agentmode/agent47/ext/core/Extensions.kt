@@ -3,6 +3,7 @@ package co.agentmode.agent47.ext.core
 import co.agentmode.agent47.agent.core.AgentTool
 import co.agentmode.agent47.ai.types.Context
 import co.agentmode.agent47.ai.types.Message
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -60,8 +61,18 @@ public data class ToolWrappedEvent(
     override val type: String = "tool_wrapped",
 ) : ExtensionEvent
 
+public data class ExtensionErrorEvent(
+    val extensionId: String,
+    val phase: String,
+    val message: String,
+    override val type: String = "extension_error",
+) : ExtensionEvent
+
 public class ExtensionEventBus {
-    private val mutableEvents: MutableSharedFlow<ExtensionEvent> = MutableSharedFlow(extraBufferCapacity = 1_024)
+    // replay keeps recent lifecycle events (e.g. extension_loaded, emitted at load time before any
+    // collector attaches) available to subscribers that connect later.
+    private val mutableEvents: MutableSharedFlow<ExtensionEvent> =
+        MutableSharedFlow(replay = 64, extraBufferCapacity = 1_024)
 
     public val events: SharedFlow<ExtensionEvent> = mutableEvents.asSharedFlow()
 
@@ -133,14 +144,29 @@ public class ExtensionRunner(
         var current = messages
         for (extension in extensions) {
             val hook = extension.beforeAgent ?: continue
-            current = hook.run(BeforeAgentContext(current))
+            current = try {
+                hook.run(BeforeAgentContext(current))
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                // Isolate a failing extension: report it and continue the chain with the prior value.
+                eventBus.emit(ExtensionErrorEvent(extension.id, "beforeAgent", error.message ?: error.toString()))
+                current
+            }
         }
         return current
     }
 
     public suspend fun runAfterAgent(messages: List<Message>) {
         for (extension in extensions) {
-            extension.afterAgent?.run(AfterAgentContext(messages))
+            val hook = extension.afterAgent ?: continue
+            try {
+                hook.run(AfterAgentContext(messages))
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                eventBus.emit(ExtensionErrorEvent(extension.id, "afterAgent", error.message ?: error.toString()))
+            }
         }
     }
 
@@ -148,7 +174,14 @@ public class ExtensionRunner(
         var current = context
         for (extension in extensions) {
             val transform = extension.transformContext ?: continue
-            current = transform.run(current)
+            current = try {
+                transform.run(current)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                eventBus.emit(ExtensionErrorEvent(extension.id, "transformContext", error.message ?: error.toString()))
+                current
+            }
         }
         return current
     }
@@ -157,8 +190,14 @@ public class ExtensionRunner(
         var wrapped = tool
         for (extension in extensions) {
             val wrapper = extension.toolWrapper ?: continue
-            wrapped = wrapper.wrap(wrapped)
-            eventBus.emit(ToolWrappedEvent(extensionId = extension.id, toolName = tool.definition.name))
+            wrapped = try {
+                val next = wrapper.wrap(wrapped)
+                eventBus.emit(ToolWrappedEvent(extensionId = extension.id, toolName = tool.definition.name))
+                next
+            } catch (error: Throwable) {
+                eventBus.emit(ExtensionErrorEvent(extension.id, "toolWrapper", error.message ?: error.toString()))
+                wrapped
+            }
         }
         return wrapped
     }

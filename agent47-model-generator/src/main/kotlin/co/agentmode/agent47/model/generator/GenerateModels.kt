@@ -225,6 +225,9 @@ fun loadModelsDevData(): List<Model> {
                 models += bedrockModel.copy(
                     id = "eu.$modelId",
                     name = (m.str("name") ?: modelId) + " (EU)",
+                    // An eu. inference profile is region-scoped; it must target an EU regional
+                    // endpoint, not the us-east-1 base URL inherited from the copy.
+                    baseUrl = "https://bedrock-runtime.eu-central-1.amazonaws.com",
                 )
             }
         }
@@ -431,10 +434,10 @@ fun fetchOpenRouterModels(): List<Model> {
         if (modality.contains("image")) input += ModelInputKind.IMAGE
 
         val pricing = m.obj("pricing")
-        val inputCost = (pricing?.str("prompt")?.toDoubleOrNull() ?: 0.0) * 1_000_000
-        val outputCost = (pricing?.str("completion")?.toDoubleOrNull() ?: 0.0) * 1_000_000
-        val cacheReadCost = (pricing?.str("input_cache_read")?.toDoubleOrNull() ?: 0.0) * 1_000_000
-        val cacheWriteCost = (pricing?.str("input_cache_write")?.toDoubleOrNull() ?: 0.0) * 1_000_000
+        val inputCost = roundCost((pricing?.str("prompt")?.toDoubleOrNull() ?: 0.0) * 1_000_000)
+        val outputCost = roundCost((pricing?.str("completion")?.toDoubleOrNull() ?: 0.0) * 1_000_000)
+        val cacheReadCost = roundCost((pricing?.str("input_cache_read")?.toDoubleOrNull() ?: 0.0) * 1_000_000)
+        val cacheWriteCost = roundCost((pricing?.str("input_cache_write")?.toDoubleOrNull() ?: 0.0) * 1_000_000)
 
         val supportsToolChoice = "tool_choice" in supportedParams
         val compat = if (!supportsToolChoice) buildJsonObject {
@@ -455,7 +458,8 @@ fun fetchOpenRouterModels(): List<Model> {
                 cacheRead = cacheReadCost,
                 cacheWrite = cacheWriteCost,
             ),
-            contextWindow = m["context_length"]?.jsonPrimitive?.intOrNull ?: 4096,
+            contextWindow = m.obj("top_provider")?.int("context_length")
+                ?: m["context_length"]?.jsonPrimitive?.intOrNull ?: 4096,
             maxTokens = m.obj("top_provider")?.int("max_completion_tokens") ?: 4096,
             compat = compat,
         )
@@ -955,9 +959,11 @@ fun main() {
         }
     }
 
-    // Write output
+    // Write output, sorted by (provider, id) so regeneration produces a stable, diff-friendly file
+    // regardless of upstream ordering. Sorting after dedup preserves the first-wins priority.
+    val sorted = deduplicated.sortedWith(compareBy({ it.provider.value }, { it.id }))
     val outputPath = Path.of("agent47-coding-core/src/main/resources/model-catalog.json")
-    val output = json.encodeToString(ListSerializer(Model.serializer()), deduplicated)
+    val output = json.encodeToString(ListSerializer(Model.serializer()), sorted)
     outputPath.toFile().writeText(output)
 
     // Statistics
@@ -970,3 +976,6 @@ fun main() {
     }
     println("\nGenerated model-catalog.json")
 }
+
+/** Round a per-million-token cost to 6 decimals to strip float noise and keep catalog diffs quiet. */
+private fun roundCost(value: Double): Double = Math.round(value * 1_000_000.0) / 1_000_000.0
