@@ -91,19 +91,20 @@ public object SlashCommandExpander {
      * Substitute `$1`, `$2`, ..., `$@`, and `$ARGUMENTS` in the template with parsed arguments.
      */
     public fun substituteArgs(content: String, args: List<String>): String {
-        var result = content
         val allArgs = args.joinToString(" ")
-
-        result = result.replace("\$ARGUMENTS", allArgs)
-        result = result.replace("\$@", allArgs)
-
-        for ((index, arg) in args.withIndex()) {
-            result = result.replace("\$${index + 1}", arg)
+        // A single left-to-right scan: replacements are not re-scanned, so an argument value that
+        // itself contains "$5" stays literal, and "$10" is matched whole rather than as "$1" + "0".
+        val pattern = Regex("\\\$ARGUMENTS|\\\$@|\\\$(\\d+)")
+        val result = pattern.replace(content) { match ->
+            val digits = match.groupValues[1]
+            when {
+                digits.isNotEmpty() -> {
+                    val index = digits.toIntOrNull()
+                    if (index != null && index in 1..args.size) args[index - 1] else ""
+                }
+                else -> allArgs
+            }
         }
-
-        // Clean up any remaining $N placeholders that weren't matched
-        result = result.replace(Regex("""\$(\d+)""")) { "" }
-
         return result.trim()
     }
 }

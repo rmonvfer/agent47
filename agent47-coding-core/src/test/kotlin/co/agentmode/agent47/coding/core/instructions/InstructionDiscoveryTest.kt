@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 class InstructionDiscoveryTest {
 
     @Test
-    fun `findUp returns files from nearest ancestor with a match`() {
+    fun `findUp collects matches from every ancestor, parents first`() {
         val root = createTempDirectory("findUp-test")
         val parent = root.resolve("a").createDirectories()
         val child = parent.resolve("b").createDirectories()
@@ -20,8 +20,9 @@ class InstructionDiscoveryTest {
         root.resolve("AGENTS.md").writeText("root instructions")
 
         val results = InstructionDiscovery.findUp(listOf("AGENTS.md"), child, root)
-        assertEquals(1, results.size)
-        assertEquals("parent instructions", results[0].toFile().readText())
+        assertEquals(2, results.size)
+        assertEquals("root instructions", results[0].toFile().readText())
+        assertEquals("parent instructions", results[1].toFile().readText())
     }
 
     @Test

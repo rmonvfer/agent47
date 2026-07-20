@@ -81,21 +81,25 @@ public object InstructionDiscovery {
 
     public fun findUp(fileNames: List<String>, start: Path, stop: Path?): List<Path> {
         val stopNormalized = stop?.toAbsolutePath()?.normalize()
+        val perDir = mutableListOf<List<Path>>()
         var current: Path? = start.toAbsolutePath().normalize()
 
         while (current != null) {
             val dir = current
+            // Collect matching instruction files from every ancestor up to the stop dir, not only
+            // the nearest one, so a root-level AGENTS/CLAUDE file is not dropped.
             val matches = fileNames.mapNotNull { name ->
                 val candidate = dir.resolve(name)
                 if (candidate.exists() && candidate.isRegularFile()) candidate else null
             }
-            if (matches.isNotEmpty()) return matches
+            if (matches.isNotEmpty()) perDir.add(matches)
 
             if (stopNormalized != null && dir == stopNormalized) break
             current = dir.parent
         }
 
-        return emptyList()
+        // Parents-first (outermost ancestor first), preserving each directory's filename order.
+        return perDir.asReversed().flatten()
     }
 
     public fun resolveGlob(pattern: String, cwd: Path): List<Path> {

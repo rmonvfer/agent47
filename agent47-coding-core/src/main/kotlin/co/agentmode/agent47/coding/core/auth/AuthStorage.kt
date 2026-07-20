@@ -8,7 +8,10 @@ import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.PosixFilePermissions
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.exists
@@ -176,23 +179,52 @@ public class AuthStorage(
     public fun getAll(): Map<String, AuthCredential> = data.toMap()
 
     private fun save() {
-        Files.createDirectories(authPath.parent)
+        val parent = authPath.parent
+        Files.createDirectories(parent)
+        // Tighten the directory too; credentials should not sit in a group/world-accessible dir.
+        runCatching {
+            Files.setPosixFilePermissions(
+                parent,
+                setOf(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE,
+                ),
+            )
+        }
 
         val root = buildJsonObject {
             data.toSortedMap().forEach { (provider, credential) ->
                 put(provider, encodeCredential(credential))
             }
         }
+        val content = json.encodeToString(JsonObject.serializer(), root)
+        val ownerOnly = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
 
-        authPath.writeText(json.encodeToString(JsonObject.serializer(), root), StandardCharsets.UTF_8)
+        // Write to a temp file created 0600, then atomically move it into place, so the token file
+        // is never briefly world-readable between creation and a follow-up chmod.
+        val tmp = runCatching {
+            Files.createTempFile(parent, "auth", ".tmp", PosixFilePermissions.asFileAttribute(ownerOnly))
+        }.getOrNull()
+
+        if (tmp == null) {
+            authPath.writeText(content, StandardCharsets.UTF_8)
+            runCatching { Files.setPosixFilePermissions(authPath, ownerOnly) }
+            return
+        }
+
         runCatching {
-            Files.setPosixFilePermissions(
-                authPath,
-                setOf(
-                    java.nio.file.attribute.PosixFilePermission.OWNER_READ,
-                    java.nio.file.attribute.PosixFilePermission.OWNER_WRITE,
-                ),
-            )
+            Files.writeString(tmp, content, StandardCharsets.UTF_8)
+            runCatching { Files.setPosixFilePermissions(tmp, ownerOnly) }
+            runCatching {
+                Files.move(tmp, authPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            }.getOrElse {
+                Files.move(tmp, authPath, StandardCopyOption.REPLACE_EXISTING)
+            }
+        }.onFailure {
+            runCatching { Files.deleteIfExists(tmp) }
+            authPath.writeText(content, StandardCharsets.UTF_8)
+            runCatching { Files.setPosixFilePermissions(authPath, ownerOnly) }
         }
     }
 

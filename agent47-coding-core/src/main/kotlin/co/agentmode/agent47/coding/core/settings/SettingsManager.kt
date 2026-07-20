@@ -15,6 +15,7 @@ import kotlin.io.path.writeText
  */
 public class SettingsManager private constructor(
     private var settings: Settings,
+    private var globalSettings: Settings,
     private val globalPath: Path?,
     private val projectPath: Path?,
 ) {
@@ -22,25 +23,28 @@ public class SettingsManager private constructor(
 
     public fun update(transform: (Settings) -> Settings) {
         settings = transform(settings)
+        // Apply the same change to the global-scope settings and persist only those, so a project's
+        // merged values (and encoded defaults) are never written back into the global file.
+        globalSettings = transform(globalSettings)
         save()
     }
 
     private fun save() {
         val path = globalPath ?: return
-        Files.createDirectories(path.parent)
-        path.writeText(Agent47Json.encodeToString(Settings.serializer(), settings))
+        path.parent?.let { Files.createDirectories(it) }
+        path.writeText(Agent47Json.encodeToString(Settings.serializer(), globalSettings))
     }
 
     public companion object {
         public fun create(globalPath: Path, projectPath: Path): SettingsManager {
-            val global = loadFromFile(globalPath)
+            val global = loadFromFile(globalPath) ?: Settings()
             val project = loadFromFile(projectPath)
             val merged = merge(global, project)
-            return SettingsManager(merged, globalPath, projectPath)
+            return SettingsManager(merged, global, globalPath, projectPath)
         }
 
         public fun inMemory(settings: Settings = Settings()): SettingsManager {
-            return SettingsManager(settings, null, null)
+            return SettingsManager(settings, settings, null, null)
         }
 
         private fun loadFromFile(path: Path): Settings? {

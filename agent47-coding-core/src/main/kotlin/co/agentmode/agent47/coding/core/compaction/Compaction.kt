@@ -39,26 +39,36 @@ public fun calculateContextTokens(usage: Usage): Int {
     }
 }
 
+private const val IMAGE_CHAR_ESTIMATE = 4800
+
 public fun estimateTokens(message: Message): Int {
-    return when (message) {
-        is UserMessage -> message.content.filterIsInstance<TextContent>().sumOf { it.text.length } / 4
-        is AssistantMessage -> {
-            val chars = message.content.sumOf { block ->
-                when (block) {
-                    is TextContent -> block.text.length
-                    is ThinkingContent -> block.thinking.length
-                    is ToolCall -> block.name.length + block.arguments.toString().length
-                    else -> 0
-                }
+    val chars = when (message) {
+        is UserMessage -> contentChars(message.content)
+        is AssistantMessage -> message.content.sumOf { block ->
+            when (block) {
+                is TextContent -> block.text.length
+                is ThinkingContent -> block.thinking.length
+                is ToolCall -> block.name.length + block.arguments.toString().length
+                is ImageContent -> IMAGE_CHAR_ESTIMATE
+                else -> 0
             }
-            chars / 4
         }
 
-        is ToolResultMessage -> message.content.filterIsInstance<TextContent>().sumOf { it.text.length } / 4
-        is CustomMessage -> message.content.filterIsInstance<TextContent>().sumOf { it.text.length } / 4
-        is BashExecutionMessage -> (message.command.length + message.output.length) / 4
-        is BranchSummaryMessage -> message.summary.length / 4
-        is CompactionSummaryMessage -> message.summary.length / 4
+        is ToolResultMessage -> contentChars(message.content)
+        is CustomMessage -> contentChars(message.content)
+        is BashExecutionMessage -> message.command.length + message.output.length
+        is BranchSummaryMessage -> message.summary.length
+        is CompactionSummaryMessage -> message.summary.length
+    }
+    // Round up: a fraction of the ~4-chars-per-token ratio still occupies a token.
+    return (chars + 3) / 4
+}
+
+private fun contentChars(content: List<ContentBlock>): Int = content.sumOf { block ->
+    when (block) {
+        is TextContent -> block.text.length
+        is ImageContent -> IMAGE_CHAR_ESTIMATE
+        else -> 0
     }
 }
 
@@ -69,9 +79,14 @@ public fun estimateContextTokens(messages: List<Message>): ContextUsageEstimate 
     for (index in messages.indices.reversed()) {
         val message = messages[index]
         if (message is AssistantMessage && message.stopReason != StopReason.ERROR && message.stopReason != StopReason.ABORTED) {
-            usageIndex = index
-            usageTokens = calculateContextTokens(message.usage)
-            break
+            val tokens = calculateContextTokens(message.usage)
+            // Skip assistant turns with no recorded usage; a zero would collapse the estimate and
+            // stop auto-compaction from ever firing. Keep scanning, then fall back to a char estimate.
+            if (tokens > 0) {
+                usageIndex = index
+                usageTokens = tokens
+                break
+            }
         }
     }
 

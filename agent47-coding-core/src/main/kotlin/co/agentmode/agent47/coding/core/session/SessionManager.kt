@@ -236,25 +236,52 @@ public class SessionManager(
 
         val path = resolvePathToRoot(targetLeafId)
         val pathIds = path.map { it.id }.toSet()
+        val pathEntries = entries.filter { pathIds.contains(it.id) }
+
+        // The most recent compaction summarizes everything before its firstKeptEntryId: those
+        // message entries are dropped and replaced by the summary, while kept entries (and any
+        // entries after the compaction) stay. Without this the full pre-compaction history was
+        // sent alongside the summary, defeating compaction and blowing the context window.
+        val lastCompaction = pathEntries.filterIsInstance<CompactionEntry>().lastOrNull()
+        val keptFromIndex = if (lastCompaction != null) {
+            pathEntries.indexOfFirst { it.id == lastCompaction.firstKeptEntryId }.coerceAtLeast(0)
+        } else {
+            0
+        }
 
         var thinking = "off"
         var model: Pair<String, String>? = null
         val messages = mutableListOf<Message>()
 
-        entries.forEach { entry ->
-            if (!pathIds.contains(entry.id)) {
-                return@forEach
-            }
+        if (lastCompaction != null) {
+            messages += CompactionSummaryMessage(
+                summary = lastCompaction.summary,
+                tokensBefore = lastCompaction.tokensBefore,
+                timestamp = Instant.parse(lastCompaction.timestamp).toEpochMilli(),
+            )
+        }
+
+        pathEntries.forEachIndexed { index, entry ->
+            // State (model/thinking) carries forward even from summarized entries.
             when (entry) {
-                is SessionMessageEntry -> messages += entry.message
                 is ThinkingLevelChangeEntry -> thinking = entry.thinkingLevel
                 is ModelChangeEntry -> model = entry.provider to entry.modelId
-                is CompactionEntry -> messages += CompactionSummaryMessage(
-                    summary = entry.summary,
-                    tokensBefore = entry.tokensBefore,
-                    timestamp = Instant.parse(entry.timestamp).toEpochMilli(),
-                )
+                is SessionMessageEntry -> {
+                    val message = entry.message
+                    if (message is AssistantMessage) {
+                        // Restore the model from assistant turns for sessions with no explicit
+                        // ModelChangeEntry, so buildContext doesn't report a null model.
+                        model = message.provider.value to message.model
+                    }
+                }
+                else -> {}
+            }
 
+            // Message-producing entries before the kept window are represented by the summary.
+            if (index < keptFromIndex) return@forEachIndexed
+
+            when (entry) {
+                is SessionMessageEntry -> messages += entry.message
                 is BranchSummaryEntry -> messages += BranchSummaryMessage(
                     fromId = entry.fromId,
                     summary = entry.summary,
@@ -269,12 +296,9 @@ public class SessionManager(
                     timestamp = Instant.parse(entry.timestamp).toEpochMilli(),
                 )
 
-                is CustomEntry,
-                is LabelEntry,
-                is SessionInfoEntry,
-                -> {
-                    // not part of llm context
-                }
+                // The compaction summary is prepended above; every other entry type is state or
+                // metadata and contributes no additional context message here.
+                else -> {}
             }
         }
 
@@ -350,13 +374,13 @@ public fun parseSessionEntries(content: String): MutableList<FileEntry> {
             Agent47Json.parseToJsonElement(line).jsonObject
         }.getOrNull() ?: return@forEach
 
-        if (parsed["type"]?.toString()?.contains("session") == true && parsed.containsKey("cwd")) {
-            val header = Agent47Json.decodeFromJsonElement(SessionHeader.serializer(), parsed)
-            entries += HeaderFileEntry(header)
-        } else {
-            val entry = decodeSessionEntry(parsed)
-            if (entry != null) {
-                entries += SessionFileEntry(entry)
+        // A malformed or legacy-schema line must not abort the whole load; skip it instead.
+        runCatching {
+            if (parsed["type"]?.toString()?.contains("session") == true && parsed.containsKey("cwd")) {
+                val header = Agent47Json.decodeFromJsonElement(SessionHeader.serializer(), parsed)
+                entries += HeaderFileEntry(header)
+            } else {
+                decodeSessionEntry(parsed)?.let { entries += SessionFileEntry(it) }
             }
         }
     }
