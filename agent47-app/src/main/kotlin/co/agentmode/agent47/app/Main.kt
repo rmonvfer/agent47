@@ -112,8 +112,8 @@ class Agent47Command :
     ).flag()
     private val resume by option(
         "-r", "--resume",
-        help = "Select session to resume"
-    ).flag()
+        help = "Resume a session by its id (shown in the hint printed on exit)",
+    )
     private val session by option(
         "--session",
         help = "Use specific session file"
@@ -340,6 +340,7 @@ class Agent47Command :
                 compactionSettings = settings.get().compaction,
                 backgroundAgents = backgroundAgents,
             )
+            printResumeHint(sessionManager)
         }
     }
 
@@ -450,8 +451,8 @@ class Agent47Command :
         val sessionPath = when {
             session != null -> session!!
             continueSession -> findLatestSession(config) ?: createNewSession(config)
-            resume -> {
-                terminal.printWarning("--resume is not yet implemented, starting new session")
+            resume != null -> findSessionById(config, resume!!) ?: run {
+                terminal.printWarning("No session found matching '$resume' — starting a new session")
                 createNewSession(config)
             }
 
@@ -481,6 +482,33 @@ class Agent47Command :
                 .findFirst()
                 .orElse(null)
         }
+    }
+
+    /** Finds the session file whose header id equals [id], or a unique prefix of it. */
+    private fun findSessionById(config: AgentConfig, id: String): Path? {
+        val dir = sessionsBaseDir(config)
+        if (!dir.exists()) return null
+        val files = Files.list(dir).use { stream ->
+            stream.filter { it.toString().endsWith(".jsonl") }.toList()
+        }
+        var prefixMatch: Path? = null
+        var prefixCount = 0
+        for (file in files) {
+            val sid = runCatching { SessionManager(file).getHeader().id }.getOrNull() ?: continue
+            if (sid == id) return file
+            if (sid.startsWith(id)) {
+                prefixMatch = file
+                prefixCount++
+            }
+        }
+        return if (prefixCount == 1) prefixMatch else null
+    }
+
+    /** On exit, tell the user how to resume the session they were just in. */
+    private fun printResumeHint(sessionManager: SessionManager?) {
+        if (sessionManager == null || sessionManager.getEntries().isEmpty()) return
+        terminal.println("")
+        terminal.println("Continue this session:  agent47 --resume ${sessionManager.getHeader().id}")
     }
 
     private fun resolveTools(): List<String> {
