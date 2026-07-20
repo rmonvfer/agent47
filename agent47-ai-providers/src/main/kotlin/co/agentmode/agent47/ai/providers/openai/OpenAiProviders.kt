@@ -23,6 +23,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.math.max
 import kotlin.text.StringBuilder
 import kotlin.text.endsWith
 import kotlin.text.ifBlank
@@ -61,15 +62,23 @@ public class OpenAiCompletionsProvider(
         if (handleSseError(sseResponse, stream, model, "OpenAI completions")) return@streamWithCoroutine
 
         val acc = StreamAccumulator(api, model)
-        val textBuffer = StringBuilder()
         var startEmitted = false
+        var sawFinishReason = false
 
-        // Track tool calls being assembled from deltas
+        // Content blocks are assigned indices in first-appearance order so reasoning,
+        // text, and tool calls never collide on contentIndex 0.
+        var nextContentIndex = 0
+        val thinkingBuffer = StringBuilder()
+        var thinkingContentIndex = -1
+        val textBuffer = StringBuilder()
+        var textContentIndex = -1
+
+        // Track tool calls being assembled from deltas, keyed by the provider's tool index.
         data class ToolCallAccumulator(
-            val index: Int,
+            val contentIndex: Int,
             var id: String = "",
             var name: String = "",
-            var argumentsJson: StringBuilder = StringBuilder(),
+            val argumentsJson: StringBuilder = StringBuilder(),
         )
 
         val toolAccumulators = mutableMapOf<Int, ToolCallAccumulator>()
@@ -78,13 +87,16 @@ public class OpenAiCompletionsProvider(
             val data =
                 runCatching { Json.parseToJsonElement(sseEvent.data).jsonObject }.getOrNull() ?: return@collect
 
-            // Parse usage at the top level (can be in any event when stream_options.include_usage=true)
+            // Parse usage at the top level (can be in any event when stream_options.include_usage=true).
+            // prompt_tokens already includes cached tokens, so the billable input excludes them.
             val usage = data["usage"]?.jsonObject
             if (usage != null) {
-                acc.inputTokens = usage["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: acc.inputTokens
+                val cachedTokens = usage["prompt_tokens_details"]?.jsonObject
+                    ?.get("cached_tokens")?.jsonPrimitive?.intOrNull
+                if (cachedTokens != null) acc.cacheReadTokens = cachedTokens
+                val promptTokens = usage["prompt_tokens"]?.jsonPrimitive?.intOrNull
+                if (promptTokens != null) acc.inputTokens = max(0, promptTokens - (cachedTokens ?: acc.cacheReadTokens))
                 acc.outputTokens = usage["completion_tokens"]?.jsonPrimitive?.intOrNull ?: acc.outputTokens
-                acc.cacheReadTokens = usage["prompt_tokens_details"]?.jsonObject
-                    ?.get("cached_tokens")?.jsonPrimitive?.intOrNull ?: acc.cacheReadTokens
             }
 
             val choice = data["choices"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@collect
@@ -96,24 +108,46 @@ public class OpenAiCompletionsProvider(
                 stream.push(StartEvent(partial = acc.buildPartial()))
             }
 
+            // Reasoning delta (DeepSeek `reasoning_content`, some gateways `reasoning`)
+            val reasoningDelta = delta?.get("reasoning_content")?.jsonPrimitive?.contentOrNull
+                ?: delta?.get("reasoning")?.jsonPrimitive?.contentOrNull
+            if (!reasoningDelta.isNullOrEmpty()) {
+                if (thinkingContentIndex < 0) {
+                    thinkingContentIndex = nextContentIndex++
+                    stream.push(ThinkingStartEvent(contentIndex = thinkingContentIndex, partial = acc.buildPartial()))
+                }
+                thinkingBuffer.append(reasoningDelta)
+                stream.push(
+                    ThinkingDeltaEvent(
+                        contentIndex = thinkingContentIndex,
+                        delta = reasoningDelta,
+                        partial = acc.buildPartial()
+                    )
+                )
+            }
+
             // Text delta
             val textDelta = delta?.get("content")?.jsonPrimitive?.contentOrNull
             if (!textDelta.isNullOrEmpty()) {
-                if (textBuffer.isEmpty()) {
-                    stream.push(TextStartEvent(contentIndex = 0, partial = acc.buildPartial()))
+                if (textContentIndex < 0) {
+                    textContentIndex = nextContentIndex++
+                    stream.push(TextStartEvent(contentIndex = textContentIndex, partial = acc.buildPartial()))
                 }
                 textBuffer.append(textDelta)
-                stream.push(TextDeltaEvent(contentIndex = 0, delta = textDelta, partial = acc.buildPartial()))
+                stream.push(
+                    TextDeltaEvent(contentIndex = textContentIndex, delta = textDelta, partial = acc.buildPartial())
+                )
             }
 
             // Tool call deltas
             val toolCallDeltas = delta?.get("tool_calls")?.jsonArray
             toolCallDeltas?.forEach { tcElement ->
                 val tc = tcElement.jsonObject
-                val tcIndex = tc["index"]?.jsonPrimitive?.intOrNull ?: 0
-                val tcAcc = toolAccumulators.getOrPut(tcIndex) {
-                    ToolCallAccumulator(index = tcIndex).also {
-                        stream.push(ToolCallStartEvent(contentIndex = tcIndex, partial = acc.buildPartial()))
+                val tcKey = tc["index"]?.jsonPrimitive?.intOrNull ?: 0
+                val tcAcc = toolAccumulators.getOrPut(tcKey) {
+                    val contentIndex = nextContentIndex++
+                    ToolCallAccumulator(contentIndex = contentIndex).also {
+                        stream.push(ToolCallStartEvent(contentIndex = contentIndex, partial = acc.buildPartial()))
                     }
                 }
                 tc["id"]?.jsonPrimitive?.contentOrNull?.let { tcAcc.id = it }
@@ -123,7 +157,7 @@ public class OpenAiCompletionsProvider(
                         tcAcc.argumentsJson.append(argsDelta)
                         stream.push(
                             ToolCallDeltaEvent(
-                                contentIndex = tcIndex,
+                                contentIndex = tcAcc.contentIndex,
                                 delta = argsDelta,
                                 partial = acc.buildPartial()
                             )
@@ -135,38 +169,47 @@ public class OpenAiCompletionsProvider(
             // Finish reason
             val finishReason = choice["finish_reason"]?.jsonPrimitive?.contentOrNull
             if (finishReason != null) {
-                acc.stopReason = when (finishReason) {
-                    "stop" -> StopReason.STOP
-                    "length" -> StopReason.LENGTH
-                    "tool_calls" -> StopReason.TOOL_USE
-                    else -> StopReason.STOP
-                }
+                sawFinishReason = true
+                acc.stopReason = mapOpenAiFinishReason(finishReason)
             }
         }
 
-        // Finalize text block
-        val text = textBuffer.toString()
-        if (text.isNotBlank()) {
-            acc.blocks += TextContent(text = text)
-            stream.push(TextEndEvent(contentIndex = 0, content = text, partial = acc.buildPartial()))
+        // Finalize content blocks, ordered so acc.blocks[contentIndex] lines up with the events.
+        val finalized = mutableListOf<Pair<Int, ContentBlock>>()
+
+        val thinking = thinkingBuffer.toString()
+        if (thinkingContentIndex >= 0 && thinking.isNotBlank()) {
+            finalized += thinkingContentIndex to ThinkingContent(thinking = thinking)
+            stream.push(
+                ThinkingEndEvent(contentIndex = thinkingContentIndex, content = thinking, partial = acc.buildPartial())
+            )
         }
 
-        // Finalize tool call blocks
-        toolAccumulators.values.sortedBy { it.index }.forEach { tcAcc ->
+        val text = textBuffer.toString()
+        if (textContentIndex >= 0 && text.isNotBlank()) {
+            finalized += textContentIndex to TextContent(text = text)
+            stream.push(TextEndEvent(contentIndex = textContentIndex, content = text, partial = acc.buildPartial()))
+        }
+
+        toolAccumulators.values.sortedBy { it.contentIndex }.forEach { tcAcc ->
             val args = parseToolArguments(tcAcc.argumentsJson.toString())
             val toolCall = ToolCall(id = tcAcc.id, name = tcAcc.name, arguments = args)
-            acc.blocks += toolCall
+            finalized += tcAcc.contentIndex to toolCall
             stream.push(
                 ToolCallEndEvent(
-                    contentIndex = tcAcc.index,
+                    contentIndex = tcAcc.contentIndex,
                     toolCall = toolCall,
                     partial = acc.buildPartial()
                 )
             )
         }
 
-        if (toolAccumulators.isNotEmpty()) {
-            acc.stopReason = StopReason.TOOL_USE
+        finalized.sortBy { it.first }
+        finalized.forEach { acc.blocks += it.second }
+
+        // A stream that ended without a finish reason was truncated (severed connection).
+        if (!sawFinishReason) {
+            acc.stopReason = StopReason.ERROR
         }
 
         emitStreamFinale(stream, acc)
@@ -396,11 +439,15 @@ public class OpenAiResponsesProvider(
                     val response = data["response"]?.jsonObject
                     val usage = response?.get("usage")?.jsonObject
                     if (usage != null) {
-                        acc.inputTokens = usage["input_tokens"]?.jsonPrimitive?.intOrNull ?: acc.inputTokens
+                        // input_tokens already includes cached tokens; exclude them from the billable input.
+                        val cachedTokens = usage["input_tokens_details"]?.jsonObject
+                            ?.get("cached_tokens")?.jsonPrimitive?.intOrNull
+                        if (cachedTokens != null) acc.cacheReadTokens = cachedTokens
+                        val inputTokens = usage["input_tokens"]?.jsonPrimitive?.intOrNull
+                        if (inputTokens != null) {
+                            acc.inputTokens = max(0, inputTokens - (cachedTokens ?: acc.cacheReadTokens))
+                        }
                         acc.outputTokens = usage["output_tokens"]?.jsonPrimitive?.intOrNull ?: acc.outputTokens
-                        val details = usage["input_tokens_details"]?.jsonObject
-                        acc.cacheReadTokens =
-                            details?.get("cached_tokens")?.jsonPrimitive?.intOrNull ?: acc.cacheReadTokens
                     }
 
                     val status = response?.get("status")?.jsonPrimitive?.contentOrNull
@@ -438,6 +485,12 @@ public class OpenAiResponsesProvider(
                 }
             }
         }
+
+        // If the stream ended without response.completed/failed/error, surface the
+        // accumulated content instead of relying on the generic timeout fallback.
+        if (!stream.isTerminated) {
+            emitStreamFinale(stream, acc)
+        }
     }
 
     override suspend fun streamSimple(
@@ -474,6 +527,16 @@ public class OpenAiCodexResponsesProvider(
         options: SimpleStreamOptions?,
     ): AssistantMessageEventStream {
         return stream(model, context, options?.toStreamOptions())
+    }
+}
+
+private fun mapOpenAiFinishReason(reason: String): StopReason {
+    return when (reason) {
+        "stop" -> StopReason.STOP
+        "length" -> StopReason.LENGTH
+        "tool_calls", "function_call" -> StopReason.TOOL_USE
+        "content_filter" -> StopReason.ERROR
+        else -> StopReason.STOP
     }
 }
 
@@ -542,32 +605,81 @@ private fun buildResponsesPayload(model: Model, context: Context, options: Strea
             "input",
             buildJsonArray {
                 context.messages.forEach { message ->
-                    add(
-                        buildJsonObject {
-                            val role = when (message) {
-                                is co.agentmode.agent47.ai.types.AssistantMessage -> "assistant"
-                                else -> "user"
+                    when (message) {
+                        is co.agentmode.agent47.ai.types.ToolResultMessage -> {
+                            // Tool results are structured function_call_output items, paired by call_id.
+                            add(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("function_call_output"))
+                                    put("call_id", JsonPrimitive(message.toolCallId))
+                                    put("output", JsonPrimitive(contentToText(message.content)))
+                                },
+                            )
+                        }
+
+                        is co.agentmode.agent47.ai.types.AssistantMessage -> {
+                            val text = message.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
+                            if (text.isNotBlank()) {
+                                add(
+                                    buildJsonObject {
+                                        put("role", JsonPrimitive("assistant"))
+                                        put("content", JsonPrimitive(text))
+                                    },
+                                )
                             }
-                            put("role", JsonPrimitive(role))
+                            // Assistant tool calls are structured function_call items so the model can
+                            // pair each function_call_output with the call that produced it.
+                            message.content.filterIsInstance<ToolCall>().forEach { call ->
+                                add(
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("function_call"))
+                                        put("call_id", JsonPrimitive(call.id))
+                                        put("name", JsonPrimitive(call.name))
+                                        put("arguments", JsonPrimitive(call.arguments.toString()))
+                                    },
+                                )
+                            }
+                        }
+
+                        else -> {
                             val contentText = when (message) {
-                                is co.agentmode.agent47.ai.types.ToolResultMessage -> {
-                                    val errorTag = if (message.isError) " error=\"true\"" else ""
-                                    "<tool_result name=\"${message.toolName}\" call_id=\"${message.toolCallId}\"$errorTag>\n${contentToText(message.content)}\n</tool_result>"
-                                }
                                 is co.agentmode.agent47.ai.types.UserMessage -> contentToText(message.content)
-                                is co.agentmode.agent47.ai.types.AssistantMessage -> contentToText(message.content)
                                 is co.agentmode.agent47.ai.types.CustomMessage -> contentToText(message.content)
                                 is co.agentmode.agent47.ai.types.BashExecutionMessage ->
                                     "<bash command=\"${message.command}\">\n${message.output}\n</bash>"
                                 is co.agentmode.agent47.ai.types.BranchSummaryMessage -> message.summary
                                 is co.agentmode.agent47.ai.types.CompactionSummaryMessage -> message.summary
+                                else -> ""
                             }
-                            put("content", JsonPrimitive(contentText))
-                        },
-                    )
+                            add(
+                                buildJsonObject {
+                                    put("role", JsonPrimitive("user"))
+                                    put("content", JsonPrimitive(contentText))
+                                },
+                            )
+                        }
+                    }
                 }
             },
         )
+        val tools = context.tools
+        if (!tools.isNullOrEmpty()) {
+            put(
+                "tools",
+                buildJsonArray {
+                    tools.forEach { tool ->
+                        add(
+                            buildJsonObject {
+                                put("type", JsonPrimitive("function"))
+                                put("name", JsonPrimitive(tool.name))
+                                put("description", JsonPrimitive(tool.description))
+                                put("parameters", tool.parameters)
+                            },
+                        )
+                    }
+                },
+            )
+        }
         options?.temperature?.let { put("temperature", JsonPrimitive(it)) }
         options?.maxTokens?.let { put("max_output_tokens", JsonPrimitive(it)) }
     }

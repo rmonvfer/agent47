@@ -101,7 +101,9 @@ public class StreamAccumulator(
     }
 
     public fun buildFinal(): AssistantMessage {
-        if (blocks.any { it is ToolCall }) {
+        // A recorded error is authoritative: a truncated stream that happens to carry a
+        // partial tool call must not be reported as a clean tool-use turn.
+        if (stopReason != StopReason.ERROR && blocks.any { it is ToolCall }) {
             stopReason = StopReason.TOOL_USE
         }
         return buildPartial().copy(stopReason = stopReason)
