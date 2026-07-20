@@ -35,48 +35,51 @@ public class EditTool(
         val absolutePath = resolveToCwd(path, cwd)
         require(Files.exists(absolutePath)) { "File not found: $path" }
 
-        val rawContent = withContext(Dispatchers.IO) {
-            Files.readString(absolutePath)
+        // Hold the per-file lock across read->write so a concurrent mutation can't clobber this one.
+        return FileMutationLock.withPathLock(absolutePath) {
+            val rawContent = withContext(Dispatchers.IO) {
+                Files.readString(absolutePath)
+            }
+            val stripped = stripBom(rawContent)
+            val originalEnding = detectLineEnding(stripped.text)
+            val normalizedContent = normalizeToLf(stripped.text)
+            val normalizedOld = normalizeToLf(oldText)
+            val normalizedNew = normalizeToLf(newText)
+
+            require(normalizedOld.isNotEmpty()) { "oldText must not be empty in $path." }
+
+            val match = fuzzyFindText(normalizedContent, normalizedOld)
+            require(match.found) {
+                "Could not find the exact text in $path. The old text must match exactly including all whitespace and newlines."
+            }
+
+            val fuzzyContent = normalizeForFuzzyMatch(normalizedContent)
+            val fuzzyOld = normalizeForFuzzyMatch(normalizedOld)
+            val occurrences = fuzzyContent.split(fuzzyOld).size - 1
+            require(occurrences <= 1) {
+                "Found $occurrences occurrences of the text in $path. The text must be unique. Please provide more context."
+            }
+
+            val edited = applyMatchedReplacement(normalizedContent, match, normalizedNew)
+            require(normalizedContent != edited) {
+                "No changes made to $path. The replacement produced identical content."
+            }
+
+            val final = stripped.bom + restoreLineEndings(edited, originalEnding)
+            withContext(Dispatchers.IO) {
+                Files.writeString(absolutePath, final)
+            }
+
+            val diff = generateDiffString(normalizedContent, edited)
+            val details = buildJsonObject {
+                put("diff", diff.diff)
+                diff.firstChangedLine?.let { put("firstChangedLine", it) }
+            }
+
+            AgentToolResult(
+                content = listOf(TextContent(text = "Successfully replaced text in $path.")),
+                details = details,
+            )
         }
-        val stripped = stripBom(rawContent)
-        val originalEnding = detectLineEnding(stripped.text)
-        val normalizedContent = normalizeToLf(stripped.text)
-        val normalizedOld = normalizeToLf(oldText)
-        val normalizedNew = normalizeToLf(newText)
-
-        require(normalizedOld.isNotEmpty()) { "oldText must not be empty in $path." }
-
-        val match = fuzzyFindText(normalizedContent, normalizedOld)
-        require(match.found) {
-            "Could not find the exact text in $path. The old text must match exactly including all whitespace and newlines."
-        }
-
-        val fuzzyContent = normalizeForFuzzyMatch(normalizedContent)
-        val fuzzyOld = normalizeForFuzzyMatch(normalizedOld)
-        val occurrences = fuzzyContent.split(fuzzyOld).size - 1
-        require(occurrences <= 1) {
-            "Found $occurrences occurrences of the text in $path. The text must be unique. Please provide more context."
-        }
-
-        val edited = applyMatchedReplacement(normalizedContent, match, normalizedNew)
-        require(normalizedContent != edited) {
-            "No changes made to $path. The replacement produced identical content."
-        }
-
-        val final = stripped.bom + restoreLineEndings(edited, originalEnding)
-        withContext(Dispatchers.IO) {
-            Files.writeString(absolutePath, final)
-        }
-
-        val diff = generateDiffString(normalizedContent, edited)
-        val details = buildJsonObject {
-            put("diff", diff.diff)
-            diff.firstChangedLine?.let { put("firstChangedLine", it) }
-        }
-
-        return AgentToolResult(
-            content = listOf(TextContent(text = "Successfully replaced text in $path.")),
-            details = details,
-        )
     }
 }

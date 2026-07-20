@@ -56,96 +56,99 @@ public class MultiEditTool(
         val absolutePath = resolveToCwd(path, cwd)
         require(Files.exists(absolutePath)) { "File not found: $path" }
 
-        val rawContent = withContext(Dispatchers.IO) {
-            Files.readString(absolutePath)
-        }
-        val stripped = stripBom(rawContent)
-        val originalEnding = detectLineEnding(stripped.text)
-        var currentContent = normalizeToLf(stripped.text)
+        // Hold the per-file lock across read->write so a concurrent mutation can't clobber this one.
+        return FileMutationLock.withPathLock(absolutePath) {
+            val rawContent = withContext(Dispatchers.IO) {
+                Files.readString(absolutePath)
+            }
+            val stripped = stripBom(rawContent)
+            val originalEnding = detectLineEnding(stripped.text)
+            var currentContent = normalizeToLf(stripped.text)
 
-        val diffs = mutableListOf<String>()
+            val diffs = mutableListOf<String>()
 
-        for ((index, editElement) in edits.withIndex()) {
-            val editObj = editElement.jsonObject
-            val oldText = editObj.string("oldText")
-                ?: error("Edit at index $index missing 'oldText'")
-            val newText = editObj.string("newText")
-                ?: error("Edit at index $index missing 'newText'")
+            for ((index, editElement) in edits.withIndex()) {
+                val editObj = editElement.jsonObject
+                val oldText = editObj.string("oldText")
+                    ?: error("Edit at index $index missing 'oldText'")
+                val newText = editObj.string("newText")
+                    ?: error("Edit at index $index missing 'newText'")
 
-            val normalizedOld = normalizeToLf(oldText)
-            val normalizedNew = normalizeToLf(newText)
+                val normalizedOld = normalizeToLf(oldText)
+                val normalizedNew = normalizeToLf(newText)
 
-            if (normalizedOld.isEmpty()) {
-                return AgentToolResult(
-                    content = listOf(
-                        TextContent(
-                            text = "Error: Edit $index failed - oldText must not be empty. No edits were applied.",
+                if (normalizedOld.isEmpty()) {
+                    return@withPathLock AgentToolResult(
+                        content = listOf(
+                            TextContent(
+                                text = "Error: Edit $index failed - oldText must not be empty. No edits were applied.",
+                            ),
                         ),
-                    ),
-                    details = null,
-                )
+                        details = null,
+                    )
+                }
+
+                val match = fuzzyFindText(currentContent, normalizedOld)
+                if (!match.found) {
+                    return@withPathLock AgentToolResult(
+                        content = listOf(
+                            TextContent(
+                                text = "Error: Edit $index failed - could not find the exact text in $path. " +
+                                        "The old text must match exactly including all whitespace and newlines. " +
+                                        "No edits were applied.",
+                            ),
+                        ),
+                        details = null,
+                    )
+                }
+
+                val fuzzyContent = normalizeForFuzzyMatch(currentContent)
+                val fuzzyOld = normalizeForFuzzyMatch(normalizedOld)
+                val occurrences = fuzzyContent.split(fuzzyOld).size - 1
+                if (occurrences > 1) {
+                    return@withPathLock AgentToolResult(
+                        content = listOf(
+                            TextContent(
+                                text = "Error: Edit $index failed - found $occurrences occurrences of the text in $path. " +
+                                        "The text must be unique. Please provide more context. No edits were applied.",
+                            ),
+                        ),
+                        details = null,
+                    )
+                }
+
+                val edited = applyMatchedReplacement(currentContent, match, normalizedNew)
+                if (currentContent == edited) {
+                    return@withPathLock AgentToolResult(
+                        content = listOf(
+                            TextContent(
+                                text = "Error: Edit $index produced no changes in $path. " +
+                                        "oldText and newText are the same. No edits were applied.",
+                            ),
+                        ),
+                        details = null,
+                    )
+                }
+
+                val diff = generateDiffString(currentContent, edited)
+                diffs += diff.diff
+                currentContent = edited
             }
 
-            val match = fuzzyFindText(currentContent, normalizedOld)
-            if (!match.found) {
-                return AgentToolResult(
-                    content = listOf(
-                        TextContent(
-                            text = "Error: Edit $index failed - could not find the exact text in $path. " +
-                                    "The old text must match exactly including all whitespace and newlines. " +
-                                    "No edits were applied.",
-                        ),
-                    ),
-                    details = null,
-                )
+            val finalContent = stripped.bom + restoreLineEndings(currentContent, originalEnding)
+            withContext(Dispatchers.IO) {
+                Files.writeString(absolutePath, finalContent)
             }
 
-            val fuzzyContent = normalizeForFuzzyMatch(currentContent)
-            val fuzzyOld = normalizeForFuzzyMatch(normalizedOld)
-            val occurrences = fuzzyContent.split(fuzzyOld).size - 1
-            if (occurrences > 1) {
-                return AgentToolResult(
-                    content = listOf(
-                        TextContent(
-                            text = "Error: Edit $index failed - found $occurrences occurrences of the text in $path. " +
-                                    "The text must be unique. Please provide more context. No edits were applied.",
-                        ),
-                    ),
-                    details = null,
-                )
+            val details = buildJsonObject {
+                put("editsApplied", edits.size)
+                put("diff", diffs.joinToString("\n---\n"))
             }
 
-            val edited = applyMatchedReplacement(currentContent, match, normalizedNew)
-            if (currentContent == edited) {
-                return AgentToolResult(
-                    content = listOf(
-                        TextContent(
-                            text = "Error: Edit $index produced no changes in $path. " +
-                                    "oldText and newText are the same. No edits were applied.",
-                        ),
-                    ),
-                    details = null,
-                )
-            }
-
-            val diff = generateDiffString(currentContent, edited)
-            diffs += diff.diff
-            currentContent = edited
+            AgentToolResult(
+                content = listOf(TextContent(text = "Successfully applied ${edits.size} edit(s) to $path.")),
+                details = details,
+            )
         }
-
-        val finalContent = stripped.bom + restoreLineEndings(currentContent, originalEnding)
-        withContext(Dispatchers.IO) {
-            Files.writeString(absolutePath, finalContent)
-        }
-
-        val details = buildJsonObject {
-            put("editsApplied", edits.size)
-            put("diff", diffs.joinToString("\n---\n"))
-        }
-
-        return AgentToolResult(
-            content = listOf(TextContent(text = "Successfully applied ${edits.size} edit(s) to $path.")),
-            details = details,
-        )
     }
 }

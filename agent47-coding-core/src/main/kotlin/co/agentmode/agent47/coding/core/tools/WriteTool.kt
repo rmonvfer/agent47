@@ -4,6 +4,8 @@ import co.agentmode.agent47.agent.core.AgentTool
 import co.agentmode.agent47.agent.core.AgentToolResult
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.ToolDefinition
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.serialization.json.JsonObject
@@ -27,8 +29,13 @@ public class WriteTool(
         val content = parameters.string("content") ?: error("Missing content")
 
         val absolute = resolveToCwd(path, cwd)
-        Files.createDirectories(absolute.parent)
-        Files.writeString(absolute, content)
+        FileMutationLock.withPathLock(absolute) {
+            withContext(Dispatchers.IO) {
+                // parent is null when writing to a filesystem root; createDirectories would NPE.
+                absolute.parent?.let { Files.createDirectories(it) }
+                Files.writeString(absolute, content)
+            }
+        }
 
         return AgentToolResult(
             content = listOf(TextContent(text = "Successfully wrote ${content.toByteArray().size} bytes to $path")),
