@@ -33,6 +33,7 @@ import co.agentmode.agent47.coding.core.commands.SlashCommandDiscovery
 import co.agentmode.agent47.coding.core.skills.Skill
 import co.agentmode.agent47.coding.core.skills.SkillRegistry
 import co.agentmode.agent47.coding.core.tools.CheckInboxTool
+import co.agentmode.agent47.coding.core.tools.SendMessageTool
 import co.agentmode.agent47.coding.core.tools.SkillReader
 import co.agentmode.agent47.coding.core.tools.TaskTool
 import co.agentmode.agent47.coding.core.tools.TodoState
@@ -233,6 +234,7 @@ class Agent47Command :
             )
             allTools += taskTool
             allTools += CheckInboxTool(backgroundAgents)
+            allTools += SendMessageTool(backgroundAgents, BackgroundAgents.ORCHESTRATOR)
         }
 
         val builtSystemPrompt = buildSystemPrompt(

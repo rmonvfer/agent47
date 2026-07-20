@@ -46,6 +46,7 @@ public data class SubAgentOptions(
     val parentSessionId: String? = null,
     val onAgentReady: ((Agent) -> Unit)? = null,
     val backgroundAgents: BackgroundAgents? = null,
+    val backgroundAgentId: String? = null,
 )
 
 public data class SubAgentResult(
@@ -231,6 +232,13 @@ private fun buildToolList(
     val tools = coreTools.all().toMutableList()
 
     val bg = options.backgroundAgents
+    if (bg != null) {
+        // Let the sub-agent message the orchestrator and its siblings.
+        tools += co.agentmode.agent47.coding.core.tools.SendMessageTool(
+            backgroundAgents = bg,
+            from = options.backgroundAgentId ?: options.taskId,
+        )
+    }
     if (options.currentDepth < options.maxDepth && definition.spawns !is SpawnsPolicy.None &&
         options.agentRegistry != null && bg != null
     ) {

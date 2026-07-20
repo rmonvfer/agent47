@@ -132,6 +132,7 @@ public class TaskTool(
             ) {
                 executeTask(
                     task = task,
+                    agentId = agentId,
                     definition = definitionWithSchema,
                     context = context,
                     parentModel = parentModel,
@@ -161,6 +162,7 @@ public class TaskTool(
 
     private suspend fun executeTask(
         task: ParsedTask,
+        agentId: String,
         definition: AgentDefinition,
         context: String?,
         parentModel: Model,
@@ -201,6 +203,7 @@ public class TaskTool(
                 parentSessionId = parentSessionId,
                 onAgentReady = onAgentReady,
                 backgroundAgents = backgroundAgents,
+                backgroundAgentId = agentId,
             ),
         )
 
