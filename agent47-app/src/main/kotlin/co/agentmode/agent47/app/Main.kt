@@ -7,6 +7,7 @@ import co.agentmode.agent47.ai.providers.anthropic.registerAnthropicProviders
 import co.agentmode.agent47.ai.providers.google.registerGoogleProviders
 import co.agentmode.agent47.ai.providers.openai.registerOpenAiProviders
 import co.agentmode.agent47.ai.core.AiRuntime
+import co.agentmode.agent47.ai.types.SimpleStreamOptions
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.coding.core.auth.AuthStorage
@@ -284,7 +285,11 @@ class Agent47Command :
                 messages = compactionMessages,
             )
             val response = runCatching {
-                AiRuntime.completeSimple(activeModel, context)
+                AiRuntime.completeSimple(
+                    activeModel,
+                    context,
+                    SimpleStreamOptions(apiKey = modelRegistry.getApiKeyForProvider(activeModel.provider.value)),
+                )
             }.getOrNull()
             val summaryText = response?.content
                 ?.filterIsInstance<TextContent>()

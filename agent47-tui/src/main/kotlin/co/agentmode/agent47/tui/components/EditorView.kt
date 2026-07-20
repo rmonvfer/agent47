@@ -28,46 +28,29 @@ public fun EditorView(
     result: EditorRenderResult,
     width: Int,
     height: Int,
-    bashMode: Boolean = false,
 ) {
     val theme = LocalThemeConfig.current
 
-    val prompt = if (bashMode) "! " else "❯ "
-    val promptColor = if (bashMode) theme.colors.error else theme.colors.accent
-
+    // ohm's editor draws no prompt marker/gutter, but the buffer is inset by one
+    // column on each side so it lines up with the tinted user/tool blocks in the
+    // transcript above. The border-rule color is the mode indicator; bash mode keeps
+    // the literal "!" prefix the user typed rather than hoisting it into a glyph.
     val textStyle = SpanStyle(
-        color = theme.codeBlockFg,
+        color = theme.markdownText,
     )
+    val paddingX = 1
+    val pad = " ".repeat(paddingX)
+    val contentWidth = (width - 2 * paddingX).coerceAtLeast(1)
 
     Column(modifier = Modifier.width(width).height(height)) {
         result.lines.forEachIndexed { rowIndex, lineText ->
-            val isFirstLine = rowIndex == 0
-            val prefix = if (isFirstLine) prompt else " ".repeat(prompt.length)
-            val contentWidth = width - prefix.length
-
-            // In bash mode the prompt already shows "! ", so strip the leading "!"
-            // from the first line to avoid displaying it twice.
-            val strippedText = if (bashMode && isFirstLine && lineText.startsWith("!")) {
-                lineText.removePrefix("!")
-            } else {
-                lineText
-            }
-            val displayText = strippedText.take(contentWidth).padEnd(contentWidth)
-
+            val displayText = lineText.take(contentWidth).padEnd(contentWidth)
             val hasCursor = rowIndex == result.cursorRow
-            val cursorCol = if (bashMode && isFirstLine && lineText.startsWith("!")) {
-                (result.cursorColumn - 1).coerceAtLeast(0)
-            } else {
-                result.cursorColumn
-            }
 
             Text(buildAnnotatedString {
-                withStyle(SpanStyle(color = promptColor)) {
-                    append(prefix)
-                }
-
+                append(pad)
                 if (hasCursor) {
-                    val adjustedCursorCol = cursorCol.coerceIn(0, displayText.length)
+                    val adjustedCursorCol = result.cursorColumn.coerceIn(0, displayText.length)
                     val before = displayText.substring(0, adjustedCursorCol)
                     val cursorChar = if (adjustedCursorCol < displayText.length) {
                         displayText[adjustedCursorCol].toString()
@@ -88,6 +71,7 @@ public fun EditorView(
                 } else {
                     withStyle(textStyle) { append(displayText) }
                 }
+                append(pad)
             })
         }
     }

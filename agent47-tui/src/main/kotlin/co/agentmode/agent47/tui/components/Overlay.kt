@@ -31,8 +31,10 @@ public fun <T> rememberSelectDialogState(
 }
 
 /**
- * Modal surface composable that renders a bordered, background-filled dialog positioned at
- * the given offset. Individual dialogs render their own chrome (title, search, footer) as content.
+ * Modal surface composable that renders a floating dialog positioned at the given offset.
+ * Because dialogs float over the transcript, the panel is a raised (lighter) fill outlined
+ * with a single-line border so it reads clearly as a distinct layer above the content.
+ * Individual dialogs render their own chrome (title, search, footer) as content.
  *
  * @param width Total width of the dialog in columns
  * @param height Total height of the dialog in rows

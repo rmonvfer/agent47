@@ -4,6 +4,7 @@ import co.agentmode.agent47.ai.core.AiRuntime
 import co.agentmode.agent47.ai.core.utils.MessageTransforms
 import co.agentmode.agent47.ai.types.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -228,77 +229,110 @@ private suspend fun streamAssistantResponse(
         tools = context.tools.map { it.definition },
     )
 
-    val options = SimpleStreamOptions(
-        apiKey = config.getApiKey?.invoke(config.model.provider.value),
-        reasoning = config.reasoning,
-        sessionId = config.sessionId,
-        thinkingBudgets = config.thinkingBudgets,
-        maxRetryDelayMs = config.maxRetryDelayMs,
-    )
+    var attempt = 0
+    while (true) {
+        attempt++
+        val options = SimpleStreamOptions(
+            apiKey = config.getApiKey?.invoke(config.model.provider.value),
+            reasoning = config.reasoning,
+            sessionId = config.sessionId,
+            thinkingBudgets = config.thinkingBudgets,
+            maxRetryDelayMs = config.maxRetryDelayMs,
+        )
 
-    val response = streamFunction?.invoke(config.model, llmContext, options) ?: AiRuntime.streamSimple(
-        config.model,
-        llmContext,
-        options
-    )
+        val response = streamFunction?.invoke(config.model, llmContext, options) ?: AiRuntime.streamSimple(
+            config.model,
+            llmContext,
+            options,
+        )
 
-    var partial: AssistantMessage? = null
-    var addedPartial = false
+        var addedPartial = false
 
-    response.events.collect { event ->
-        when (event) {
-            is StartEvent -> {
-                partial = event.partial
-                context.messages.add(event.partial)
-                addedPartial = true
-                stream.push(MessageStartEvent(event.partial))
-            }
-
-            is TextStartEvent,
-            is TextDeltaEvent,
-            is TextEndEvent,
-            is ThinkingStartEvent,
-            is ThinkingDeltaEvent,
-            is ThinkingEndEvent,
-            is ToolCallStartEvent,
-            is ToolCallDeltaEvent,
-            is ToolCallEndEvent,
-                -> {
-                val newPartial = when (event) {
-                    is TextStartEvent -> event.partial
-                    is TextDeltaEvent -> event.partial
-                    is TextEndEvent -> event.partial
-                    is ThinkingStartEvent -> event.partial
-                    is ThinkingDeltaEvent -> event.partial
-                    is ThinkingEndEvent -> event.partial
-                    is ToolCallStartEvent -> event.partial
-                    is ToolCallDeltaEvent -> event.partial
-                    is ToolCallEndEvent -> event.partial
-                    else -> error("Unexpected event type: $event")
+        response.events.collect { event ->
+            when (event) {
+                is StartEvent -> {
+                    context.messages.add(event.partial)
+                    addedPartial = true
+                    stream.push(MessageStartEvent(event.partial))
                 }
 
-                partial = newPartial
-                context.messages[context.messages.lastIndex] = newPartial
-                stream.push(MessageUpdateEvent(message = newPartial, assistantMessageEvent = event))
-            }
+                is TextStartEvent,
+                is TextDeltaEvent,
+                is TextEndEvent,
+                is ThinkingStartEvent,
+                is ThinkingDeltaEvent,
+                is ThinkingEndEvent,
+                is ToolCallStartEvent,
+                is ToolCallDeltaEvent,
+                is ToolCallEndEvent,
+                    -> {
+                    val newPartial = when (event) {
+                        is TextStartEvent -> event.partial
+                        is TextDeltaEvent -> event.partial
+                        is TextEndEvent -> event.partial
+                        is ThinkingStartEvent -> event.partial
+                        is ThinkingDeltaEvent -> event.partial
+                        is ThinkingEndEvent -> event.partial
+                        is ToolCallStartEvent -> event.partial
+                        is ToolCallDeltaEvent -> event.partial
+                        is ToolCallEndEvent -> event.partial
+                        else -> error("Unexpected event type: $event")
+                    }
 
-            is DoneEvent,
-            is ErrorEvent,
-                -> {
-                val final = response.result()
-                if (addedPartial) {
-                    context.messages[context.messages.lastIndex] = final
-                } else {
-                    context.messages.add(final)
-                    stream.push(MessageStartEvent(final))
+                    context.messages[context.messages.lastIndex] = newPartial
+                    stream.push(MessageUpdateEvent(message = newPartial, assistantMessageEvent = event))
                 }
-                stream.push(MessageEndEvent(final))
+
+                is DoneEvent,
+                is ErrorEvent,
+                    -> {
+                    // Terminal handling is deferred until after collection so a request that
+                    // failed before producing any content can be retried rather than surfaced.
+                }
             }
         }
-    }
 
-    return response.result()
+        val final = response.result()
+
+        // Retry only when the request failed before emitting content (nothing has been shown yet,
+        // so a re-issue is safe), for transient HTTP statuses, up to a bounded number of attempts.
+        if (!addedPartial &&
+            final.stopReason == StopReason.ERROR &&
+            attempt < MAX_RETRY_ATTEMPTS &&
+            isRetryableError(final.errorMessage)
+        ) {
+            val delayMs = retryDelayMs(attempt, config.maxRetryDelayMs)
+            stream.push(RetryEvent(attempt, MAX_RETRY_ATTEMPTS, delayMs))
+            delay(delayMs)
+            continue
+        }
+
+        if (addedPartial) {
+            context.messages[context.messages.lastIndex] = final
+        } else {
+            context.messages.add(final)
+            stream.push(MessageStartEvent(final))
+        }
+        stream.push(MessageEndEvent(final))
+        return final
+    }
 }
+
+private const val MAX_RETRY_ATTEMPTS = 5
+private val RETRYABLE_STATUSES = setOf(408, 409, 425, 429, 500, 502, 503, 504)
+private val RETRY_STATUS_REGEX = Regex("""returned (\d{3})""")
+
+/** True when an error message carries a transient HTTP status worth retrying. */
+private fun isRetryableError(errorMessage: String?): Boolean {
+    val status = errorMessage
+        ?.let { RETRY_STATUS_REGEX.find(it)?.groupValues?.get(1)?.toIntOrNull() }
+        ?: return false
+    return status in RETRYABLE_STATUSES
+}
+
+/** Exponential backoff (1s, 2s, 4s, …) capped by [maxDelayMs] (default 30s). */
+private fun retryDelayMs(attempt: Int, maxDelayMs: Long?): Long =
+    (1000L shl (attempt - 1)).coerceAtMost(maxDelayMs ?: 30_000L)
 
 private data class ToolExecutionResult(
     val toolResults: List<ToolResultMessage>,

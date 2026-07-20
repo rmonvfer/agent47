@@ -138,6 +138,18 @@ public data class ToolExecutionEndEvent(
 ) : AgentEvent
 
 /**
+ * Emitted before the loop waits to retry a model request that failed with a transient error
+ * before producing any content. [delayMs] is how long the loop will wait before attempt
+ * [attempt] + 1.
+ */
+public data class RetryEvent(
+    val attempt: Int,
+    val maxAttempts: Int,
+    val delayMs: Long,
+    override val type: String = "retry",
+) : AgentEvent
+
+/**
  * Configuration for a single run of the agent loop.
  *
  * [convertToLlm] transforms the raw message history into the list sent to the LLM,

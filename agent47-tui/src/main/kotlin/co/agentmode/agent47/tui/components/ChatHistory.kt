@@ -9,16 +9,16 @@ import co.agentmode.agent47.tui.rendering.wrapAnnotated
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import com.jakewharton.mosaic.layout.height
+import com.jakewharton.mosaic.layout.width
 import co.agentmode.agent47.coding.core.agents.SubAgentProgress
 import co.agentmode.agent47.coding.core.agents.SubAgentResult
-import co.agentmode.agent47.coding.core.tools.BatchToolCallResult
 import co.agentmode.agent47.coding.core.tools.ToolDetails
-import co.agentmode.agent47.coding.core.tools.TodoItem
 import com.jakewharton.mosaic.modifier.Modifier
 import com.jakewharton.mosaic.text.AnnotatedString
 import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.text.withStyle
+import com.jakewharton.mosaic.ui.Color
 import com.jakewharton.mosaic.ui.Text
 import com.jakewharton.mosaic.ui.TextStyle
 import co.agentmode.agent47.ui.core.state.ChatHistoryEntry
@@ -27,8 +27,6 @@ import co.agentmode.agent47.ui.core.state.ToolExecutionView
 import co.agentmode.agent47.ui.core.util.summarizeToolArguments
 import co.agentmode.agent47.ui.core.util.summarizeToolOutput
 import co.agentmode.agent47.ui.core.util.formatDuration
-import co.agentmode.agent47.ui.core.util.formatTokens
-import co.agentmode.agent47.ui.core.util.findLastUserPromptText
 
 /**
  * Creates and remembers a [ChatHistoryState] across recompositions.
@@ -43,8 +41,9 @@ public fun rememberChatHistoryState(): ChatHistoryState = remember { ChatHistory
  * visible window (controlled by [ChatHistoryState.scrollTopLine]) is emitted
  * as Mosaic [Text] nodes inside a [Column] with a constrained [height].
  *
- * When content extends beyond the viewport, the first and/or last visible
- * lines are replaced with scroll indicators showing the count of hidden lines.
+ * Message types are distinguished by full-width background tint rather than by
+ * prefix glyphs: user prompts and tool panels are solid colored blocks, and
+ * extension/summary messages get a violet panel with a bracketed label.
  */
 @Composable
 public fun ChatHistory(
@@ -63,7 +62,7 @@ public fun ChatHistory(
     // Flatten all entries into rendered lines
     val allLines = buildList {
         state.entries.forEachIndexed { index, entry ->
-            val entryLines = renderEntry(entry, width, state, markdownRenderer, diffRenderer, theme, spinnerFrame)
+            val entryLines = renderEntry(entry, width, state, markdownRenderer, theme)
             addAll(entryLines)
             if (index != state.entries.lastIndex) {
                 val nextEntry = state.entries[index + 1]
@@ -99,19 +98,14 @@ public fun ChatHistory(
 
     val contentStart = safeTop + markerAboveHeight
     val contentEnd = (contentStart + contentHeight).coerceAtMost(allLines.size)
-    val visibleLines = if (state.entries.isEmpty()) {
-        renderBannerViewport(viewportHeight, width, cwd, theme)
-    } else if (allLines.isEmpty()) {
+    val visibleLines = if (state.entries.isEmpty() || allLines.isEmpty()) {
+        // ohm shows no persistent banner — an empty transcript is just blank space
+        // above the input, so messages grow up from the editor.
         List(viewportHeight) { annotated("") }
     } else {
         buildList {
             if (hasAbove) {
-                val pinnedPrompt = findLastUserPromptText(state.entries)
-                if (pinnedPrompt != null) {
-                    add(userPromptScrollMarker(pinnedPrompt, width, contentStart, theme))
-                } else {
-                    add(scrollMarker(width, hiddenLines = contentStart, up = true, theme.colors.muted))
-                }
+                add(scrollMarker(width, hiddenLines = contentStart, up = true, theme.colors.muted))
             }
 
             val contentSlice = allLines.subList(contentStart, contentEnd)
@@ -141,8 +135,80 @@ public fun ChatHistory(
                 if (index < visibleLines.lastIndex) append('\n')
             }
         },
-        modifier = Modifier.height(viewportHeight),
+        // Constrain to the terminal width so a stray over-wide line can never stretch
+        // the transcript column past the screen and break the layout.
+        modifier = Modifier.width(width).height(viewportHeight),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Full-width background-block primitives (ohm's Box(bgFn) equivalent)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lays out a single line as a full-width block of [bg]: [paddingX] columns of
+ * tinted margin on each side, the styled content, and tinted fill to [width].
+ * The content's own foreground spans merge over the block background.
+ */
+private fun bgLine(
+    content: AnnotatedString,
+    width: Int,
+    bg: Color,
+    paddingX: Int = 1,
+): AnnotatedString {
+    val avail = (width - 2 * paddingX).coerceAtLeast(0)
+    // Clamp so the block is always exactly `width` wide — an over-long content line
+    // would otherwise push the tinted block past the terminal edge.
+    val fitted = clampToWidth(content, avail)
+    val padRight = (avail - fitted.text.length).coerceAtLeast(0)
+    return buildAnnotatedString {
+        withStyle(SpanStyle(background = bg)) {
+            append(" ".repeat(paddingX))
+            append(fitted)
+            append(" ".repeat(padRight + paddingX))
+        }
+    }
+}
+
+/** Truncates an AnnotatedString to at most [maxLen] characters, preserving span ranges. */
+private fun clampToWidth(content: AnnotatedString, maxLen: Int): AnnotatedString {
+    if (content.text.length <= maxLen) return content
+    val sub = content.text.substring(0, maxLen)
+    return buildAnnotatedString {
+        append(sub)
+        for (range in content.spanStyles) {
+            val start = range.start.coerceIn(0, maxLen)
+            val end = range.end.coerceIn(0, maxLen)
+            if (start < end) addStyle(range.item, start, end)
+        }
+    }
+}
+
+/**
+ * Wraps [content] lines in a tinted block with one blank tinted line above and
+ * below (ohm's paddingY = 1).
+ */
+private fun bgBlock(
+    width: Int,
+    bg: Color,
+    content: List<AnnotatedString>,
+): List<AnnotatedString> = buildList {
+    add(bgLine(annotated(""), width, bg))
+    content.forEach { add(bgLine(it, width, bg)) }
+    add(bgLine(annotated(""), width, bg))
+}
+
+/**
+ * Left gutter (in columns) applied to un-tinted transcript content — assistant text,
+ * thinking, command output — so it lines up with the tinted user/tool blocks, which
+ * carry the same paddingX.
+ */
+private const val CONTENT_PAD_X = 1
+
+private fun indentLines(lines: List<AnnotatedString>, spaces: Int = CONTENT_PAD_X): List<AnnotatedString> {
+    if (spaces <= 0) return lines
+    val pad = annotated(" ".repeat(spaces))
+    return lines.map { pad + it }
 }
 
 private fun renderEntry(
@@ -150,21 +216,12 @@ private fun renderEntry(
     width: Int,
     state: ChatHistoryState,
     markdownRenderer: MarkdownRenderer,
-    diffRenderer: DiffRenderer,
     theme: ThemeConfig,
-    spinnerFrame: Int = 0,
 ): List<AnnotatedString> {
     val toolExec = entry.toolExecution
     if (toolExec != null) {
         val collapsed = state.toolCollapsedState[entry.key] ?: toolExec.collapsed
-        return renderToolExecutionLines(
-            toolExec.copy(collapsed = collapsed),
-            width,
-            markdownRenderer,
-            diffRenderer,
-            theme,
-            spinnerFrame,
-        )
+        return renderToolExecutionLines(toolExec.copy(collapsed = collapsed), width, theme)
     }
 
     return when (val msg = entry.message) {
@@ -177,7 +234,7 @@ private fun renderEntry(
         is BashExecutionMessage -> renderBashExecutionLines(msg, width, theme)
         is BranchSummaryMessage -> renderBranchSummaryLines(msg, width, theme)
         is CompactionSummaryMessage -> renderCompactionSummaryLines(msg, width, theme)
-        is CustomMessage -> renderCustomMessageLines(msg, width, markdownRenderer, theme)
+        is CustomMessage -> renderCustomMessageLines(msg, width, theme)
         else -> emptyList()
     }
 }
@@ -187,32 +244,17 @@ private fun renderUserMessageLines(
     width: Int,
     markdownRenderer: MarkdownRenderer,
     theme: ThemeConfig,
-): List<AnnotatedString> = buildList {
-    val prompt = "❯ "
-    val contentWidth = width - prompt.length
-    val style = SpanStyle(
-        color = com.jakewharton.mosaic.ui.Color.White,
-        background = theme.userMessageBg,
-    )
-    var isFirstVisualLine = true
-    message.content.forEach { block ->
-        when (block) {
-            is TextContent -> {
-                block.text.split("\n").forEach { line ->
-                    val wrapped = wrapAnnotated(annotated(line), contentWidth).map { it.text }
-                    wrapped.forEach { segment ->
-                        val prefix = if (isFirstVisualLine) prompt else " ".repeat(prompt.length)
-                        isFirstVisualLine = false
-                        add(buildAnnotatedString {
-                            withStyle(SpanStyle(color = theme.colors.muted, background = theme.userMessageBg)) { append(prefix) }
-                            withStyle(style) { append(segment) }
-                        })
-                    }
-                }
+): List<AnnotatedString> {
+    val innerWidth = (width - 2).coerceAtLeast(1)
+    val content = buildList {
+        message.content.forEach { block ->
+            when (block) {
+                is TextContent -> addAll(markdownRenderer.render(block.text, innerWidth))
+                else -> add(annotated("[${block.type}]", SpanStyle(color = theme.colors.muted)))
             }
-            else -> add(annotated("[${block.type}]", SpanStyle(color = theme.colors.muted)))
         }
     }
+    return bgBlock(width, theme.userMessageBg, content)
 }
 
 private fun renderAssistantMessageLines(
@@ -221,28 +263,28 @@ private fun renderAssistantMessageLines(
     markdownRenderer: MarkdownRenderer,
     thinkingCollapsed: Boolean,
     theme: ThemeConfig,
-): List<AnnotatedString> = buildList {
-    if (message.stopReason == StopReason.ERROR) {
-        val errorText = message.errorMessage ?: "Unknown error"
-        errorText.split("\n").forEach { line ->
-            add(buildAnnotatedString {
-                withStyle(SpanStyle(color = theme.colors.error)) {
-                    append("\u2717 ")
-                    append(line)
-                }
-            })
+): List<AnnotatedString> {
+    val contentWidth = (width - 2 * CONTENT_PAD_X).coerceAtLeast(1)
+    val raw = buildList {
+        if (message.stopReason == StopReason.ERROR) {
+            val errorText = message.errorMessage ?: "Unknown error"
+            errorText.split("\n").forEach { line ->
+                wrapAnnotated(annotated(line, SpanStyle(color = theme.colors.error)), contentWidth)
+                    .forEach { add(it) }
+            }
+            return@buildList
         }
-        return@buildList
-    }
 
-    message.content.forEach { block ->
-        when (block) {
-            is TextContent -> addAll(markdownRenderer.render(block.text, width))
-            is ThinkingContent -> addAll(renderThinkingLines(block, width, thinkingCollapsed, theme))
-            is ToolCall -> {} // Tool calls are rendered via ToolExecutionView entries
-            else -> add(annotated("[${block.type}]", SpanStyle(color = theme.colors.muted)))
+        message.content.forEach { block ->
+            when (block) {
+                is TextContent -> addAll(markdownRenderer.render(block.text, contentWidth))
+                is ThinkingContent -> addAll(renderThinkingLines(block, contentWidth, thinkingCollapsed, theme))
+                is ToolCall -> {} // Tool calls are rendered via ToolExecutionView entries
+                else -> add(annotated("[${block.type}]", SpanStyle(color = theme.colors.muted)))
+            }
         }
     }
+    return indentLines(raw)
 }
 
 private fun renderThinkingLines(
@@ -261,31 +303,16 @@ private fun renderThinkingLines(
     return buildList {
         add(annotated("[-] thinking:", SpanStyle(color = theme.colors.muted)))
         text.split("\n").forEach { line ->
-            add(buildAnnotatedString {
-                withStyle(SpanStyle(color = theme.colors.muted)) { append("  | ") }
-                withStyle(SpanStyle(color = theme.thinkingText)) { append(line) }
-            })
+            wrapAnnotated(
+                annotated(line, SpanStyle(color = theme.thinkingText, textStyle = TextStyle.Italic)),
+                width,
+            ).forEach { add(it) }
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Tree-drawing constants for compound tools (task, batch)
-// ---------------------------------------------------------------------------
-
-private const val TREE_BRANCH = "   \u251C\u2500 "
-private const val TREE_LAST   = "   \u2514\u2500 "
-private const val TREE_PIPE   = "   \u2502  "
-private const val TREE_BLANK  = "      "
-
-private fun treePrefix(index: Int, total: Int): String =
-    if (index < total - 1) TREE_BRANCH else TREE_LAST
-
-private fun treeContinuation(index: Int, total: Int): String =
-    if (index < total - 1) TREE_PIPE else TREE_BLANK
-
-// ---------------------------------------------------------------------------
-// Unified sub-agent entry for tree rendering (merges completed + active)
+// Unified sub-agent entry for task rendering (merges completed + active)
 // ---------------------------------------------------------------------------
 
 private sealed class SubAgentEntry {
@@ -298,26 +325,31 @@ private sealed class SubAgentEntry {
 // ---------------------------------------------------------------------------
 
 private fun pendingActivityLabel(toolName: String): String = when (toolName.lowercase()) {
-    "read" -> "Reading\u2026"
-    "write" -> "Writing\u2026"
-    "edit", "multiedit" -> "Editing\u2026"
-    "bash" -> "Running\u2026"
-    "grep" -> "Searching\u2026"
-    "glob", "find" -> "Searching\u2026"
-    "ls" -> "Listing\u2026"
-    "task" -> "Running\u2026"
-    "batch" -> "Running\u2026"
-    "todocreate", "todoupdate", "todowrite", "todoread" -> "Updating\u2026"
-    else -> "Running\u2026"
+    "read" -> "Reading…"
+    "write" -> "Writing…"
+    "edit", "multiedit" -> "Editing…"
+    "bash" -> "Running…"
+    "grep" -> "Searching…"
+    "glob", "find" -> "Searching…"
+    "ls" -> "Listing…"
+    "task" -> "Running…"
+    "batch" -> "Running…"
+    "todocreate", "todoupdate", "todowrite", "todoread" -> "Updating…"
+    else -> "Running…"
 }
 
-// ---------------------------------------------------------------------------
-// Status icon helpers
-// ---------------------------------------------------------------------------
+private fun elapsedSuffix(startedAt: Long): String {
+    if (startedAt <= 0) return ""
+    val seconds = (System.currentTimeMillis() - startedAt) / 1000
+    return if (seconds > 0) " (${seconds}s)" else ""
+}
 
-private const val ICON_SUCCESS = "\u2713"
-private const val ICON_ERROR   = "\u2717"
-private const val ICON_PENDING = "\u25CF"
+/** Background tint of a tool panel, keyed to its execution state. */
+private fun toolBg(execution: ToolExecutionView, theme: ThemeConfig): Color = when {
+    execution.pending -> theme.toolPendingBg
+    execution.isError -> theme.toolErrorBg
+    else -> theme.toolSuccessBg
+}
 
 // ---------------------------------------------------------------------------
 // Main tool execution renderer (dispatcher)
@@ -326,334 +358,249 @@ private const val ICON_PENDING = "\u25CF"
 private fun renderToolExecutionLines(
     execution: ToolExecutionView,
     width: Int,
-    markdownRenderer: MarkdownRenderer,
-    diffRenderer: DiffRenderer,
     theme: ThemeConfig,
-    spinnerFrame: Int = 0,
 ): List<AnnotatedString> {
     val details = execution.details
+    val name = execution.toolName.lowercase()
 
-    // Delegate compound tools to dedicated renderers
-    if (details is ToolDetails.SubAgent || execution.toolName.lowercase() == "task") {
-        return renderTaskToolLines(execution, width, markdownRenderer, theme, spinnerFrame)
+    if (details is ToolDetails.SubAgent || name == "task") return renderTaskToolLines(execution, width, theme)
+    if (details is ToolDetails.Batch || name == "batch") return renderBatchToolLines(execution, width, theme)
+    if (details is ToolDetails.Todo || name in listOf("todocreate", "todoupdate", "todowrite", "todoread")) {
+        return renderTodoToolLines(execution, width, theme)
     }
-    if (details is ToolDetails.Batch || execution.toolName.lowercase() == "batch") {
-        return renderBatchToolLines(execution, width, theme, spinnerFrame)
-    }
-    if (details is ToolDetails.Todo || execution.toolName.lowercase() in listOf("todocreate", "todoupdate", "todowrite", "todoread")) {
-        return renderTodoToolLines(execution, width, theme, spinnerFrame)
-    }
+    if (name == "bash") return renderBashToolLines(execution, width, theme)
 
-    return renderRegularToolLines(execution, width, theme, spinnerFrame)
+    return renderRegularToolLines(execution, width, theme)
 }
 
 // ---------------------------------------------------------------------------
-// Regular tool rendering (read, edit, bash, grep, etc.)
+// Regular tool rendering (read, edit, grep, etc.)
 // ---------------------------------------------------------------------------
 
 private fun renderRegularToolLines(
     execution: ToolExecutionView,
     width: Int,
     theme: ThemeConfig,
-    spinnerFrame: Int,
-): List<AnnotatedString> = buildList {
-    val connector = "  \u23BF  "
-    val connectorWidth = connector.length
+): List<AnnotatedString> {
+    val innerWidth = (width - 2).coerceAtLeast(1)
+    val content = buildList {
+        // Header: bold tool name + dim argument summary
+        val argBudget = (innerWidth - execution.toolName.length - 1).coerceAtLeast(8)
+        val argSummary = if (execution.arguments.isNotBlank()) {
+            summarizeToolArguments(execution.toolName, execution.arguments, argBudget)
+        } else ""
+        add(buildAnnotatedString {
+            withStyle(SpanStyle(color = theme.toolTitle, textStyle = TextStyle.Bold)) { append(execution.toolName) }
+            if (argSummary.isNotEmpty()) {
+                append(" ")
+                withStyle(SpanStyle(color = theme.colors.muted)) { append(argSummary) }
+            }
+        })
 
-    // Status icon + color
-    val (icon, iconColor) = when {
-        execution.pending -> ICON_PENDING to breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
-        execution.isError -> ICON_ERROR to theme.colors.error
-        else -> ICON_SUCCESS to theme.colors.success
-    }
-
-    // Header: "[icon] toolName argSummary"
-    val argBudget = (width - execution.toolName.length - 4).coerceAtLeast(10)
-    val argSummary = if (execution.arguments.isNotBlank()) {
-        summarizeToolArguments(execution.toolName, execution.arguments, argBudget)
-    } else ""
-
-    add(buildAnnotatedString {
-        withStyle(SpanStyle(color = iconColor)) { append(icon) }
-        append(" ")
-        withStyle(SpanStyle(color = theme.toolTitle)) { append(execution.toolName) }
-        if (argSummary.isNotEmpty()) {
-            append(" ")
-            withStyle(SpanStyle(color = theme.colors.dim)) { append(argSummary) }
+        // Body: state conveyed by the panel's background tint, not an icon
+        when {
+            execution.pending -> {
+                val label = pendingActivityLabel(execution.toolName)
+                add(annotated("$label${elapsedSuffix(execution.startedAt)}", SpanStyle(color = theme.colors.muted)))
+            }
+            !execution.collapsed -> {
+                if (execution.output.isBlank()) {
+                    add(annotated(if (execution.isError) "Error" else "Done", SpanStyle(color = theme.colors.muted)))
+                } else {
+                    val lines = execution.output.split("\n")
+                    val limit = 80
+                    lines.take(limit).forEach { line ->
+                        add(annotated(line.take(innerWidth), SpanStyle(color = theme.toolOutput)))
+                    }
+                    if (lines.size > limit) {
+                        add(annotated("… ${lines.size - limit} more lines", SpanStyle(color = theme.colors.muted)))
+                    }
+                }
+            }
+            else -> {
+                val summary = summarizeToolOutput(execution.toolName, execution.output, execution.details, execution.isError)
+                add(annotated(summary, SpanStyle(color = if (execution.isError) theme.colors.error else theme.colors.muted)))
+            }
         }
-    })
-
-    // Body based on state
-    when {
-        execution.pending -> addAll(renderPendingBody(execution, connector, connectorWidth, theme, spinnerFrame))
-        !execution.collapsed -> addAll(renderExpandedBody(execution, connector, connectorWidth, width, theme))
-        else -> addAll(renderCollapsedBody(execution, connector, theme))
     }
-}
-
-private fun renderPendingBody(
-    execution: ToolExecutionView,
-    connector: String,
-    connectorWidth: Int,
-    theme: ThemeConfig,
-    spinnerFrame: Int,
-): List<AnnotatedString> = buildList {
-    val label = pendingActivityLabel(execution.toolName)
-    val elapsed = if (execution.startedAt > 0) {
-        val seconds = (System.currentTimeMillis() - execution.startedAt) / 1000
-        if (seconds > 0) " (${seconds}s)" else ""
-    } else ""
-    val breathColor = breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
-    add(buildAnnotatedString {
-        withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
-        withStyle(SpanStyle(color = breathColor)) { append("$label$elapsed") }
-    })
-}
-
-private fun renderExpandedBody(
-    execution: ToolExecutionView,
-    connector: String,
-    connectorWidth: Int,
-    width: Int,
-    theme: ThemeConfig,
-): List<AnnotatedString> = buildList {
-    if (execution.output.isBlank()) {
-        add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
-            withStyle(SpanStyle(color = theme.colors.muted)) {
-                append(if (execution.isError) "Error" else "Done")
-            }
-        })
-        return@buildList
-    }
-
-    val lines = execution.output.split("\n")
-    val limit = 80
-    val contentWidth = (width - connectorWidth).coerceAtLeast(10)
-    val shown = lines.take(limit)
-    shown.forEachIndexed { index, line ->
-        add(buildAnnotatedString {
-            if (index == 0) {
-                withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
-            } else {
-                append(" ".repeat(connectorWidth))
-            }
-            append(line.take(contentWidth))
-        })
-    }
-    if (lines.size > limit) {
-        add(annotated("${" ".repeat(connectorWidth)}\u2026 ${lines.size - limit} more lines", SpanStyle(color = theme.colors.muted)))
-    }
-}
-
-private fun renderCollapsedBody(
-    execution: ToolExecutionView,
-    connector: String,
-    theme: ThemeConfig,
-): List<AnnotatedString> = buildList {
-    val summary = summarizeToolOutput(execution.toolName, execution.output, execution.details, execution.isError)
-    val summaryColor = if (execution.isError) theme.colors.error else theme.colors.muted
-    add(buildAnnotatedString {
-        withStyle(SpanStyle(color = theme.colors.dim)) { append(connector) }
-        withStyle(SpanStyle(color = summaryColor)) { append(summary) }
-    })
+    return bgBlock(width, toolBg(execution, theme), content)
 }
 
 // ---------------------------------------------------------------------------
-// Task tool rendering (sub-agent tree)
+// Bash rendering (ohm frames shell commands with green horizontal rules)
+// ---------------------------------------------------------------------------
+
+private fun renderBashToolLines(
+    execution: ToolExecutionView,
+    width: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> = buildList {
+    // ohm frames bash with full-width green rules; the command and output are inset by
+    // CONTENT_PAD_X so they line up with the tinted blocks above and below.
+    val ruleColor = theme.bashModeBorder
+    val rule = annotated("─".repeat(width.coerceAtLeast(1)), SpanStyle(color = ruleColor))
+    val pad = " ".repeat(CONTENT_PAD_X)
+    val contentWidth = (width - 2 * CONTENT_PAD_X).coerceAtLeast(1)
+    val command = if (execution.arguments.isNotBlank()) {
+        summarizeToolArguments("bash", execution.arguments, (contentWidth - 2).coerceAtLeast(1))
+    } else ""
+
+    add(rule)
+    add(buildAnnotatedString {
+        append(pad)
+        withStyle(SpanStyle(color = ruleColor, textStyle = TextStyle.Bold)) {
+            append("$ ")
+            append(command.take((contentWidth - 2).coerceAtLeast(1)))
+        }
+    })
+    when {
+        execution.pending -> add(
+            annotated("$pad${pendingActivityLabel("bash")}${elapsedSuffix(execution.startedAt)}", SpanStyle(color = theme.colors.muted)),
+        )
+        execution.output.isNotBlank() -> {
+            add(annotated(""))
+            val lines = execution.output.split("\n")
+            val shown = lines.takeLast(20)
+            val hidden = lines.size - shown.size
+            shown.forEach { line ->
+                add(annotated(pad + line.take(contentWidth), SpanStyle(color = theme.colors.muted)))
+            }
+            if (hidden > 0) {
+                add(annotated("$pad… $hidden more lines", SpanStyle(color = theme.colors.muted)))
+            }
+        }
+        execution.isError -> add(annotated("${pad}Error", SpanStyle(color = theme.colors.error)))
+    }
+    add(rule)
+}
+
+// ---------------------------------------------------------------------------
+// Task tool rendering (sub-agents, flattened into the panel body)
 // ---------------------------------------------------------------------------
 
 private fun renderTaskToolLines(
     execution: ToolExecutionView,
     width: Int,
-    markdownRenderer: MarkdownRenderer,
     theme: ThemeConfig,
-    spinnerFrame: Int,
-): List<AnnotatedString> = buildList {
+): List<AnnotatedString> {
     val subAgent = execution.details as? ToolDetails.SubAgent
     val results = subAgent?.results ?: emptyList()
     val progressList = subAgent?.activeProgressList?.ifEmpty { listOfNotNull(subAgent.activeProgress) } ?: emptyList()
 
-    // Merge completed results and active progress into ordered entries
     val completedIds = results.map { it.id }.toSet()
-    val entries = buildList<SubAgentEntry> {
+    val entries = buildList {
         results.forEachIndexed { i, r -> add(SubAgentEntry.Completed(i, r)) }
         progressList.filter { it.id !in completedIds }.forEachIndexed { i, p ->
             add(SubAgentEntry.Active(results.size + i, p))
         }
     }
-    val totalAgents = entries.size.coerceAtLeast(1)
+    val total = entries.size.coerceAtLeast(1)
+    val innerWidth = (width - 2).coerceAtLeast(1)
+    // Align the agent-name column to the widest name (clamped to a sane range).
+    val nameWidth = entries.maxOfOrNull { agentName(it).length }?.coerceIn(6, 14) ?: 6
 
-    // Status icon + color for the header
-    val (headerIcon, headerColor) = when {
-        execution.pending -> ICON_PENDING to breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
-        execution.isError -> ICON_ERROR to theme.colors.error
-        else -> ICON_SUCCESS to theme.colors.success
-    }
-
-    // Header line
-    val headerLabel = if (execution.pending) {
-        "Running $totalAgents agent${if (totalAgents != 1) "s" else ""}\u2026"
-    } else {
-        "$totalAgents agent${if (totalAgents != 1) "s" else ""} finished"
-    }
-
-    add(buildAnnotatedString {
-        withStyle(SpanStyle(color = headerColor)) { append(headerIcon) }
-        append(" ")
-        withStyle(SpanStyle(color = theme.toolTitle)) { append(headerLabel) }
-    })
-
-    // Fallback if no entries yet
-    if (entries.isEmpty()) {
-        val elapsed = if (execution.startedAt > 0) {
-            val seconds = (System.currentTimeMillis() - execution.startedAt) / 1000
-            if (seconds > 0) " (${seconds}s)" else ""
-        } else ""
-        val breathColor = breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
+    val content = buildList {
+        val headerLabel = if (execution.pending) {
+            "Running $total agent${if (total != 1) "s" else ""}…"
+        } else {
+            "$total agent${if (total != 1) "s" else ""} finished"
+        }
         add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append("  \u23BF  ") }
-            withStyle(SpanStyle(color = breathColor)) { append("Running\u2026$elapsed") }
+            withStyle(SpanStyle(color = theme.toolTitle, textStyle = TextStyle.Bold)) { append(headerLabel) }
         })
-        return@buildList
+
+        if (entries.isEmpty()) {
+            add(annotated("  Working…${elapsedSuffix(execution.startedAt)}", SpanStyle(color = theme.colors.muted)))
+        }
+
+        entries.forEach { entry ->
+            when (entry) {
+                is SubAgentEntry.Completed -> {
+                    val r = entry.result
+                    val hasError = r.exitCode != 0 || r.error != null
+                    val statusColor = when {
+                        r.aborted -> theme.colors.warning
+                        hasError -> theme.colors.error
+                        else -> theme.colors.success
+                    }
+                    // Running agents show live activity; finished ones show what they did.
+                    val activity = when {
+                        r.aborted -> "aborted"
+                        hasError -> r.error?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim() ?: "failed"
+                        else -> (r.description ?: r.task).ifBlank { "done" }
+                    }
+                    val activityColor = if (r.aborted || hasError) statusColor else theme.colors.muted
+                    add(
+                        agentLine(
+                            r.agent, nameWidth, activity, activityColor,
+                            formatDuration(r.durationMs), statusColor, innerWidth, theme,
+                        ),
+                    )
+
+                    if (!execution.collapsed && !hasError && r.output.isNotBlank()) {
+                        val maxLine = (innerWidth - 4).coerceAtLeast(8)
+                        r.output.lines().filter { it.isNotBlank() }.take(5).forEach { line ->
+                            add(annotated("    ${line.take(maxLine)}", SpanStyle(color = theme.colors.dim)))
+                        }
+                    }
+                }
+
+                is SubAgentEntry.Active -> {
+                    val p = entry.progress
+                    val activity = when {
+                        p.currentTool != null -> "Running ${p.currentTool}…"
+                        p.toolCount > 0 -> "Thinking… (${p.toolCount} tools)"
+                        else -> "Thinking…"
+                    }
+                    val elapsed = if (p.durationMs > 0) formatDuration(p.durationMs) else ""
+                    add(
+                        agentLine(
+                            p.agent, nameWidth, activity, theme.colors.muted,
+                            elapsed, theme.colors.accent, innerWidth, theme,
+                        ),
+                    )
+                }
+            }
+        }
     }
+    return bgBlock(width, toolBg(execution, theme), content)
+}
 
-    // Tree nodes
-    entries.forEachIndexed { idx, entry ->
-        val prefix = treePrefix(idx, entries.size)
-        val continuation = treeContinuation(idx, entries.size)
+private fun agentName(entry: SubAgentEntry): String = when (entry) {
+    is SubAgentEntry.Completed -> entry.result.agent
+    is SubAgentEntry.Active -> entry.progress.agent
+}
 
-        when (entry) {
-            is SubAgentEntry.Completed -> {
-                val result = entry.result
-                val (icon, iconColor) = when {
-                    result.aborted -> "\u2298" to theme.colors.warning
-                    result.exitCode != 0 || result.error != null -> ICON_ERROR to theme.colors.error
-                    else -> ICON_SUCCESS to theme.colors.success
-                }
-                val desc = result.description ?: result.task
-                val durationStr = formatDuration(result.durationMs)
-
-                if (execution.collapsed) {
-                    // Collapsed: compact one-line per agent
-                    val maxDesc = (width - prefix.length - result.agent.length - durationStr.length - 10).coerceAtLeast(10)
-                    add(buildAnnotatedString {
-                        withStyle(SpanStyle(color = theme.colors.dim)) { append(prefix) }
-                        withStyle(SpanStyle(color = iconColor)) { append(icon) }
-                        append(" ")
-                        withStyle(SpanStyle(color = theme.colors.accentBright, textStyle = TextStyle.Bold)) {
-                            append(result.agent)
-                        }
-                        withStyle(SpanStyle(color = theme.colors.dim)) { append(" \u00B7 ") }
-                        withStyle(SpanStyle(color = theme.colors.muted)) {
-                            append(desc.take(maxDesc))
-                            if (desc.length > maxDesc) append("\u2026")
-                        }
-                        withStyle(SpanStyle(color = theme.colors.dim)) { append(" ($durationStr)") }
-                    })
-                } else {
-                    // Expanded: agent header with stats
-                    val tokenStr = if (result.tokens > 0) formatTokens(result.tokens) else ""
-                    val meta = listOfNotNull(
-                        "${result.output.lines().count { it.isNotBlank() }} tools",
-                        tokenStr.ifEmpty { null },
-                    ).joinToString(" \u00B7 ")
-
-                    val maxDesc = (width - prefix.length - result.agent.length - 8).coerceAtLeast(10)
-                    add(buildAnnotatedString {
-                        withStyle(SpanStyle(color = theme.colors.dim)) { append(prefix) }
-                        withStyle(SpanStyle(color = iconColor)) { append(icon) }
-                        append(" ")
-                        withStyle(SpanStyle(color = theme.colors.accentBright, textStyle = TextStyle.Bold)) {
-                            append(result.agent)
-                        }
-                        append(" ")
-                        withStyle(SpanStyle(color = theme.colors.muted)) {
-                            append("(")
-                            append(desc.take(maxDesc))
-                            if (desc.length > maxDesc) append("\u2026")
-                            append(")")
-                        }
-                        if (meta.isNotEmpty()) {
-                            withStyle(SpanStyle(color = theme.colors.dim)) { append(" \u00B7 $meta") }
-                        }
-                    })
-
-                    // Status sub-line
-                    val errorText = result.error
-                    val statusText = if (errorText != null) errorText.take(60) else "Done ($durationStr)"
-                    val statusColor = if (errorText != null) theme.colors.error else theme.colors.muted
-                    add(buildAnnotatedString {
-                        withStyle(SpanStyle(color = theme.colors.dim)) { append(continuation) }
-                        withStyle(SpanStyle(color = theme.colors.dim)) { append("\u23BF  ") }
-                        withStyle(SpanStyle(color = statusColor)) { append(statusText) }
-                    })
-
-                    // Output preview for expanded completed entries (first 5 lines)
-                    if (result.output.isNotBlank() && errorText == null) {
-                        val previewLines = result.output.lines().filter { it.isNotBlank() }.take(5)
-                        val maxLine = (width - continuation.length - 3).coerceAtLeast(20)
-                        previewLines.forEach { line ->
-                            add(buildAnnotatedString {
-                                withStyle(SpanStyle(color = theme.colors.dim)) { append(continuation) }
-                                append("   ")
-                                withStyle(SpanStyle(color = theme.colors.muted)) { append(line.take(maxLine)) }
-                            })
-                        }
-                        val totalLines = result.output.lines().count { it.isNotBlank() }
-                        if (totalLines > 5) {
-                            add(buildAnnotatedString {
-                                withStyle(SpanStyle(color = theme.colors.muted)) {
-                                    append(continuation)
-                                    append("   \u2026 ${totalLines - 5} more lines")
-                                }
-                            })
-                        }
-                    }
-                }
-            }
-
-            is SubAgentEntry.Active -> {
-                val progress = entry.progress
-                val breathColor = breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
-                val tokenStr = if (progress.tokens > 0) formatTokens(progress.tokens) else ""
-                val meta = listOfNotNull(
-                    "${progress.toolCount} tools",
-                    tokenStr.ifEmpty { null },
-                ).joinToString(" \u00B7 ")
-
-                val desc = progress.status.ifBlank { progress.currentTool ?: "" }
-                val maxDesc = (width - prefix.length - progress.agent.length - 8).coerceAtLeast(10)
-                add(buildAnnotatedString {
-                    withStyle(SpanStyle(color = theme.colors.dim)) { append(prefix) }
-                    withStyle(SpanStyle(color = breathColor)) { append(ICON_PENDING) }
-                    append(" ")
-                    withStyle(SpanStyle(color = theme.colors.accentBright, textStyle = TextStyle.Bold)) {
-                        append(progress.agent)
-                    }
-                    if (desc.isNotBlank()) {
-                        append(" ")
-                        withStyle(SpanStyle(color = theme.colors.muted)) {
-                            append("(")
-                            append(desc.take(maxDesc))
-                            if (desc.length > maxDesc) append("\u2026")
-                            append(")")
-                        }
-                    }
-                    if (meta.isNotEmpty()) {
-                        withStyle(SpanStyle(color = theme.colors.dim)) { append(" \u00B7 $meta") }
-                    }
-                })
-
-                // Activity sub-line
-                val activity = progress.currentTool?.let { "Running $it\u2026" } ?: "Working\u2026"
-                val elapsed = if (progress.durationMs > 0) " (${formatDuration(progress.durationMs)})" else ""
-                add(buildAnnotatedString {
-                    withStyle(SpanStyle(color = theme.colors.dim)) { append(continuation) }
-                    withStyle(SpanStyle(color = theme.colors.dim)) { append("\u23BF  ") }
-                    withStyle(SpanStyle(color = breathColor)) { append("$activity$elapsed") }
-                })
-            }
+/**
+ * Renders one sub-agent as a single columnar line — `  <name>   <activity>       <elapsed>` —
+ * with the name colored by status and the elapsed time right-aligned within the panel.
+ */
+private fun agentLine(
+    name: String,
+    nameWidth: Int,
+    activity: String,
+    activityColor: Color,
+    elapsed: String,
+    statusColor: Color,
+    innerWidth: Int,
+    theme: ThemeConfig,
+): AnnotatedString {
+    val namePadded = name.take(nameWidth).padEnd(nameWidth)
+    val activityBudget = (innerWidth - 2 - nameWidth - 2 - elapsed.length - 1).coerceAtLeast(0)
+    val activityShown = if (activity.length > activityBudget) {
+        activity.take((activityBudget - 1).coerceAtLeast(0)) + "…"
+    } else {
+        activity
+    }
+    val gap = (innerWidth - 2 - nameWidth - 2 - activityShown.length - elapsed.length).coerceAtLeast(1)
+    return buildAnnotatedString {
+        append("  ")
+        withStyle(SpanStyle(color = statusColor, textStyle = TextStyle.Bold)) { append(namePadded) }
+        append("  ")
+        withStyle(SpanStyle(color = activityColor)) { append(activityShown) }
+        if (elapsed.isNotEmpty()) {
+            append(" ".repeat(gap))
+            withStyle(SpanStyle(color = theme.colors.dim)) { append(elapsed) }
         }
     }
 }
@@ -666,155 +613,100 @@ private fun renderBatchToolLines(
     execution: ToolExecutionView,
     width: Int,
     theme: ThemeConfig,
-    spinnerFrame: Int,
-): List<AnnotatedString> = buildList {
+): List<AnnotatedString> {
     val batch = execution.details as? ToolDetails.Batch
     val results = batch?.results ?: emptyList()
+    val innerWidth = (width - 2).coerceAtLeast(1)
 
-    val (headerIcon, headerColor) = when {
-        execution.pending -> ICON_PENDING to breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
-        execution.isError -> ICON_ERROR to theme.colors.error
-        else -> ICON_SUCCESS to theme.colors.success
-    }
-
-    if (execution.pending) {
-        val count = results.size.let { if (it > 0) it else null }
-        val label = if (count != null) "Running $count batch calls\u2026" else "Running batch\u2026"
-        add(buildAnnotatedString {
-            withStyle(SpanStyle(color = headerColor)) { append(headerIcon) }
-            append(" ")
-            withStyle(SpanStyle(color = theme.toolTitle)) { append(label) }
-        })
-        val elapsed = if (execution.startedAt > 0) {
-            val seconds = (System.currentTimeMillis() - execution.startedAt) / 1000
-            if (seconds > 0) " (${seconds}s)" else ""
-        } else ""
-        val breathColor = breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
-        add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append("  \u23BF  ") }
-            withStyle(SpanStyle(color = breathColor)) { append("Running\u2026$elapsed") }
-        })
-        return@buildList
-    }
-
-    // Header: "✓ N/M batch calls succeeded"
-    val successCount = results.count { it.success }
-    val failCount = results.size - successCount
-    add(buildAnnotatedString {
-        withStyle(SpanStyle(color = headerColor)) { append(headerIcon) }
-        append(" ")
-        withStyle(SpanStyle(color = theme.colors.success)) { append("$successCount") }
-        withStyle(SpanStyle(color = theme.colors.muted)) { append("/${results.size} batch calls succeeded") }
-        if (failCount > 0) {
-            withStyle(SpanStyle(color = theme.colors.muted)) { append(", ") }
-            withStyle(SpanStyle(color = theme.colors.error)) { append("$failCount failed") }
-        }
-    })
-
-    // Tree nodes for each result
-    results.forEachIndexed { idx, result ->
-        val prefix = treePrefix(idx, results.size)
-        val (icon, iconColor) = if (result.success) {
-            ICON_SUCCESS to theme.colors.success
+    val content = buildList {
+        if (execution.pending) {
+            val count = results.size.takeIf { it > 0 }
+            val label = if (count != null) "Running $count batch calls…" else "Running batch…"
+            add(buildAnnotatedString {
+                withStyle(SpanStyle(color = theme.toolTitle, textStyle = TextStyle.Bold)) { append(label) }
+            })
+            add(annotated("Running…${elapsedSuffix(execution.startedAt)}", SpanStyle(color = theme.colors.muted)))
         } else {
-            ICON_ERROR to theme.colors.error
-        }
-
-        val argBudget = (width - prefix.length - result.toolName.length - 4).coerceAtLeast(10)
-        add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append(prefix) }
-            withStyle(SpanStyle(color = iconColor)) { append(icon) }
-            append(" ")
-            withStyle(SpanStyle(color = theme.toolTitle)) { append(result.toolName) }
-            if (result.output.isNotBlank() && !result.success) {
-                val errLine = result.output.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: ""
-                if (errLine.isNotEmpty()) {
-                    append(" ")
-                    withStyle(SpanStyle(color = theme.colors.error)) { append(errLine.take(argBudget)) }
+            val successCount = results.count { it.success }
+            val failCount = results.size - successCount
+            add(buildAnnotatedString {
+                withStyle(SpanStyle(color = theme.colors.success, textStyle = TextStyle.Bold)) { append("$successCount") }
+                withStyle(SpanStyle(color = theme.toolTitle, textStyle = TextStyle.Bold)) {
+                    append("/${results.size} batch calls succeeded")
                 }
+                if (failCount > 0) {
+                    withStyle(SpanStyle(color = theme.colors.muted)) { append(", ") }
+                    withStyle(SpanStyle(color = theme.colors.error, textStyle = TextStyle.Bold)) { append("$failCount failed") }
+                }
+            })
+
+            results.forEach { result ->
+                val nameColor = if (result.success) theme.colors.success else theme.colors.error
+                add(buildAnnotatedString {
+                    append("  ")
+                    withStyle(SpanStyle(color = nameColor)) { append(result.toolName) }
+                    if (!result.success && result.output.isNotBlank()) {
+                        val errLine = result.output.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: ""
+                        if (errLine.isNotEmpty()) {
+                            append(" ")
+                            val budget = (innerWidth - result.toolName.length - 4).coerceAtLeast(8)
+                            withStyle(SpanStyle(color = theme.colors.error)) { append(errLine.take(budget)) }
+                        }
+                    }
+                })
             }
-        })
+        }
     }
+    return bgBlock(width, toolBg(execution, theme), content)
 }
 
 // ---------------------------------------------------------------------------
-// Todo tool rendering
+// Todo tool rendering (textual checkboxes, ohm-style)
 // ---------------------------------------------------------------------------
 
 private fun renderTodoToolLines(
     execution: ToolExecutionView,
     width: Int,
     theme: ThemeConfig,
-    spinnerFrame: Int,
-): List<AnnotatedString> = buildList {
-    val (headerIcon, headerColor) = when {
-        execution.pending -> ICON_PENDING to breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
-        execution.isError -> ICON_ERROR to theme.colors.error
-        else -> ICON_SUCCESS to theme.colors.success
-    }
-
-    // Header
-    add(buildAnnotatedString {
-        withStyle(SpanStyle(color = headerColor)) { append(headerIcon) }
-        append(" ")
-        withStyle(SpanStyle(color = theme.toolTitle)) { append(execution.toolName) }
-    })
-
-    if (execution.pending) {
-        val breathColor = breathingColor(spinnerFrame, theme.colors.dim, theme.colors.accentBright)
+): List<AnnotatedString> {
+    val innerWidth = (width - 2).coerceAtLeast(1)
+    val content = buildList {
         add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append("  \u23BF  ") }
-            withStyle(SpanStyle(color = breathColor)) { append("Updating\u2026") }
+            withStyle(SpanStyle(color = theme.toolTitle, textStyle = TextStyle.Bold)) { append(execution.toolName) }
         })
-        return@buildList
-    }
 
-    // Todo items under connector
-    val todo = execution.details as? ToolDetails.Todo
-    val items = todo?.items ?: emptyList()
-    if (items.isEmpty()) {
-        add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append("  \u23BF  ") }
-            withStyle(SpanStyle(color = theme.colors.muted)) { append("Done") }
-        })
-        return@buildList
-    }
-
-    items.forEachIndexed { index, item ->
-        val (statusIcon, statusColor) = when (item.status) {
-            "completed" -> ICON_SUCCESS to theme.todoCompleted
-            "in_progress" -> "\u25CB" to theme.todoInProgress
-            "cancelled" -> ICON_ERROR to theme.todoCancelled
-            else -> "\u2022" to theme.todoPending
-        }
-        val priorityColor = when (item.priority) {
-            "high" -> theme.todoPriorityHigh
-            "medium" -> theme.todoPriorityMedium
-            else -> theme.todoPriorityLow
-        }
-        val priorityLabel = when (item.priority) {
-            "high" -> "!"
-            "medium" -> "-"
-            else -> " "
-        }
-        val strikethrough = item.status == "completed" || item.status == "cancelled"
-        val maxContent = (width - 12).coerceAtLeast(20)
-        val connectorStr = if (index == 0) "  \u23BF  " else "     "
-
-        add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.dim)) { append(connectorStr) }
-            withStyle(SpanStyle(color = statusColor)) { append(statusIcon) }
-            append(" ")
-            withStyle(SpanStyle(color = priorityColor)) { append("[$priorityLabel]") }
-            append(" ")
-            val contentStyle = if (strikethrough) {
-                SpanStyle(color = theme.colors.muted)
+        if (execution.pending) {
+            add(annotated("Updating…", SpanStyle(color = theme.colors.muted)))
+        } else {
+            val items = (execution.details as? ToolDetails.Todo)?.items ?: emptyList()
+            if (items.isEmpty()) {
+                add(annotated("Done", SpanStyle(color = theme.colors.muted)))
             } else {
-                SpanStyle()
+                items.forEach { item ->
+                    val (marker, markerColor) = when (item.status) {
+                        "completed" -> "[x]" to theme.todoCompleted
+                        "in_progress" -> "[~]" to theme.todoInProgress
+                        "cancelled" -> "[-]" to theme.todoCancelled
+                        else -> "[ ]" to theme.todoPending
+                    }
+                    val done = item.status == "completed" || item.status == "cancelled"
+                    val contentStyle = if (done) {
+                        SpanStyle(color = theme.colors.muted, textStyle = TextStyle.Strikethrough)
+                    } else {
+                        SpanStyle(color = theme.markdownText)
+                    }
+                    val maxContent = (innerWidth - 6).coerceAtLeast(8)
+                    add(buildAnnotatedString {
+                        append("  ")
+                        withStyle(SpanStyle(color = markerColor)) { append(marker) }
+                        append(" ")
+                        withStyle(contentStyle) { append(item.content.take(maxContent)) }
+                    })
+                }
             }
-            withStyle(contentStyle) { append(item.content.take(maxContent)) }
-        })
+        }
     }
+    return bgBlock(width, toolBg(execution, theme), content)
 }
 
 private fun renderBashExecutionLines(
@@ -822,49 +714,80 @@ private fun renderBashExecutionLines(
     width: Int,
     theme: ThemeConfig,
 ): List<AnnotatedString> = buildList {
+    val ruleColor = theme.bashModeBorder
+    val rule = annotated("─".repeat(width.coerceAtLeast(1)), SpanStyle(color = ruleColor))
+    add(rule)
     add(buildAnnotatedString {
-        withStyle(SpanStyle(color = theme.toolTitle)) { append("bash") }
-        append(" ")
-        append(message.command.take(width - 5))
+        withStyle(SpanStyle(color = ruleColor, textStyle = TextStyle.Bold)) {
+            append("$ ")
+            append(message.command.take((width - 2).coerceAtLeast(1)))
+        }
     })
-    val exitStr = message.exitCode?.toString() ?: "?"
-    add(annotated("exit: $exitStr", SpanStyle(color = theme.colors.muted)))
+    val exitCode = message.exitCode
+    val exitColor = if (exitCode == null || exitCode == 0) theme.colors.muted else theme.colors.error
+    add(annotated("(exit ${exitCode ?: "?"})", SpanStyle(color = exitColor)))
+    add(rule)
+}
+
+// ---------------------------------------------------------------------------
+// Labeled violet panels (branch/compaction/custom extension messages)
+// ---------------------------------------------------------------------------
+
+private fun labeledBlock(
+    label: String,
+    body: List<AnnotatedString>,
+    width: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> {
+    val content = buildList {
+        add(buildAnnotatedString {
+            withStyle(SpanStyle(color = theme.customMessageLabel, textStyle = TextStyle.Bold)) { append("[$label]") }
+        })
+        if (body.isNotEmpty()) {
+            add(annotated(""))
+            addAll(body)
+        }
+    }
+    return bgBlock(width, theme.customMessageBg, content)
+}
+
+private fun bodyLines(text: String, width: Int, theme: ThemeConfig): List<AnnotatedString> {
+    val innerWidth = (width - 2).coerceAtLeast(1)
+    return buildList {
+        text.split("\n").forEach { line ->
+            wrapAnnotated(annotated(line, SpanStyle(color = theme.customMessageText)), innerWidth).forEach { add(it) }
+        }
+    }
 }
 
 private fun renderBranchSummaryLines(
     message: BranchSummaryMessage,
     width: Int,
     theme: ThemeConfig,
-): List<AnnotatedString> = buildList {
-    add(annotated("Branch from: ${message.fromId}", SpanStyle(color = theme.colors.muted)))
-    add(annotated(message.summary.take(width), SpanStyle(color = theme.colors.dim)))
-}
+): List<AnnotatedString> = labeledBlock("branch", bodyLines(message.summary, width, theme), width, theme)
 
 private fun renderCompactionSummaryLines(
     message: CompactionSummaryMessage,
     width: Int,
     theme: ThemeConfig,
-): List<AnnotatedString> = buildList {
-    add(annotated("Context compacted (was ${message.tokensBefore} tokens)", SpanStyle(color = theme.colors.muted)))
-    add(annotated(message.summary.take(width), SpanStyle(color = theme.colors.dim)))
+): List<AnnotatedString> {
+    val body = buildList {
+        add(annotated("Compacted from ${message.tokensBefore} tokens", SpanStyle(color = theme.customMessageText)))
+        addAll(bodyLines(message.summary, width, theme))
+    }
+    return labeledBlock("compaction", body, width, theme)
 }
 
 private fun renderCustomMessageLines(
     message: CustomMessage,
     width: Int,
-    markdownRenderer: MarkdownRenderer,
     theme: ThemeConfig,
 ): List<AnnotatedString> {
     if (!message.display) return emptyList()
-    if (message.customType == "command_result") {
-        return renderCommandResultLines(message, width, theme)
-    }
-    return buildList {
-        add(annotated("[${message.customType}]", SpanStyle(color = theme.colors.muted)))
-        message.content.filterIsInstance<TextContent>().forEach { block ->
-            addAll(markdownRenderer.render(block.text, width))
-        }
-    }
+    if (message.customType == "command_result") return renderCommandResultLines(message, width, theme)
+
+    val text = message.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
+    return labeledBlock(message.customType, bodyLines(text, width, theme), width, theme)
 }
 
 private fun renderCommandResultLines(
@@ -872,153 +795,23 @@ private fun renderCommandResultLines(
     width: Int,
     theme: ThemeConfig,
 ): List<AnnotatedString> {
+    val contentWidth = (width - 2 * CONTENT_PAD_X).coerceAtLeast(1)
     val text = message.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
-    val lines = text.lines()
-    return buildList {
-        lines.forEachIndexed { index, line ->
-            add(buildAnnotatedString {
-                if (index == 0) {
-                    withStyle(SpanStyle(color = theme.colors.dim)) { append("  \u23BF  ") }
-                } else {
-                    append("     ")
-                }
-                withStyle(SpanStyle(color = theme.colors.muted)) { append(line.take(width - 5)) }
-            })
+    val raw = buildList {
+        text.split("\n").forEach { line ->
+            wrapAnnotated(annotated(line, SpanStyle(color = theme.colors.muted)), contentWidth).forEach { add(it) }
         }
     }
+    return indentLines(raw)
 }
 
 private fun scrollMarker(
     width: Int,
     hiddenLines: Int,
     up: Boolean,
-    color: com.jakewharton.mosaic.ui.Color,
+    color: Color,
 ): AnnotatedString {
-    val arrow = if (up) "▲" else "▼"
+    val arrow = if (up) "↑" else "↓"
     val text = "$arrow $hiddenLines more"
-    val padded = text.padEnd(width)
-    return annotated(padded, SpanStyle(color = color))
-}
-
-/**
- * Renders a scroll-up marker that includes the user's prompt text,
- * so the user always sees what they typed even when scrolled to the bottom.
- */
-private fun userPromptScrollMarker(
-    prompt: String,
-    width: Int,
-    hiddenLines: Int,
-    theme: ThemeConfig,
-): AnnotatedString {
-    val suffix = " ▲ $hiddenLines"
-    val prefixStr = "❯ "
-    val maxPromptLen = (width - prefixStr.length - suffix.length).coerceAtLeast(1)
-    val truncated = if (prompt.length > maxPromptLen) {
-        prompt.take(maxPromptLen - 1) + "\u2026"
-    } else {
-        prompt
-    }
-
-    return buildAnnotatedString {
-        withStyle(SpanStyle(color = theme.colors.muted)) { append(prefixStr) }
-        withStyle(SpanStyle(color = com.jakewharton.mosaic.ui.Color.White, background = theme.userMessageBg)) {
-            append(truncated)
-        }
-        val used = prefixStr.length + truncated.length + suffix.length
-        val gap = (width - used).coerceAtLeast(0)
-        if (gap > 0) append(" ".repeat(gap))
-        withStyle(SpanStyle(color = theme.colors.muted)) { append(suffix) }
-    }
-}
-
-private const val BREATHING_CYCLE = 24
-
-private fun breathingColor(
-    frame: Int,
-    from: com.jakewharton.mosaic.ui.Color,
-    to: com.jakewharton.mosaic.ui.Color,
-): com.jakewharton.mosaic.ui.Color {
-    val phase = frame.mod(BREATHING_CYCLE)
-    val half = BREATHING_CYCLE / 2
-    val t = if (phase <= half) phase.toFloat() / half else (BREATHING_CYCLE - phase).toFloat() / half
-    val (r1, g1, b1) = from
-    val (r2, g2, b2) = to
-    return com.jakewharton.mosaic.ui.Color(
-        red = r1 + (r2 - r1) * t,
-        green = g1 + (g2 - g1) * t,
-        blue = b1 + (b2 - b1) * t,
-    )
-}
-
-private const val BARCODE = "▐█ ▌▌█▐ ██▌▐ █▌█▐▐ ▌█ ▐██▌▐"
-private const val BARCODE_HEIGHT = 4
-
-private val BANNER_PHRASES = listOf(
-    "Target acquired. Awaiting instructions.",
-    "Another satisfying contract awaits.",
-    "Clean code. No witnesses.",
-    "The briefing is ready. What's the target?",
-    "Precision is not optional.",
-    "Every bug has a bounty.",
-    "No loose ends. No leftover TODOs.",
-    "Silent execution. Zero side effects.",
-    "The scope is clear. Let's move.",
-    "Deploying with surgical precision.",
-)
-
-private val sessionPhrase: String = BANNER_PHRASES.random()
-
-private fun renderBannerViewport(
-    viewportHeight: Int,
-    width: Int,
-    cwd: String,
-    theme: ThemeConfig,
-): List<AnnotatedString> {
-    val bannerLines = renderBanner(width, cwd, theme)
-    val topPad = ((viewportHeight - bannerLines.size) / 2).coerceAtLeast(0)
-    return buildList {
-        repeat(topPad) { add(annotated("")) }
-        addAll(bannerLines)
-        val remaining = viewportHeight - size
-        repeat(remaining.coerceAtLeast(0)) { add(annotated("")) }
-    }
-}
-
-private fun renderBanner(
-    width: Int,
-    cwd: String,
-    theme: ThemeConfig,
-): List<AnnotatedString> {
-    val gap = "   "
-    val title = "Agent 47"
-    val phrase = sessionPhrase
-    val textWidths = listOf(title.length, phrase.length, cwd.length)
-    val totalContentWidth = BARCODE.length + gap.length + textWidths.max()
-    val leftPad = ((width - totalContentWidth) / 2).coerceAtLeast(0)
-    val padStr = " ".repeat(leftPad)
-
-    return buildList {
-        for (row in 0 until BARCODE_HEIGHT) {
-            add(buildAnnotatedString {
-                append(padStr)
-                withStyle(SpanStyle(color = com.jakewharton.mosaic.ui.Color.White)) { append(BARCODE) }
-                when (row) {
-                    0 -> {
-                        append(gap)
-                        withStyle(SpanStyle(color = theme.markdownText, textStyle = TextStyle.Bold)) {
-                            append(title)
-                        }
-                    }
-                    1 -> {
-                        append(gap)
-                        withStyle(SpanStyle(color = theme.colors.muted)) { append(cwd) }
-                    }
-                    3 -> {
-                        append(gap)
-                        withStyle(SpanStyle(color = theme.colors.muted)) { append(phrase) }
-                    }
-                }
-            })
-        }
-    }
+    return annotated(text.padEnd(width), SpanStyle(color = color))
 }

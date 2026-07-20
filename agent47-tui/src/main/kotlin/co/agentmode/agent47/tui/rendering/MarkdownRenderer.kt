@@ -50,6 +50,20 @@ public fun annotated(text: String): AnnotatedString = buildAnnotatedString { app
 public fun annotated(text: String, style: SpanStyle): AnnotatedString = AnnotatedString(text, style)
 
 /**
+ * Per-token styles for code-block syntax highlighting, derived from the theme's syntax palette.
+ */
+public data class SyntaxStyles(
+    val base: SpanStyle,
+    val keyword: SpanStyle,
+    val string: SpanStyle,
+    val number: SpanStyle,
+    val comment: SpanStyle,
+    val function: SpanStyle,
+    val type: SpanStyle,
+    val punctuation: SpanStyle,
+)
+
+/**
  * Theme for Mosaic Markdown rendering, expressed as SpanStyles.
  */
 public data class MarkdownTheme(
@@ -57,7 +71,7 @@ public data class MarkdownTheme(
     val boldStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Bold),
     val italicStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Italic),
     val strikethroughStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Strikethrough),
-    val inlineCodeStyle: SpanStyle = SpanStyle(background = TerminalColors.BRIGHT_BLACK),
+    val inlineCodeStyle: SpanStyle = SpanStyle(color = TerminalColors.CYAN),
     val codeBlockStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim),
     val codeBlockBorderStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim),
     val quoteStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim + TextStyle.Italic),
@@ -68,6 +82,7 @@ public data class MarkdownTheme(
     val linkUrlStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim),
     val tableBorderStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim),
     val tableHeaderStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Bold),
+    val syntax: SyntaxStyles? = null,
     val codeBlockIndent: String = "  ",
 ) {
     public companion object {
@@ -75,19 +90,31 @@ public data class MarkdownTheme(
          * Creates a MarkdownTheme derived from a MosaicTheme's color palette.
          */
         public fun fromTheme(theme: ThemeConfig): MarkdownTheme = MarkdownTheme(
-            headingStyle = SpanStyle(textStyle = TextStyle.Bold),
+            headingStyle = SpanStyle(color = theme.markdownHeading, textStyle = TextStyle.Bold),
             boldStyle = SpanStyle(textStyle = TextStyle.Bold),
             italicStyle = SpanStyle(textStyle = TextStyle.Italic),
             strikethroughStyle = SpanStyle(textStyle = TextStyle.Strikethrough),
-            inlineCodeStyle = SpanStyle(background = theme.inlineCodeBg),
-            codeBlockStyle = SpanStyle(color = theme.codeBlockFg, background = theme.codeBlockBg),
-            codeBlockBorderStyle = SpanStyle(color = theme.codeBlockFg, textStyle = TextStyle.Dim),
-            quoteStyle = SpanStyle(textStyle = TextStyle.Dim + TextStyle.Italic),
-            quoteBorderStyle = SpanStyle(textStyle = TextStyle.Dim),
-            hrStyle = SpanStyle(textStyle = TextStyle.Dim),
+            inlineCodeStyle = SpanStyle(color = theme.markdownCode),
+            codeBlockStyle = SpanStyle(color = theme.codeBlockFg),
+            codeBlockBorderStyle = SpanStyle(color = theme.colors.muted),
+            quoteStyle = SpanStyle(color = theme.markdownBlockQuote, textStyle = TextStyle.Italic),
+            quoteBorderStyle = SpanStyle(color = theme.markdownBlockQuote),
+            hrStyle = SpanStyle(color = theme.markdownHorizontalRule),
             listBulletStyle = SpanStyle(color = theme.colors.accent),
             linkStyle = SpanStyle(color = theme.link, underlineStyle = UnderlineStyle.Straight),
             linkUrlStyle = SpanStyle(color = theme.linkUrl),
+            tableBorderStyle = SpanStyle(color = theme.colors.muted),
+            tableHeaderStyle = SpanStyle(textStyle = TextStyle.Bold),
+            syntax = SyntaxStyles(
+                base = SpanStyle(color = theme.codeBlockFg),
+                keyword = SpanStyle(color = theme.syntaxKeyword),
+                string = SpanStyle(color = theme.syntaxString),
+                number = SpanStyle(color = theme.syntaxNumber),
+                comment = SpanStyle(color = theme.syntaxComment),
+                function = SpanStyle(color = theme.syntaxFunction),
+                type = SpanStyle(color = theme.syntaxType),
+                punctuation = SpanStyle(color = theme.syntaxPunctuation),
+            ),
         )
     }
 }
@@ -147,17 +174,30 @@ private class BlockRenderer(
     }
 
     override fun visit(heading: Heading) {
-        val prefix = "#".repeat(heading.level) + " "
+        val level = heading.level
         val inlines = collectInlines(heading, theme)
-        val styledInlines = buildAnnotatedString {
-            withStyle(theme.headingStyle) { append(inlines) }
+        val styled = buildAnnotatedString {
+            if (level == 1) {
+                // H1 additionally underlines the title
+                withStyle(SpanStyle(underlineStyle = UnderlineStyle.Straight)) {
+                    withStyle(theme.headingStyle) { append(inlines) }
+                }
+            } else {
+                withStyle(theme.headingStyle) { append(inlines) }
+            }
         }
-        lines += wrapWithPrefix(
-            text = styledInlines,
-            width = effectiveWidth(),
-            firstPrefix = annotated(prefix, theme.headingStyle),
-            restPrefix = annotated(" ".repeat(prefix.length)),
-        )
+        // H1/H2 drop their markers and read as titles; H3+ keep the literal "### " prefix.
+        if (level >= 3) {
+            val prefix = "#".repeat(level) + " "
+            lines += wrapWithPrefix(
+                text = styled,
+                width = effectiveWidth(),
+                firstPrefix = annotated(prefix, theme.headingStyle),
+                restPrefix = annotated(" ".repeat(prefix.length)),
+            )
+        } else {
+            lines += wrapAnnotated(styled, effectiveWidth())
+        }
         addBlankLineAfterBlock(heading)
     }
 
@@ -167,7 +207,7 @@ private class BlockRenderer(
         lines += renderCodeBlockTop(language, w)
         val literal = fencedCodeBlock.literal.trimEnd('\n')
         literal.split("\n").forEach { codeLine ->
-            lines += renderCodeBlockLines(codeLine, w)
+            lines += renderCodeBlockLines(codeLine, w, language)
         }
         lines += renderCodeBlockBottom(w)
         addBlankLineAfterBlock(fencedCodeBlock)
@@ -178,7 +218,7 @@ private class BlockRenderer(
         lines += renderCodeBlockTop(null, w)
         val literal = indentedCodeBlock.literal.trimEnd('\n')
         literal.split("\n").forEach { codeLine ->
-            lines += renderCodeBlockLines(codeLine, w)
+            lines += renderCodeBlockLines(codeLine, w, null)
         }
         lines += renderCodeBlockBottom(w)
         addBlankLineAfterBlock(indentedCodeBlock)
@@ -236,7 +276,7 @@ private class BlockRenderer(
     }
 
     override fun visit(thematicBreak: ThematicBreak) {
-        lines += annotated("─".repeat(effectiveWidth().coerceAtLeast(3)), theme.hrStyle)
+        lines += annotated("─".repeat(effectiveWidth().coerceIn(3, 80)), theme.hrStyle)
         addBlankLineAfterBlock(thematicBreak)
     }
 
@@ -427,43 +467,30 @@ private class BlockRenderer(
     }
 
     private fun renderCodeBlockTop(language: String?, w: Int): AnnotatedString {
-        val label = language ?: ""
-        return buildAnnotatedString {
-            withStyle(theme.codeBlockBorderStyle) {
-                append("┌")
-                if (label.isNotEmpty()) {
-                    append("─ ")
-                    append(label)
-                    append(" ")
-                }
-                val used = 1 + if (label.isNotEmpty()) 3 + label.length else 0
-                val fill = (w - used).coerceAtLeast(0)
-                append("─".repeat(fill))
-            }
-        }
+        // ohm frames code with literal ``` fences (gray), not a drawn box.
+        val fence = "```" + (language ?: "")
+        return annotated(fence.take(w), theme.codeBlockBorderStyle)
     }
 
-    private fun renderCodeBlockLines(codeLine: String, w: Int): List<AnnotatedString> {
-        val prefixWidth = 2
-        val contentWidth = (w - prefixWidth).coerceAtLeast(1)
-        // Wrap onto continuation lines instead of truncating, so overflowing code is never dropped.
-        val chunks = if (codeLine.isEmpty()) listOf("") else codeLine.chunked(contentWidth)
-        return chunks.map { chunk ->
-            val padded = chunk.padEnd(contentWidth)
+    private fun renderCodeBlockLines(codeLine: String, w: Int, language: String?): List<AnnotatedString> {
+        val indent = theme.codeBlockIndent
+        val contentWidth = (w - indent.length).coerceAtLeast(1)
+        // Highlight the full line first (when a syntax palette is available), then wrap — so
+        // tokens keep their color across continuation lines. Highlighting only adds color spans,
+        // never alters the text.
+        val content = theme.syntax?.let { SyntaxHighlighter.highlight(codeLine, language, it) }
+            ?: annotated(codeLine, theme.codeBlockStyle)
+        val wrapped = if (codeLine.isEmpty()) listOf(annotated("")) else wrapAnnotatedRaw(content, contentWidth)
+        return wrapped.map { line ->
             buildAnnotatedString {
-                withStyle(theme.codeBlockBorderStyle) { append("│ ") }
-                withStyle(theme.codeBlockStyle) { append(padded) }
+                append(indent)
+                append(line)
             }
         }
     }
 
     private fun renderCodeBlockBottom(w: Int): AnnotatedString {
-        return buildAnnotatedString {
-            withStyle(theme.codeBlockBorderStyle) {
-                append("└")
-                append("─".repeat((w - 1).coerceAtLeast(0)))
-            }
-        }
+        return annotated("```", theme.codeBlockBorderStyle)
     }
 
     private fun effectiveWidth(): Int = (width - indent).coerceAtLeast(1)
@@ -883,6 +910,96 @@ private fun AnnotatedString.subSequence(start: Int, end: Int): AnnotatedString {
             val newEnd = (range.end - start).coerceAtMost(subText.length)
             if (newStart < newEnd) {
                 addStyle(range.item, newStart, newEnd)
+            }
+        }
+    }
+}
+
+/**
+ * A lightweight, language-agnostic, single-line syntax highlighter for code blocks. It only
+ * ever appends the input characters verbatim (varying the style), so it can color code without
+ * risk of altering it. Multi-line constructs (block comments, multi-line strings) are treated
+ * per line, which is a deliberate approximation.
+ */
+private object SyntaxHighlighter {
+    private val KEYWORDS = setOf(
+        "abstract", "and", "as", "async", "await", "begin", "break", "case", "catch", "chan",
+        "class", "companion", "const", "continue", "data", "def", "default", "defer", "do",
+        "elif", "else", "end", "enum", "export", "extends", "false", "final", "finally", "fn",
+        "for", "from", "func", "function", "go", "if", "impl", "implements", "import", "in",
+        "interface", "internal", "is", "lambda", "let", "local", "match", "module", "mut", "new",
+        "nil", "not", "null", "object", "open", "or", "override", "package", "pass", "private",
+        "protected", "pub", "public", "range", "return", "sealed", "select", "static", "struct",
+        "super", "suspend", "switch", "then", "this", "throw", "throws", "trait", "true", "try",
+        "type", "use", "val", "var", "void", "when", "where", "while", "with", "yield",
+    )
+    private val HASH_COMMENT_LANGS = setOf(
+        "py", "python", "rb", "ruby", "sh", "bash", "zsh", "shell", "fish", "yaml", "yml", "toml",
+        "ini", "r", "perl", "pl", "makefile", "make", "dockerfile", "conf", "properties", "nginx",
+        "php", "tcl", "awk", "elixir", "ex", "exs", "coffee", "nim", "julia", "jl",
+    )
+
+    fun highlight(line: String, language: String?, s: SyntaxStyles): AnnotatedString {
+        val lang = language?.lowercase()?.trim()
+        val hashComment = lang != null && lang in HASH_COMMENT_LANGS
+        val n = line.length
+        return buildAnnotatedString {
+            var i = 0
+            while (i < n) {
+                val c = line[i]
+                when {
+                    c == ' ' || c == '\t' -> {
+                        append(c)
+                        i++
+                    }
+                    c == '/' && i + 1 < n && line[i + 1] == '/' -> {
+                        withStyle(s.comment) { append(line.substring(i)) }
+                        i = n
+                    }
+                    c == '/' && i + 1 < n && line[i + 1] == '*' -> {
+                        val end = line.indexOf("*/", i + 2).let { if (it < 0) n else it + 2 }
+                        withStyle(s.comment) { append(line.substring(i, end)) }
+                        i = end
+                    }
+                    hashComment && c == '#' -> {
+                        withStyle(s.comment) { append(line.substring(i)) }
+                        i = n
+                    }
+                    c == '"' || c == '\'' || c == '`' -> {
+                        val start = i
+                        i++
+                        while (i < n && line[i] != c) {
+                            if (line[i] == '\\' && i + 1 < n) i++
+                            i++
+                        }
+                        if (i < n) i++
+                        withStyle(s.string) { append(line.substring(start, i)) }
+                    }
+                    c.isDigit() -> {
+                        val start = i
+                        while (i < n && (line[i].isLetterOrDigit() || line[i] == '.' || line[i] == '_')) i++
+                        withStyle(s.number) { append(line.substring(start, i)) }
+                    }
+                    c.isLetter() || c == '_' -> {
+                        val start = i
+                        while (i < n && (line[i].isLetterOrDigit() || line[i] == '_')) i++
+                        val word = line.substring(start, i)
+                        var j = i
+                        while (j < n && line[j] == ' ') j++
+                        val isCall = j < n && line[j] == '('
+                        val style = when {
+                            word in KEYWORDS -> s.keyword
+                            word.first().isUpperCase() -> s.type
+                            isCall -> s.function
+                            else -> s.base
+                        }
+                        withStyle(style) { append(word) }
+                    }
+                    else -> {
+                        withStyle(s.punctuation) { append(c) }
+                        i++
+                    }
+                }
             }
         }
     }

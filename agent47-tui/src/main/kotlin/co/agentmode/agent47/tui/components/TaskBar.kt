@@ -56,12 +56,12 @@ private fun renderTaskBarLines(
     // Header line: spinner + activity when streaming, "Tasks" otherwise
     add(buildAnnotatedString {
         if (isStreaming) {
-            val frames = listOf("\u28CB", "\u28D9", "\u28F9", "\u28F8", "\u28FC", "\u28F4", "\u28E6", "\u28E7", "\u28C7", "\u28CF")
+            val frames = listOf("\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F")
             val frame = frames[spinnerFrame.mod(frames.size)]
             withStyle(SpanStyle(color = theme.colors.accent)) { append(frame) }
             append(" ")
             val label = activityLabel.ifBlank { "Working" }
-            withStyle(SpanStyle(color = theme.colors.accentBright)) { append(label) }
+            withStyle(SpanStyle(color = theme.colors.muted)) { append(label) }
             withStyle(SpanStyle(color = theme.colors.muted)) { append("...") }
         } else {
             withStyle(SpanStyle(color = theme.colors.accent, textStyle = TextStyle.Bold)) {
@@ -70,24 +70,24 @@ private fun renderTaskBarLines(
         }
     })
 
-    // Task items
+    // Task items \u2014 textual checkboxes shared with the transcript's todo renderer
     val maxContent = (width - 7).coerceAtLeast(10)
     items.forEach { item ->
-        val (icon, statusColor) = when (item.status) {
-            "completed" -> "\u2714" to theme.todoCompleted
-            "in_progress" -> "\u25FC" to theme.todoInProgress
-            "pending" -> "\u25FB" to theme.todoPending
-            "cancelled" -> "\u2717" to theme.todoCancelled
-            else -> "\u25FB" to theme.todoPending
+        val (marker, markerColor) = when (item.status) {
+            "completed" -> "[x]" to theme.todoCompleted
+            "in_progress" -> "[~]" to theme.todoInProgress
+            "cancelled" -> "[-]" to theme.todoCancelled
+            else -> "[ ]" to theme.todoPending
         }
-        val contentStyle = if (item.status == "completed" || item.status == "cancelled") {
-            SpanStyle(color = theme.colors.muted)
+        val done = item.status == "completed" || item.status == "cancelled"
+        val contentStyle = if (done) {
+            SpanStyle(color = theme.colors.muted, textStyle = TextStyle.Strikethrough)
         } else {
-            SpanStyle()
+            SpanStyle(color = theme.markdownText)
         }
         add(buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.muted)) { append("  \u23BF  ") }
-            withStyle(SpanStyle(color = statusColor)) { append(icon) }
+            append("  ")
+            withStyle(SpanStyle(color = markerColor)) { append(marker) }
             append(" ")
             withStyle(contentStyle) {
                 append(item.content.take(maxContent))

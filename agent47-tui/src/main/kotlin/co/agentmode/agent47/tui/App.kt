@@ -38,6 +38,7 @@ import co.agentmode.agent47.tui.rendering.MarkdownRenderer
 import co.agentmode.agent47.tui.theme.AVAILABLE_THEMES
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
+import co.agentmode.agent47.tui.theme.dimmed
 import androidx.compose.runtime.CompositionLocalProvider
 import com.jakewharton.mosaic.LocalTerminalState
 import com.jakewharton.mosaic.layout.background
@@ -65,6 +66,9 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
+
+/** How far the base layer is darkened toward black while a dialog is open (1 = unchanged). */
+private const val SCRIM_DIM_FACTOR = 0.5f
 
 private data class SlashCommandSpec(
     val command: String,
@@ -239,10 +243,14 @@ private fun Agent47AppContent(
             fileCompletionRoot = cwd,
         )
     }
-    val markdownRenderer = remember(mosaicTheme) {
-        MarkdownRenderer(MarkdownTheme.fromTheme(mosaicTheme))
+    // While a dialog is open, the whole base layer is rendered with a darkened copy of the
+    // theme so the (undimmed) dialog reads as a distinct layer floating above a scrim.
+    // Terminals have no real alpha, so we darken every color instead of drawing a film.
+    val baseTheme = if (overlayHostState.hasOverlay) mosaicTheme.dimmed(SCRIM_DIM_FACTOR) else mosaicTheme
+    val markdownRenderer = remember(baseTheme) {
+        MarkdownRenderer(MarkdownTheme.fromTheme(baseTheme))
     }
-    val diffRenderer = remember(mosaicTheme) { DiffRenderer(mosaicTheme) }
+    val diffRenderer = remember(baseTheme) { DiffRenderer(baseTheme) }
 
     var showUsageFooter by remember { mutableStateOf(initialShowUsageFooter) }
     var running by remember { mutableStateOf(true) }
@@ -273,9 +281,11 @@ private fun Agent47AppContent(
 
     val statusBarState = MosaicStatusBarState(
         cwdName = cwd.fileName?.toString() ?: cwd.toString(),
+        cwdPath = cwd.toString().replace(System.getProperty("user.home"), "~"),
         branch = remember { detectBranchName(cwd) },
         modelId = currentModel?.id,
         thinking = thinkingLevel != AgentThinkingLevel.OFF,
+        thinkingLabel = thinkingLevel.takeIf { it != AgentThinkingLevel.OFF }?.name?.lowercase(),
         inputTokens = null,
         outputTokens = null,
         totalTokens = null,
@@ -299,7 +309,7 @@ private fun Agent47AppContent(
 
     // --- Layout calculations ---
 
-    val statusHeight = 1
+    val statusHeight = 2 // ohm-style two-line footer
     val editorPromptWidth = 2 // "❯ " or "! "
     val editorContentWidth = (width - editorPromptWidth).coerceAtLeast(1)
     val visualLineCount = WordWrap.createMapping(editor.state.lines, editorContentWidth).visualLines.size
@@ -764,12 +774,12 @@ private fun Agent47AppContent(
 
     // --- Compaction ---
 
-    fun runCompaction() {
+    fun runCompaction(auto: Boolean = false) {
         if (compactContext == null || currentModel == null) {
             appendCommandResult("Compaction unavailable")
             return
         }
-        liveActivityLabel = "Compacting"
+        liveActivityLabel = if (auto) "Auto-compacting" else "Compacting context"
         isStreaming = true
         promptScope.launch(Dispatchers.IO) {
             try {
@@ -867,7 +877,7 @@ private fun Agent47AppContent(
                     val messages = client.rawAgent().state.messages
                     val estimate = estimateContextTokens(messages)
                     if (shouldCompact(estimate.tokens, currentModel.contextWindow, compactionSettings)) {
-                        runCompaction()
+                        runCompaction(auto = true)
                     }
                 }
             }
@@ -1071,7 +1081,7 @@ private fun Agent47AppContent(
         modifier = Modifier
             .height(height)
             .fillMaxWidth()
-            .background(mosaicTheme.background)
+            .background(baseTheme.background)
             .onKeyEvent { event ->
                 if (overlayHostState.hasOverlay) {
                     // Let overlay handle via its own Modifier.onKeyEvent
@@ -1160,73 +1170,74 @@ private fun Agent47AppContent(
                 handleKeyEvent(keyboardEvent)
             },
     ) {
-        Column {
-            // Chat history viewport
-            ChatHistory(
-                state = chatHistoryState,
-                width = width,
-                height = historyHeight,
-                markdownRenderer = markdownRenderer,
-                diffRenderer = diffRenderer,
-                version = chatVersion,
-                spinnerFrame = spinnerFrame,
-                cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
-            )
-
-            // Activity line (spinner while streaming, only when no task bar)
-            if (isStreaming && !taskBarState.visible) {
-                Text("")
-                ActivityLine(
+        CompositionLocalProvider(LocalThemeConfig provides baseTheme) {
+            Column {
+                // Chat history viewport
+                ChatHistory(
+                    state = chatHistoryState,
+                    width = width,
+                    height = historyHeight,
+                    markdownRenderer = markdownRenderer,
+                    diffRenderer = diffRenderer,
+                    version = chatVersion,
                     spinnerFrame = spinnerFrame,
-                    label = liveActivityLabel,
+                    cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
+                )
+
+                // Activity line (spinner while streaming, only when no task bar)
+                if (isStreaming && !taskBarState.visible) {
+                    Text("")
+                    ActivityLine(
+                        spinnerFrame = spinnerFrame,
+                        label = liveActivityLabel,
+                        width = width,
+                    )
+                }
+
+                // Task bar (absorbs the activity spinner into its header)
+                TaskBar(
+                    state = taskBarState,
+                    width = width,
+                    isStreaming = isStreaming,
+                    spinnerFrame = spinnerFrame,
+                    activityLabel = liveActivityLabel,
+                )
+
+                // Margin between chat area and editor border
+                Text("")
+
+                val bashMode = editor.text().trimStart().startsWith("!")
+
+                // Editor top border
+                EditorBorder(width, bashMode, thinkingLevel)
+
+                // Slash command popup (between border and input)
+                val autocompleteModel = editorResult.autocomplete
+                if (autocompleteModel != null && autocompleteModel.items.isNotEmpty()) {
+                    AutocompletePopup(
+                        model = autocompleteModel,
+                        maxWidth = width,
+                        theme = baseTheme,
+                    )
+                    Text("")
+                }
+
+                // Editor view
+                EditorView(
+                    result = editorResult,
+                    width = width,
+                    height = baseInputHeight,
+                )
+
+                // Editor bottom border
+                EditorBorder(width, bashMode, thinkingLevel)
+
+                // Status bar
+                StatusBar(
+                    state = statusBarWithUsage,
                     width = width,
                 )
             }
-
-            // Task bar (absorbs the activity spinner into its header)
-            TaskBar(
-                state = taskBarState,
-                width = width,
-                isStreaming = isStreaming,
-                spinnerFrame = spinnerFrame,
-                activityLabel = liveActivityLabel,
-            )
-
-            // Margin between chat area and editor border
-            Text("")
-
-            val bashMode = editor.text().trimStart().startsWith("!")
-
-            // Editor top border
-            EditorBorder(width, bashMode)
-
-            // Slash command popup (between border and input)
-            val autocompleteModel = editorResult.autocomplete
-            if (autocompleteModel != null && autocompleteModel.items.isNotEmpty()) {
-                AutocompletePopup(
-                    model = autocompleteModel,
-                    maxWidth = width,
-                    theme = mosaicTheme,
-                )
-                Text("")
-            }
-
-            // Editor view
-            EditorView(
-                result = editorResult,
-                width = width,
-                height = baseInputHeight,
-                bashMode = bashMode,
-            )
-
-            // Editor bottom border
-            EditorBorder(width, bashMode)
-
-            // Status bar
-            StatusBar(
-                state = statusBarWithUsage,
-                width = width,
-            )
         }
 
         // Overlay host (renders on top of everything)
@@ -1264,7 +1275,7 @@ private fun ActivityLine(
         buildAnnotatedString {
             withStyle(SpanStyle(color = theme.colors.accent)) { append(frame) }
             append(" ")
-            withStyle(SpanStyle(color = theme.colors.accentBright)) { append(displayLabel) }
+            withStyle(SpanStyle(color = theme.colors.muted)) { append(displayLabel) }
             withStyle(SpanStyle(color = theme.colors.muted)) { append("...") }
             val used = 1 + 1 + displayLabel.length + 3
             val padding = (width - used).coerceAtLeast(0)
@@ -1274,9 +1285,26 @@ private fun ActivityLine(
 }
 
 @Composable
-private fun EditorBorder(width: Int, bashMode: Boolean = false) {
+private fun EditorBorder(
+    width: Int,
+    bashMode: Boolean,
+    thinkingLevel: AgentThinkingLevel,
+) {
     val theme = LocalThemeConfig.current
-    val color = if (bashMode) theme.colors.error else theme.colors.muted
+    // The input rule's color is the primary mode indicator: green in bash mode,
+    // otherwise a distinct shade per thinking level (off → xhigh).
+    val color = if (bashMode) {
+        theme.bashModeBorder
+    } else {
+        when (thinkingLevel) {
+            AgentThinkingLevel.OFF -> theme.thinkingOff
+            AgentThinkingLevel.MINIMAL -> theme.thinkingMinimal
+            AgentThinkingLevel.LOW -> theme.thinkingLow
+            AgentThinkingLevel.MEDIUM -> theme.thinkingMedium
+            AgentThinkingLevel.HIGH -> theme.thinkingHigh
+            AgentThinkingLevel.XHIGH -> theme.thinkingXhigh
+        }
+    }
     Filler('─', modifier = Modifier.width(width).height(1), foreground = color)
 }
 
@@ -1308,10 +1336,17 @@ private fun handleAgentEvent(
             setLiveActivityLabel("")
         }
 
+        is RetryEvent -> {
+            val seconds = (event.delayMs + 999L) / 1000L
+            setLiveActivityLabel("Retrying (${event.attempt}/${event.maxAttempts}) in ${seconds}s")
+        }
+
         is MessageStartEvent -> {
             val message = event.message
             if (message is AssistantMessage) {
                 chatHistoryState.startAssistantMessage(message)
+                // Clear any lingering "Retrying…" label once the model starts responding again.
+                setLiveActivityLabel("Thinking")
             } else if (message !is ToolResultMessage) {
                 chatHistoryState.appendMessage(message)
             }
@@ -1602,9 +1637,12 @@ private fun submitMessage(
     activeSessionManager?.appendMessage(message)
 
     if (isStreaming) {
+        // The user message has already been appended above, so it shows in the transcript
+        // right below the in-flight response. Do NOT append an assistant-style "queued" note:
+        // appendSystemMessage builds an AssistantMessage, which would steal the active-assistant
+        // slot and cause the still-streaming response to write into the note's entry.
         runCatching {
             client.followUp(message)
-            appendSystemMessage("Queued follow-up while the current response is still running.")
         }.onFailure { error ->
             appendSystemMessage("Failed to queue follow-up: ${error.message ?: error::class.simpleName}")
         }

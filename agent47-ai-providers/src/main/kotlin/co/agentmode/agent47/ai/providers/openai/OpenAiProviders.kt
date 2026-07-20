@@ -558,7 +558,7 @@ private fun endpoint(baseUrl: String, path: String): String {
 private fun buildHeaders(model: Model, options: StreamOptions?): Map<String, String> {
     val merged = mergeHeaders(model, options)
     val apiKey = options?.apiKey
-    if (apiKey != null && !merged.containsKey("authorization")) {
+    if (!apiKey.isNullOrBlank() && !merged.containsKey("authorization")) {
         merged["authorization"] = "Bearer $apiKey"
     }
     return merged

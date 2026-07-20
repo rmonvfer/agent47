@@ -1,7 +1,9 @@
 package co.agentmode.agent47.tui.components
 
 import androidx.compose.runtime.Composable
+import co.agentmode.agent47.tui.rendering.annotated
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
+import co.agentmode.agent47.ui.core.util.formatTokens
 import com.jakewharton.mosaic.layout.fillMaxWidth
 import com.jakewharton.mosaic.layout.height
 import com.jakewharton.mosaic.modifier.Modifier
@@ -9,18 +11,20 @@ import com.jakewharton.mosaic.text.AnnotatedString
 import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.text.withStyle
-import com.jakewharton.mosaic.ui.Box
+import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Text
 import kotlin.math.roundToInt
 
 /**
- * Data model for the Mosaic status bar.
+ * Data model for the Mosaic status bar / footer.
  */
 public data class MosaicStatusBarState(
     val cwdName: String,
+    val cwdPath: String,
     val branch: String?,
     val modelId: String?,
     val thinking: Boolean,
+    val thinkingLabel: String?,
     val inputTokens: Int?,
     val outputTokens: Int?,
     val totalTokens: Int?,
@@ -32,10 +36,13 @@ public data class MosaicStatusBarState(
 )
 
 /**
- * Mosaic composable that renders a single-line status bar split into left and right
- * halves. Left side shows state, model, and thinking. Right side shows context usage,
- * tokens, cost, branch, and working directory. Segments that don't fit are dropped
- * from the right.
+ * Renders the ohm-style two-line footer, entirely in the dim color with no background:
+ *
+ *   `~/path/to/cwd (branch)`
+ *   `↑<in> ↓<out> $<cost> <ctx%>%/<window>` … right-aligned `<model> · <thinking>`
+ *
+ * The context-percentage segment is colored (warning past 70%, error past 90%); everything
+ * else is dim. Segments only appear when their value is present.
  */
 @Composable
 public fun StatusBar(
@@ -43,105 +50,50 @@ public fun StatusBar(
     width: Int,
 ) {
     val theme = LocalThemeConfig.current
-    val dimStyle = SpanStyle(color = theme.colors.dim)
-    val mutedStyle = SpanStyle(color = theme.colors.muted)
-    val accentStyle = SpanStyle(color = theme.colors.accent)
+    val dim = SpanStyle(color = theme.colors.dim)
 
-    val separator = buildAnnotatedString {
-        withStyle(mutedStyle) { append(" | ") }
+    // Line 1 — working directory and git branch.
+    val line1Text = buildString {
+        append(state.cwdPath)
+        if (!state.branch.isNullOrBlank()) append(" (${state.branch})")
     }
-    val separatorLen = 3
+    val line1 = annotated(truncatePlain(line1Text, width), dim)
 
-    // Left section: state + model + thinking
+    // Line 2 left — token / cost / context stats.
     val leftParts = mutableListOf<AnnotatedString>()
-
-    leftParts += stateIndicator(state.busy, state.spinnerFrame, accentStyle, mutedStyle)
-
-    val modelShort = truncatePlain(state.modelId ?: "-", (width / 4).coerceIn(10, 30))
-    leftParts += buildAnnotatedString { withStyle(accentStyle) { append(modelShort) } }
-
-    if (state.thinking) {
-        leftParts += buildAnnotatedString { withStyle(mutedStyle) { append("thinking") } }
-    }
-
-    // Right section: context + tokens + cost + branch + cwd
-    val rightParts = mutableListOf<AnnotatedString>()
-
-    val contextPct = contextPercent(state.contextTokens, state.contextWindow)
-    if (contextPct != null) {
+    state.inputTokens?.takeIf { it > 0 }?.let { leftParts += annotated("↑${formatTokens(it.toLong())}", dim) }
+    state.outputTokens?.takeIf { it > 0 }?.let { leftParts += annotated("↓${formatTokens(it.toLong())}", dim) }
+    state.cost?.takeIf { it > 0.0 }?.let { leftParts += annotated("$" + "%.4f".format(it), dim) }
+    contextPercent(state.contextTokens, state.contextWindow)?.let { pct ->
         val ctxColor = when {
-            contextPct < 50 -> theme.colors.success
-            contextPct < 80 -> theme.colors.warning
-            else -> theme.colors.error
+            pct > 90 -> theme.colors.error
+            pct > 70 -> theme.colors.warning
+            else -> theme.colors.dim
         }
-        rightParts += buildAnnotatedString {
-            withStyle(mutedStyle) { append("ctx ") }
-            withStyle(SpanStyle(color = ctxColor)) { append("${contextPct}%") }
-        }
+        val window = state.contextWindow?.let { formatTokens(it.toLong()) } ?: "?"
+        leftParts += annotated("$pct%/$window", SpanStyle(color = ctxColor))
     }
-
-    if (state.totalTokens != null) {
-        rightParts += buildAnnotatedString {
-            withStyle(mutedStyle) {
-                append("${state.inputTokens ?: 0}/${state.outputTokens ?: 0}/${state.totalTokens}")
-            }
-        }
-    }
-
-    if (state.cost != null) {
-        rightParts += buildAnnotatedString {
-            withStyle(mutedStyle) { append("$") }
-            withStyle(accentStyle) { append("%.4f".format(state.cost)) }
-        }
-    }
-
-    state.branch?.takeIf { it.isNotBlank() }?.let { branch ->
-        val branchShort = truncatePlain(branch, (width / 6).coerceIn(8, 18))
-        rightParts += buildAnnotatedString {
-            withStyle(mutedStyle) { append(branchShort) }
-        }
-    }
-
-    val cwdShort = truncatePlain(state.cwdName, (width / 5).coerceIn(8, 24))
-    rightParts += buildAnnotatedString { withStyle(mutedStyle) { append(cwdShort) } }
-
-    // Join left
-    val left = joinParts(leftParts, separator)
+    val left = joinParts(leftParts, annotated(" "))
     val leftLen = left.text.length
 
-    // Greedily build right side to fit remaining space
-    val rightChosen = mutableListOf<AnnotatedString>()
-    var rightLen = 0
-    val minGap = 2
-    for (part in rightParts) {
-        val partLen = part.text.length
-        val needed = if (rightChosen.isEmpty()) partLen else rightLen + separatorLen + partLen
-        if (leftLen + minGap + needed <= width) {
-            rightChosen += part
-            rightLen = needed
-        }
+    // Line 2 right — model and thinking level, right-aligned.
+    val rightText = buildString {
+        append(state.modelId ?: "-")
+        state.thinkingLabel?.let { append(" · $it") }
     }
-    val right = joinParts(rightChosen, separator)
+    val rightBudget = (width - leftLen - 2).coerceAtLeast(0)
+    val rightShown = truncatePlain(rightText, rightBudget)
+    val gap = (width - leftLen - rightShown.length).coerceAtLeast(1)
 
-    val gap = (width - leftLen - rightLen).coerceAtLeast(1)
-
-    val line = buildAnnotatedString {
+    val line2 = buildAnnotatedString {
         append(left)
         append(" ".repeat(gap))
-        append(right)
-        val total = leftLen + gap + rightLen
-        val padding = (width - total).coerceAtLeast(0)
-        if (padding > 0) append(" ".repeat(padding))
+        withStyle(dim) { append(rightShown) }
     }
 
-    Box(modifier = Modifier.fillMaxWidth().height(1)) {
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(background = theme.statusBarBg)) {
-                    append(line)
-                }
-            },
-        )
+    Column(modifier = Modifier.fillMaxWidth().height(2)) {
+        Text(line1)
+        Text(line2)
     }
 }
 
@@ -155,16 +107,6 @@ private fun joinParts(
     }
 }
 
-private fun stateIndicator(
-    busy: Boolean,
-    spinnerFrame: Int,
-    accentStyle: SpanStyle,
-    mutedStyle: SpanStyle,
-): AnnotatedString {
-    if (!busy) return buildAnnotatedString { withStyle(mutedStyle) { append("idle") } }
-    return buildAnnotatedString { withStyle(accentStyle) { append("run") } }
-}
-
 private fun contextPercent(tokens: Int?, window: Int?): Int? {
     if (tokens == null || window == null || window <= 0) return null
     return ((tokens.toDouble() / window.toDouble()) * 100.0)
@@ -172,7 +114,7 @@ private fun contextPercent(tokens: Int?, window: Int?): Int? {
         .coerceAtLeast(0)
 }
 
-private fun truncatePlain(text: String, maxWidth: Int, ellipsis: String = "..."): String {
+private fun truncatePlain(text: String, maxWidth: Int, ellipsis: String = "…"): String {
     if (text.length <= maxWidth) return text
     val available = (maxWidth - ellipsis.length).coerceAtLeast(0)
     return if (available == 0) ellipsis.take(maxWidth) else text.take(available) + ellipsis

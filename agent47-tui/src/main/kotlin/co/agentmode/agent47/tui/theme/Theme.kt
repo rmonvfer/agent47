@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import com.jakewharton.mosaic.ui.Color
+import com.jakewharton.mosaic.ui.isSpecifiedColor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -13,13 +14,13 @@ import kotlinx.serialization.json.jsonPrimitive
  * Semantic color roles for the Mosaic TUI.
  */
 public data class MosaicThemeColors(
-    val accent: Color = Color(86, 182, 194),
-    val accentBright: Color = Color(158, 218, 229),
-    val success: Color = Color(80, 200, 120),
-    val error: Color = Color(220, 80, 80),
-    val warning: Color = Color(220, 180, 60),
-    val muted: Color = Color(120, 120, 120),
-    val dim: Color = Color(72, 72, 72),
+    val accent: Color = Color(138, 190, 183), // #8abeb7
+    val accentBright: Color = Color(0, 215, 255), // #00d7ff (borderAccent/cyan)
+    val success: Color = Color(181, 189, 104), // #b5bd68 (green)
+    val error: Color = Color(204, 102, 102), // #cc6666 (red)
+    val warning: Color = Color(255, 255, 0), // #ffff00 (yellow)
+    val muted: Color = Color(128, 128, 128), // #808080 (gray)
+    val dim: Color = Color(102, 102, 102), // #666666 (dimGray)
 )
 
 /**
@@ -30,24 +31,28 @@ public data class MosaicThemeColors(
 public data class ThemeConfig(
     val colors: MosaicThemeColors = MosaicThemeColors(),
     val background: Color = Color.Unspecified,
-    val userMessageBg: Color = Color(35, 35, 35),
-    val toolPendingBg: Color = Color(35, 35, 35),
-    val toolSuccessBg: Color = Color(20, 20, 20),
-    val toolErrorBg: Color = Color(80, 30, 30),
-    val thinkingText: Color = Color(100, 100, 100),
-    val toolTitle: Color = MosaicThemeColors().accent,
-    val toolOutput: Color = Color.White,
-    val toolDiffAdded: Color = TerminalColors.GREEN,
-    val toolDiffRemoved: Color = TerminalColors.RED,
-    val toolDiffContext: Color = MosaicThemeColors().dim,
+    val userMessageBg: Color = Color(52, 53, 65), // #343541
+    val userMessageText: Color = Color(212, 212, 212), // #d4d4d4 (text)
+    val customMessageBg: Color = Color(45, 40, 56), // #2d2838
+    val customMessageText: Color = Color(212, 212, 212), // #d4d4d4 (text)
+    val customMessageLabel: Color = Color(149, 117, 205), // #9575cd
+    val toolPendingBg: Color = Color(40, 40, 50), // #282832
+    val toolSuccessBg: Color = Color(40, 50, 40), // #283228
+    val toolErrorBg: Color = Color(60, 40, 40), // #3c2828
+    val thinkingText: Color = Color(128, 128, 128), // #808080 (gray)
+    val toolTitle: Color = Color(212, 212, 212), // #d4d4d4 (text) — ohm tool titles are plain bold
+    val toolOutput: Color = Color(128, 128, 128), // #808080 (gray)
+    val toolDiffAdded: Color = Color(181, 189, 104), // #b5bd68 (green)
+    val toolDiffRemoved: Color = Color(204, 102, 102), // #cc6666 (red)
+    val toolDiffContext: Color = Color(128, 128, 128), // #808080 (gray)
     val codeBlockBg: Color = Color(30, 30, 30),
     val inlineCodeBg: Color = Color(50, 50, 50),
-    val link: Color = TerminalColors.CYAN,
-    val linkUrl: Color = MosaicThemeColors().dim,
-    val statusBarBg: Color = Color(40, 40, 40),
+    val link: Color = Color(129, 162, 190), // #81a2be (mdLink)
+    val linkUrl: Color = Color(102, 102, 102), // #666666 (dimGray)
+    val statusBarBg: Color = Color.Unspecified, // ohm footer has no background fill
     val overlayBg: Color = Color(25, 25, 25),
-    val overlaySelectedBg: Color = Color(55, 55, 55),
-    val codeBlockFg: Color = Color(200, 200, 200),
+    val overlaySelectedBg: Color = Color(58, 58, 74), // #3a3a4a (selectedBg)
+    val codeBlockFg: Color = Color(181, 189, 104), // #b5bd68 (mdCodeBlock flat fallback)
 
     // Diff colors (backgrounds for diff hunks)
     val diffAddedBg: Color = Color(32, 48, 59),
@@ -56,48 +61,59 @@ public data class ThemeConfig(
     val diffHunkHeader: Color = Color(130, 139, 184),
     val diffHighlightAdded: Color = Color(184, 219, 135),
     val diffHighlightRemoved: Color = Color(226, 106, 117),
-    val diffLineNumber: Color = Color(72, 72, 72),
+    val diffLineNumber: Color = Color(102, 102, 102),
     val diffAddedLineNumberBg: Color = Color(27, 43, 52),
     val diffRemovedLineNumberBg: Color = Color(45, 31, 38),
 
     // Markdown rendering colors
-    val markdownText: Color = Color(238, 238, 238),
-    val markdownHeading: Color = Color(157, 124, 216),
-    val markdownLink: Color = Color(250, 178, 131),
-    val markdownLinkText: Color = Color(86, 182, 194),
-    val markdownCode: Color = Color(127, 216, 143),
-    val markdownBlockQuote: Color = Color(229, 192, 123),
-    val markdownEmph: Color = Color(229, 192, 123),
-    val markdownStrong: Color = Color(245, 167, 66),
-    val markdownHorizontalRule: Color = Color(128, 128, 128),
-    val markdownListItem: Color = Color(250, 178, 131),
-    val markdownListEnumeration: Color = Color(86, 182, 194),
-    val markdownCodeBlock: Color = Color(238, 238, 238),
+    val markdownText: Color = Color(212, 212, 212), // #d4d4d4 (text)
+    val markdownHeading: Color = Color(240, 198, 116), // #f0c674 (mdHeading gold)
+    val markdownLink: Color = Color(129, 162, 190), // #81a2be
+    val markdownLinkText: Color = Color(138, 190, 183), // #8abeb7 (accent)
+    val markdownCode: Color = Color(138, 190, 183), // #8abeb7 (accent — inline code)
+    val markdownBlockQuote: Color = Color(128, 128, 128), // #808080 (mdQuote gray)
+    val markdownEmph: Color = Color(212, 212, 212), // #d4d4d4 (italic only, no hue)
+    val markdownStrong: Color = Color(212, 212, 212), // #d4d4d4 (bold only, no hue)
+    val markdownHorizontalRule: Color = Color(128, 128, 128), // #808080 (mdHr)
+    val markdownListItem: Color = Color(138, 190, 183), // #8abeb7 (mdListBullet accent)
+    val markdownListEnumeration: Color = Color(138, 190, 183), // #8abeb7 (accent)
+    val markdownCodeBlock: Color = Color(181, 189, 104), // #b5bd68 (green)
 
-    // Syntax highlighting colors
-    val syntaxComment: Color = Color(128, 128, 128),
-    val syntaxKeyword: Color = Color(157, 124, 216),
-    val syntaxFunction: Color = Color(250, 178, 131),
-    val syntaxVariable: Color = Color(224, 108, 117),
-    val syntaxString: Color = Color(127, 216, 143),
-    val syntaxNumber: Color = Color(245, 167, 66),
-    val syntaxType: Color = Color(229, 192, 123),
-    val syntaxOperator: Color = Color(86, 182, 194),
-    val syntaxPunctuation: Color = Color(238, 238, 238),
+    // Syntax highlighting colors (ohm's VS Code-derived palette)
+    val syntaxComment: Color = Color(106, 153, 85), // #6A9955
+    val syntaxKeyword: Color = Color(86, 156, 214), // #569CD6
+    val syntaxFunction: Color = Color(220, 220, 170), // #DCDCAA
+    val syntaxVariable: Color = Color(156, 220, 254), // #9CDCFE
+    val syntaxString: Color = Color(206, 145, 120), // #CE9178
+    val syntaxNumber: Color = Color(181, 206, 168), // #B5CEA8
+    val syntaxType: Color = Color(78, 201, 176), // #4EC9B0
+    val syntaxOperator: Color = Color(212, 212, 212), // #D4D4D4
+    val syntaxPunctuation: Color = Color(212, 212, 212), // #D4D4D4
 
     // Todo status colors
-    val todoPending: Color = Color(120, 120, 120),
-    val todoInProgress: Color = Color(86, 182, 194),
-    val todoCompleted: Color = Color(80, 200, 120),
-    val todoCancelled: Color = Color(120, 120, 120),
-    val todoPriorityHigh: Color = Color(220, 80, 80),
-    val todoPriorityMedium: Color = Color(220, 180, 60),
-    val todoPriorityLow: Color = Color(120, 120, 120),
+    val todoPending: Color = Color(128, 128, 128), // muted
+    val todoInProgress: Color = Color(138, 190, 183), // accent
+    val todoCompleted: Color = Color(181, 189, 104), // success
+    val todoCancelled: Color = Color(128, 128, 128), // muted
+    val todoPriorityHigh: Color = Color(204, 102, 102), // error
+    val todoPriorityMedium: Color = Color(255, 255, 0), // warning
+    val todoPriorityLow: Color = Color(128, 128, 128), // muted
 
     // Border colors
-    val border: Color = Color(72, 72, 72),
-    val borderActive: Color = Color(96, 96, 96),
-    val borderSubtle: Color = Color(60, 60, 60),
+    val border: Color = Color(95, 135, 255), // #5f87ff (blue)
+    val borderActive: Color = Color(0, 215, 255), // #00d7ff (borderAccent/cyan)
+    val borderSubtle: Color = Color(80, 80, 80), // #505050 (borderMuted/darkGray)
+
+    // Editor border colors keyed to thinking level (ohm parity — the input rule
+    // color is the primary mode indicator; bash mode overrides all of these).
+    val thinkingOff: Color = Color(80, 80, 80), // #505050 (darkGray)
+    val thinkingMinimal: Color = Color(110, 110, 110), // #6e6e6e
+    val thinkingLow: Color = Color(95, 135, 175), // #5f87af
+    val thinkingMedium: Color = Color(129, 162, 190), // #81a2be
+    val thinkingHigh: Color = Color(178, 148, 187), // #b294bb
+    val thinkingXhigh: Color = Color(209, 131, 232), // #d183e8
+    val thinkingMax: Color = Color(255, 95, 255), // #ff5fff
+    val bashModeBorder: Color = Color(181, 189, 104), // #b5bd68 (green)
 ) {
     public companion object {
         public val DEFAULT: ThemeConfig by lazy { getMosaicTheme() }
@@ -137,6 +153,108 @@ public fun MosaicThemeProvider(
         content()
     }
 }
+
+/**
+ * Returns this color scaled toward black by [factor] (1 = unchanged, 0 = black).
+ * Unspecified colors (terminal default) are returned untouched.
+ */
+public fun Color.darken(factor: Float): Color {
+    if (!isSpecifiedColor) return this
+    val (r, g, b) = this
+    return Color(red = r * factor, green = g * factor, blue = b * factor)
+}
+
+/** Uniformly darkens every semantic color by [factor]. */
+public fun MosaicThemeColors.dimmed(factor: Float): MosaicThemeColors = MosaicThemeColors(
+    accent = accent.darken(factor),
+    accentBright = accentBright.darken(factor),
+    success = success.darken(factor),
+    error = error.darken(factor),
+    warning = warning.darken(factor),
+    muted = muted.darken(factor),
+    dim = dim.darken(factor),
+)
+
+/**
+ * Returns a copy of this theme with every color uniformly darkened by [factor]. Used to
+ * render the base layer as a dimmed scrim behind a floating dialog, since terminals have
+ * no real alpha to draw a translucent film with.
+ */
+@Suppress("LongMethod")
+public fun ThemeConfig.dimmed(factor: Float): ThemeConfig = copy(
+    colors = colors.dimmed(factor),
+    background = background.darken(factor),
+    userMessageBg = userMessageBg.darken(factor),
+    userMessageText = userMessageText.darken(factor),
+    customMessageBg = customMessageBg.darken(factor),
+    customMessageText = customMessageText.darken(factor),
+    customMessageLabel = customMessageLabel.darken(factor),
+    toolPendingBg = toolPendingBg.darken(factor),
+    toolSuccessBg = toolSuccessBg.darken(factor),
+    toolErrorBg = toolErrorBg.darken(factor),
+    thinkingText = thinkingText.darken(factor),
+    toolTitle = toolTitle.darken(factor),
+    toolOutput = toolOutput.darken(factor),
+    toolDiffAdded = toolDiffAdded.darken(factor),
+    toolDiffRemoved = toolDiffRemoved.darken(factor),
+    toolDiffContext = toolDiffContext.darken(factor),
+    codeBlockBg = codeBlockBg.darken(factor),
+    inlineCodeBg = inlineCodeBg.darken(factor),
+    link = link.darken(factor),
+    linkUrl = linkUrl.darken(factor),
+    statusBarBg = statusBarBg.darken(factor),
+    overlayBg = overlayBg.darken(factor),
+    overlaySelectedBg = overlaySelectedBg.darken(factor),
+    codeBlockFg = codeBlockFg.darken(factor),
+    diffAddedBg = diffAddedBg.darken(factor),
+    diffRemovedBg = diffRemovedBg.darken(factor),
+    diffContextBg = diffContextBg.darken(factor),
+    diffHunkHeader = diffHunkHeader.darken(factor),
+    diffHighlightAdded = diffHighlightAdded.darken(factor),
+    diffHighlightRemoved = diffHighlightRemoved.darken(factor),
+    diffLineNumber = diffLineNumber.darken(factor),
+    diffAddedLineNumberBg = diffAddedLineNumberBg.darken(factor),
+    diffRemovedLineNumberBg = diffRemovedLineNumberBg.darken(factor),
+    markdownText = markdownText.darken(factor),
+    markdownHeading = markdownHeading.darken(factor),
+    markdownLink = markdownLink.darken(factor),
+    markdownLinkText = markdownLinkText.darken(factor),
+    markdownCode = markdownCode.darken(factor),
+    markdownBlockQuote = markdownBlockQuote.darken(factor),
+    markdownEmph = markdownEmph.darken(factor),
+    markdownStrong = markdownStrong.darken(factor),
+    markdownHorizontalRule = markdownHorizontalRule.darken(factor),
+    markdownListItem = markdownListItem.darken(factor),
+    markdownListEnumeration = markdownListEnumeration.darken(factor),
+    markdownCodeBlock = markdownCodeBlock.darken(factor),
+    syntaxComment = syntaxComment.darken(factor),
+    syntaxKeyword = syntaxKeyword.darken(factor),
+    syntaxFunction = syntaxFunction.darken(factor),
+    syntaxVariable = syntaxVariable.darken(factor),
+    syntaxString = syntaxString.darken(factor),
+    syntaxNumber = syntaxNumber.darken(factor),
+    syntaxType = syntaxType.darken(factor),
+    syntaxOperator = syntaxOperator.darken(factor),
+    syntaxPunctuation = syntaxPunctuation.darken(factor),
+    todoPending = todoPending.darken(factor),
+    todoInProgress = todoInProgress.darken(factor),
+    todoCompleted = todoCompleted.darken(factor),
+    todoCancelled = todoCancelled.darken(factor),
+    todoPriorityHigh = todoPriorityHigh.darken(factor),
+    todoPriorityMedium = todoPriorityMedium.darken(factor),
+    todoPriorityLow = todoPriorityLow.darken(factor),
+    border = border.darken(factor),
+    borderActive = borderActive.darken(factor),
+    borderSubtle = borderSubtle.darken(factor),
+    thinkingOff = thinkingOff.darken(factor),
+    thinkingMinimal = thinkingMinimal.darken(factor),
+    thinkingLow = thinkingLow.darken(factor),
+    thinkingMedium = thinkingMedium.darken(factor),
+    thinkingHigh = thinkingHigh.darken(factor),
+    thinkingXhigh = thinkingXhigh.darken(factor),
+    thinkingMax = thinkingMax.darken(factor),
+    bashModeBorder = bashModeBorder.darken(factor),
+)
 
 // ---------------------------------------------------------------------------
 // Standard terminal palette mapped to 24-bit RGB.
@@ -277,6 +395,13 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
 
         fun rgb(r: Int, g: Int, b: Int) = RgbColor(Color(r, g, b), r, g, b)
 
+        // Derive distinct, tonal surfaces from the theme's own colors rather than trusting
+        // backgroundPanel/backgroundElement, which some themes (e.g. Vesper) leave equal to
+        // background — which would make every tinted block and dialog vanish into the base.
+        fun lighten(c: RgbColor, amount: Float): Color = blendColors(255, 255, 255, c.r, c.g, c.b, amount)
+        fun tint(base: RgbColor, hue: RgbColor, amount: Float): Color =
+            blendColors(hue.r, hue.g, hue.b, base.r, base.g, base.b, amount)
+
         val primary = color("primary", rgb(250, 178, 131))
         val secondary = color("secondary", rgb(92, 156, 245))
         val accent = color("accent", rgb(157, 124, 216))
@@ -298,16 +423,19 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
                 error = error.color,
                 warning = warning.color,
                 muted = textMuted.color,
-                dim = color("borderSubtle", rgb(72, 72, 72)).color,
+                // A readable de-emphasized text color — NOT borderSubtle, which many themes set
+                // near the background (e.g. Vesper #1C1C1C) and would render dim text invisible.
+                dim = tint(textMuted, background, 0.35f),
             ),
             background = background.color,
-            userMessageBg = backgroundElement.color,
-            toolPendingBg = backgroundElement.color,
-            toolSuccessBg = background.color,
-            toolErrorBg = blendColors(
-                error.r, error.g, error.b,
-                background.r, background.g, background.b,
-            ),
+            userMessageBg = lighten(background, 0.09f),
+            userMessageText = text.color,
+            customMessageBg = tint(background, accent, 0.12f),
+            customMessageText = text.color,
+            customMessageLabel = accent.color,
+            toolPendingBg = lighten(background, 0.06f),
+            toolSuccessBg = tint(background, success, 0.12f),
+            toolErrorBg = tint(background, error, 0.16f),
             thinkingText = textMuted.color,
             toolTitle = primary.color,
             toolOutput = text.color,
@@ -318,9 +446,9 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
             inlineCodeBg = backgroundElement.color,
             link = info.color,
             linkUrl = textMuted.color,
-            statusBarBg = backgroundPanel.color,
-            overlayBg = background.color,
-            overlaySelectedBg = backgroundElement.color,
+            statusBarBg = Color.Unspecified,
+            overlayBg = lighten(background, 0.13f),
+            overlaySelectedBg = lighten(background, 0.24f),
             codeBlockFg = text.color,
 
             diffAddedBg = color("diffAddedBg", rgb(32, 48, 59)).color,

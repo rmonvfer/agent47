@@ -22,8 +22,11 @@ class MarkdownRendererTest {
             ### Heading 3
         """.trimIndent()
         val output = render(md)
-        assertTrue(output.contains("# Heading 1"))
-        assertTrue(output.contains("## Heading 2"))
+        // H1/H2 drop their markers and read as titles; H3+ keep the literal prefix (ohm style)
+        assertTrue(output.contains("Heading 1"))
+        assertTrue(!output.contains("# Heading 1"))
+        assertTrue(output.contains("Heading 2"))
+        assertTrue(!output.contains("## Heading 2"))
         assertTrue(output.contains("### Heading 3"))
     }
 
@@ -60,9 +63,8 @@ class MarkdownRendererTest {
             ```
         """.trimIndent()
         val output = render(md, 40)
-        assertTrue(output.contains("┌─ kotlin"))
-        assertTrue(output.contains("│ fun main()"))
-        assertTrue(output.contains("└"))
+        assertTrue(output.contains("```kotlin"))
+        assertTrue(output.contains("  fun main()"))
     }
 
     @Test
@@ -73,9 +75,8 @@ class MarkdownRendererTest {
             ```
         """.trimIndent()
         val output = render(md, 30)
-        assertTrue(output.contains("┌"))
-        assertTrue(output.contains("│ some code"))
-        assertTrue(output.contains("└"))
+        assertTrue(output.contains("```"))
+        assertTrue(output.contains("  some code"))
     }
 
     @Test
