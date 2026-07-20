@@ -31,7 +31,6 @@ include(
     ":agent47-ext-core",
     ":agent47-ui-core",
     ":agent47-tui",
-    ":agent47-gui",
     ":agent47-app",
     ":agent47-test-fixtures",
     ":agent47-model-generator",

@@ -34,7 +34,6 @@ import co.agentmode.agent47.coding.core.tools.SkillReader
 import co.agentmode.agent47.coding.core.tools.TaskTool
 import co.agentmode.agent47.coding.core.tools.TodoState
 import co.agentmode.agent47.coding.core.tools.createCoreTools
-import co.agentmode.agent47.gui.runGui
 import co.agentmode.agent47.tui.runTui
 import co.agentmode.agent47.tui.theme.AVAILABLE_THEMES
 import co.agentmode.agent47.tui.theme.ThemeConfig
@@ -147,10 +146,6 @@ class Agent47Command :
         "--export",
         help = "Export session to HTML"
     ).path()
-    private val gui by option(
-        "--gui",
-        help = "Launch desktop GUI instead of terminal UI"
-    ).flag()
     private val verbose by option(
         "--verbose",
         help = "Verbose output"
@@ -306,32 +301,6 @@ class Agent47Command :
                     tokensBefore = estimate.tokens,
                 )
             }
-        }
-
-        if (gui) {
-            runGui(
-                client = client,
-                initialUserMessage = userMessage,
-                availableModels = scopedModels(modelRegistry.getAvailable()),
-                sessionManager = sessionManager,
-                sessionsDir = sessionsBaseDir(config),
-                cwd = workingDir,
-                initialThinkingLevel = thinkingLevel,
-                initialModel = resolvedModel,
-                fileCommands = fileCommands,
-                getAllProviders = { modelRegistry.getAllProviders() },
-                storeApiKey = { p, k -> modelRegistry.storeApiKey(p, k) },
-                storeOAuthCredential = { p, c -> modelRegistry.storeOAuthCredential(p, c) },
-                refreshModels = { scopedModels(modelRegistry.getAvailable()) },
-                authorizeOAuth = { p -> modelRegistry.getAuthPlugin(p)?.authorize() },
-                pollOAuthToken = { p -> modelRegistry.getAuthPlugin(p)?.pollForToken() },
-                onSettingsChanged = { transform -> settings.update(transform) },
-                todoState = todoState,
-                instructionFiles = instructionLoader.load(),
-                compactContext = compactContext,
-                compactionSettings = settings.get().compaction,
-            )
-            return
         }
 
         if (runAsPrintMode) {

@@ -31,6 +31,5 @@ dependencies {
     kover(project(":agent47-ext-core"))
     kover(project(":agent47-ui-core"))
     kover(project(":agent47-tui"))
-    kover(project(":agent47-gui"))
     kover(project(":agent47-app"))
 }
