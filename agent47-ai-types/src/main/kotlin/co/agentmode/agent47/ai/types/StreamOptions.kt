@@ -1,12 +1,18 @@
 package co.agentmode.agent47.ai.types
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
 public enum class CacheRetention {
+    @SerialName("none")
     NONE,
+
+    @SerialName("short")
     SHORT,
+
+    @SerialName("long")
     LONG,
 }
 

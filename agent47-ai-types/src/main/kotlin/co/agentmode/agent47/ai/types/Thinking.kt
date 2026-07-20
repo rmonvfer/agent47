@@ -19,6 +19,9 @@ public enum class ThinkingLevel {
 
     @SerialName("xhigh")
     XHIGH,
+
+    @SerialName("max")
+    MAX,
 }
 
 @Serializable
