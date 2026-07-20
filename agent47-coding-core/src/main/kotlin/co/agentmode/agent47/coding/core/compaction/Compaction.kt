@@ -51,7 +51,6 @@ public fun estimateTokens(message: Message): Int {
                 is RedactedThinkingContent -> block.data.length
                 is ToolCall -> block.name.length + block.arguments.toString().length
                 is ImageContent -> IMAGE_CHAR_ESTIMATE
-                else -> 0
             }
         }
 
