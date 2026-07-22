@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-22
+
+### Fixed
+
+- Native release builds now use the GraalVM installation supplied by the build environment.
+
 ## [0.1.0] - 2026-07-22
 
 ### Added
@@ -24,4 +30,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.1.1]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.0

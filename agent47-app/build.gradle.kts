@@ -1,5 +1,3 @@
-import org.gradle.jvm.toolchain.JavaLanguageVersion
-import org.gradle.jvm.toolchain.JvmVendorSpec
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -53,6 +51,7 @@ tasks.withType<AbstractCopyTask> {
 }
 
 graalvmNative {
+    toolchainDetection.set(false)
     binaries {
         named("main") {
             // Force a fat classpath JAR so the stripping task below can remove
@@ -60,12 +59,6 @@ graalvmNative {
             useFatJar.set(true)
             imageName.set("agent47")
             mainClass.set("co.agentmode.agent47.app.MainKt")
-            javaLauncher.set(
-                javaToolchains.launcherFor {
-                    languageVersion.set(JavaLanguageVersion.of(25))
-                    vendor.set(JvmVendorSpec.GRAAL_VM)
-                },
-            )
             resources.autodetect()
             buildArgs.add("--no-fallback")
             buildArgs.add("-H:+ReportExceptionStackTraces")
