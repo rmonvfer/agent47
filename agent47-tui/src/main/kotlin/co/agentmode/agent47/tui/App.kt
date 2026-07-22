@@ -314,6 +314,12 @@ private fun Agent47AppContent(
             null
         }
     }
+    // Focus mode: when set, the main chat area renders a background agent's live transcript (through
+    // the normal ChatHistory renderer) instead of the conversation. Esc returns to the conversation.
+    var viewingAgentId by remember { mutableStateOf<String?>(null) }
+    val viewingChatState = rememberChatHistoryState()
+    var viewingVersion by remember { mutableIntStateOf(0) }
+    fun activeChat(): ChatHistoryState = if (viewingAgentId != null) viewingChatState else chatHistoryState
     val editor = remember {
         Editor(
             slashCommands = slashCommands.map { it.command },
@@ -701,29 +707,6 @@ private fun Agent47AppContent(
         )
     }
 
-    fun renderAgentTranscript(messages: List<Message>): List<String> = buildList {
-        for (message in messages) {
-            when (message) {
-                is UserMessage -> {
-                    add("[User]")
-                    message.content.filterIsInstance<TextContent>()
-                        .flatMap { it.text.split("\n") }
-                        .forEach { add("  $it") }
-                    add("")
-                }
-                is AssistantMessage -> {
-                    add("[Assistant]")
-                    message.content.filterIsInstance<TextContent>()
-                        .flatMap { it.text.split("\n") }
-                        .forEach { add("  $it") }
-                    add("")
-                }
-                else -> {}
-            }
-        }
-        if (isEmpty()) add("(waiting for the agent's first message…)")
-    }
-
     fun openAgentActionsOverlay(id: String) {
         val bg = backgroundAgents ?: return
         val actions = listOf(
@@ -738,10 +721,9 @@ private fun Agent47AppContent(
             onSubmit = { action ->
                 when (action) {
                     "view" -> {
-                        val agent = bg.runningStatus().firstOrNull { it.id == id }
-                        val lines = agent?.agentRef?.state?.messages?.let { renderAgentTranscript(it) }
-                            ?: listOf("(no transcript available — the agent may have finished)")
-                        overlayHostState.pushScrollableText(title = "Agent $id — transcript", lines = lines)
+                        // Enter focus mode: the main chat area renders the agent's live transcript.
+                        viewingAgentId = id
+                        overlayHostState.clear()
                     }
                     "steer" -> {
                         overlayHostState.pushPrompt(
@@ -787,6 +769,7 @@ private fun Agent47AppContent(
             title = "Background agents (${agents.size})",
             items = options,
             selectedIndex = 0,
+            keepOpenOnSubmit = true,
             onSubmit = { id -> openAgentActionsOverlay(id) },
         )
     }
@@ -811,6 +794,7 @@ private fun Agent47AppContent(
             title = "Agent types (${all.size})",
             items = options,
             selectedIndex = 0,
+            keepOpenOnSubmit = true,
             onSubmit = { name ->
                 val def = registry.getAll().firstOrNull { it.name == name } ?: return@push
                 overlayHostState.pushInfo(
@@ -900,6 +884,7 @@ private fun Agent47AppContent(
             title = "Subagent settings",
             items = items,
             selectedIndex = 0,
+            keepOpenOnSubmit = true,
             onSubmit = { key -> editSubagentSetting(key) },
         )
     }
@@ -926,6 +911,7 @@ private fun Agent47AppContent(
             title = "Scheduled jobs (${jobs.size})",
             items = options,
             selectedIndex = 0,
+            keepOpenOnSubmit = true,
             onSubmit = { id ->
                 overlayHostState.push(
                     title = "Cancel this job?",
@@ -958,6 +944,7 @@ private fun Agent47AppContent(
             title = "Agents",
             items = menu,
             selectedIndex = 0,
+            keepOpenOnSubmit = true,
             onSubmit = { choice ->
                 when (choice) {
                     "running" -> openRunningAgentsOverlay()
@@ -1302,6 +1289,22 @@ private fun Agent47AppContent(
         }
     }
 
+    // Rebuild the focused agent's transcript from its live messages while focus mode is active.
+    LaunchedEffect(viewingAgentId) {
+        val id = viewingAgentId ?: return@LaunchedEffect
+        while (viewingAgentId == id) {
+            val ref = backgroundAgents?.runningStatus()?.firstOrNull { it.id == id }?.agentRef
+            if (ref != null) {
+                viewingChatState.entries.clear()
+                ref.state.messages.forEach { viewingChatState.appendMessage(it) }
+                viewingVersion++
+            } else {
+                break
+            }
+            delay(200L)
+        }
+    }
+
     // Keep the background-agents panel (and its elapsed times) live while agents run, even
     // when the main loop is idle between turns.
     if (backgroundAgents != null) {
@@ -1367,8 +1370,14 @@ private fun Agent47AppContent(
         }
         ctrlCArmed = false
 
-        // ESC handling — interrupt agent when streaming
+        // ESC handling — leave agent-transcript focus, else interrupt the orchestrator when streaming.
+        // Interrupting only aborts the orchestrator's own loop; background agents run on a separate
+        // supervisor scope and keep going.
         if (keyEvent.key is Key.Escape) {
+            if (viewingAgentId != null) {
+                viewingAgentId = null
+                return true
+            }
             if (isStreaming) {
                 client.rawAgent().abort()
                 appendSystemMessage("Interrupted current response.")
@@ -1446,13 +1455,13 @@ private fun Agent47AppContent(
                     // With text in the editor, Ctrl+U is kill-to-start-of-line; only scroll the
                     // chat globally when the editor is empty.
                     if (editor.text().isBlank()) {
-                        chatHistoryState.scrollUp(12)
+                        activeChat().scrollUp(12)
                         return true
                     }
                 }
 
                 'd' -> {
-                    chatHistoryState.scrollDown(12)
+                    activeChat().scrollDown(12)
                     return true
                 }
             }
@@ -1460,38 +1469,38 @@ private fun Agent47AppContent(
 
         // Scroll shortcuts
         if ((keyEvent.ctrl || keyEvent.shift) && keyEvent.key == Key.ArrowUp) {
-            chatHistoryState.scrollUp(3)
+            activeChat().scrollUp(3)
             return true
         }
         if ((keyEvent.ctrl || keyEvent.shift) && keyEvent.key == Key.ArrowDown) {
-            chatHistoryState.scrollDown(3)
+            activeChat().scrollDown(3)
             return true
         }
         if (keyEvent.key == Key.PageUp && !keyEvent.alt && !keyEvent.ctrl) {
-            chatHistoryState.scrollUp(12)
+            activeChat().scrollUp(12)
             return true
         }
         if (keyEvent.key == Key.PageDown && !keyEvent.alt && !keyEvent.ctrl) {
-            chatHistoryState.scrollDown(12)
+            activeChat().scrollDown(12)
             return true
         }
         if (keyEvent.alt && keyEvent.key == Key.PageUp) {
-            chatHistoryState.scrollUp(10)
+            activeChat().scrollUp(10)
             return true
         }
         if (keyEvent.alt && keyEvent.key == Key.PageDown) {
-            chatHistoryState.scrollDown(10)
+            activeChat().scrollDown(10)
             return true
         }
 
         // Arrow up/down scroll when editor is empty
         if (editor.text().isBlank()) {
             if (keyEvent.key == Key.ArrowUp && !keyEvent.ctrl && !keyEvent.alt) {
-                chatHistoryState.scrollUp(3)
+                activeChat().scrollUp(3)
                 return true
             }
             if (keyEvent.key == Key.ArrowDown && !keyEvent.ctrl && !keyEvent.alt) {
-                chatHistoryState.scrollDown(3)
+                activeChat().scrollDown(3)
                 return true
             }
         }
@@ -1619,17 +1628,32 @@ private fun Agent47AppContent(
     ) {
         CompositionLocalProvider(LocalThemeConfig provides baseTheme) {
             Column {
-                // Chat history viewport
-                ChatHistory(
-                    state = chatHistoryState,
-                    width = width,
-                    height = historyHeight,
-                    markdownRenderer = markdownRenderer,
-                    diffRenderer = diffRenderer,
-                    version = chatVersion,
-                    spinnerFrame = spinnerFrame,
-                    cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
-                )
+                // Chat history viewport — the conversation, or a background agent's transcript in focus mode.
+                val viewing = viewingAgentId
+                if (viewing != null) {
+                    Text("▶ Viewing agent $viewing  ·  Esc to return")
+                    ChatHistory(
+                        state = viewingChatState,
+                        width = width,
+                        height = (historyHeight - 1).coerceAtLeast(1),
+                        markdownRenderer = markdownRenderer,
+                        diffRenderer = diffRenderer,
+                        version = viewingVersion,
+                        spinnerFrame = spinnerFrame,
+                        cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
+                    )
+                } else {
+                    ChatHistory(
+                        state = chatHistoryState,
+                        width = width,
+                        height = historyHeight,
+                        markdownRenderer = markdownRenderer,
+                        diffRenderer = diffRenderer,
+                        version = chatVersion,
+                        spinnerFrame = spinnerFrame,
+                        cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
+                    )
+                }
 
                 // Activity line (spinner while streaming, only when no task bar)
                 if (isStreaming && !taskBarState.visible) {
