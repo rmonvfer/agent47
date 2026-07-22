@@ -77,7 +77,11 @@ public class BackgroundAgents(
     private val order = CopyOnWriteArrayList<String>()
     private val inbox = ConcurrentLinkedQueue<InboxMessage>()
 
-    private class QueuedLaunch(val running: RunningAgent, val run: suspend (RunningAgent) -> SubAgentResult)
+    private class QueuedLaunch(
+        val running: RunningAgent,
+        val run: suspend (RunningAgent) -> SubAgentResult,
+        val generation: Long,
+    )
 
     // [lock] guards [queue], [runningBackground], and [maxConcurrentLimit] together so slot
     // reservation and dequeue are atomic.
@@ -85,6 +89,7 @@ public class BackgroundAgents(
     private val queue = ArrayDeque<QueuedLaunch>()
     private var runningBackground = 0
     private var maxConcurrentLimit = maxConcurrent.coerceAtLeast(1)
+    private var generation = 0L
 
     // The orchestrator (main-loop) agent, set once it exists. Used so sub-agents can inherit its
     // system prompt (append mode) and conversation (inherit_context), and for push notifications.
@@ -145,20 +150,25 @@ public class BackgroundAgents(
         agents[id] = running
         order.add(id)
 
-        val startNow = synchronized(lock) {
+        val (startNow, launchGeneration) = synchronized(lock) {
+            val currentGeneration = generation
             if (runningBackground < maxConcurrentLimit) {
                 runningBackground++
-                true
+                true to currentGeneration
             } else {
-                queue.addLast(QueuedLaunch(running, run))
-                false
+                queue.addLast(QueuedLaunch(running, run, currentGeneration))
+                false to currentGeneration
             }
         }
-        if (startNow) startAgent(running, run)
+        if (startNow) startAgent(running, run, launchGeneration)
         return running
     }
 
-    private fun startAgent(running: RunningAgent, run: suspend (RunningAgent) -> SubAgentResult) {
+    private fun startAgent(
+        running: RunningAgent,
+        run: suspend (RunningAgent) -> SubAgentResult,
+        launchGeneration: Long,
+    ) {
         running.status = RunningAgent.Status.RUNNING
         running.startedAt = System.currentTimeMillis()
         running.job = scope.launch {
@@ -189,23 +199,24 @@ public class BackgroundAgents(
                     ),
                 )
             } finally {
-                onAgentFinished()
+                onAgentFinished(launchGeneration)
             }
         }
     }
 
-    private fun onAgentFinished() {
+    private fun onAgentFinished(launchGeneration: Long) {
         val startable = synchronized(lock) {
+            if (launchGeneration != generation) return@synchronized emptyList()
             runningBackground = (runningBackground - 1).coerceAtLeast(0)
             pollStartable()
         }
-        startable.forEach { startAgent(it.running, it.run) }
+        startable.forEach { startAgent(it.running, it.run, it.generation) }
     }
 
     /** Starts as many queued agents as fit. Reserves their running slots. Public entry drains only. */
     private fun drainQueue() {
         val startable = synchronized(lock) { pollStartable() }
-        startable.forEach { startAgent(it.running, it.run) }
+        startable.forEach { startAgent(it.running, it.run, it.generation) }
     }
 
     /** Must be called under [lock]: reserves a running slot for each returned launch. */
@@ -292,15 +303,18 @@ public class BackgroundAgents(
 
     /** Cancels all running agents and clears state, leaving the registry usable for new launches. */
     public fun cancelAll() {
-        job.cancelChildren()
-        synchronized(lock) {
-            queue.forEach { it.running.complete(null) }
+        val queued = synchronized(lock) {
+            generation++
+            val pending = queue.map { it.running }
             queue.clear()
             runningBackground = 0
+            job.cancelChildren()
+            agents.clear()
+            order.clear()
+            inbox.clear()
+            pending
         }
-        agents.clear()
-        order.clear()
-        inbox.clear()
+        queued.forEach { it.complete(null) }
     }
 
     private fun isFailure(r: SubAgentResult): Boolean = r.aborted || r.error != null || r.exitCode != 0

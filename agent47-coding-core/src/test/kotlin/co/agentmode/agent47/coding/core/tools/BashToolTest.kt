@@ -3,7 +3,7 @@ package co.agentmode.agent47.coding.core.tools
 import java.nio.file.Files
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -15,7 +15,7 @@ import kotlin.test.assertFalse
 class BashToolTest {
 
     @Test
-    fun `cancelling execution terminates the shell and its children`() = runTest {
+    fun `cancelling execution terminates the shell and its children`() = runBlocking {
         val cwd = createTempDirectory("bash-cancellation-test")
         val pidFile = cwd.resolve("child.pid")
         val tool = BashTool(cwd)
