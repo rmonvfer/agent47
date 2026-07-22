@@ -389,4 +389,36 @@ class SettingsManagerTest {
         val reloaded = SettingsManager.create(globalPath, projectPath)
         assertEquals("light", reloaded.get().themeAppearance)
     }
+
+    @Test
+    fun `project update settings override global fields independently`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+        globalPath.writeText(
+            """
+            {
+              "updates": {
+                "automatic": false,
+                "checkIntervalHours": 48
+              }
+            }
+            """.trimIndent(),
+        )
+        projectPath.writeText(
+            """
+            {
+              "updates": {
+                "automatic": true
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        val updates = manager.get().updates
+        assertEquals(true, updates.automatic)
+        assertEquals(48, updates.checkIntervalHours)
+        assertEquals(false, manager.getGlobal().updates.automatic)
+    }
 }

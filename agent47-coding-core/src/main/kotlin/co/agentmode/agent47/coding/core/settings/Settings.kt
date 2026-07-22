@@ -12,12 +12,19 @@ public data class RetrySettings(
 )
 
 @Serializable
+public data class UpdateSettings(
+    val automatic: Boolean = true,
+    val checkIntervalHours: Int = 24,
+)
+
+@Serializable
 public data class Settings(
     val defaultProvider: String? = null,
     val defaultModel: String? = null,
     val defaultThinkingLevel: String? = null,
     val compaction: CompactionSettings = CompactionSettings(),
     val retry: RetrySettings = RetrySettings(),
+    val updates: UpdateSettings = UpdateSettings(),
     val shellPath: String? = null,
     val shellCommandPrefix: String? = null,
     val modelRoles: Map<String, String> = emptyMap(),
@@ -51,12 +58,19 @@ public data class RetrySettingsPatch(
 )
 
 @Serializable
+public data class UpdateSettingsPatch(
+    val automatic: Boolean? = null,
+    val checkIntervalHours: Int? = null,
+)
+
+@Serializable
 public data class SettingsPatch(
     val defaultProvider: String? = null,
     val defaultModel: String? = null,
     val defaultThinkingLevel: String? = null,
     val compaction: CompactionSettingsPatch? = null,
     val retry: RetrySettingsPatch? = null,
+    val updates: UpdateSettingsPatch? = null,
     val shellPath: String? = null,
     val shellCommandPrefix: String? = null,
     val modelRoles: Map<String, String>? = null,

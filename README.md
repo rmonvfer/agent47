@@ -27,9 +27,19 @@ The installer supports macOS and Linux on ARM64 and x86-64. It verifies the rele
 SHA-256 checksums before replacing an existing installation. To install a specific release or update to the latest one:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.1 bash
+curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.2 bash
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
+
+agent47 checks for updates at most once every 24 hours when starting an interactive session. A verified update replaces
+the installed binary atomically and restarts the command. To force a check immediately:
+
+```bash
+agent47 update
+```
+
+Automatic checks can be configured under `updates` in `~/.agent47/settings.json` or disabled for a single launch with
+`AGENT47_NO_AUTO_UPDATE=1`.
 
 **Build from source** (requires JDK 25):
 

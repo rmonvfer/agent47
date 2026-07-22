@@ -83,7 +83,15 @@ jobs:
         run: mv agent47-app/build/native/nativeCompile/agent47 agent47-${{ matrix.target }}
 
       - name: Smoke test binary
-        run: ./agent47-${{ matrix.target }} --help
+        shell: bash
+        run: |
+          ./agent47-${{ matrix.target }} --help
+          expected_version="agent47 ${GITHUB_REF_NAME#v}"
+          actual_version="$(./agent47-${{ matrix.target }} --version)"
+          if [[ "$actual_version" != "$expected_version" ]]; then
+            echo "Expected '$expected_version', got '$actual_version'" >&2
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

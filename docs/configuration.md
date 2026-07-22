@@ -11,6 +11,7 @@ The global directory location can be changed by setting the `AGENT47_DIR` enviro
 ~/.agent47/
 ├── auth.json           # Provider credentials
 ├── settings.json       # Global settings
+├── update-state.json   # Timestamp of the last automatic update check
 ├── models.yml          # Model and provider configuration
 ├── sessions/           # Persisted conversation history
 ├── agents/             # Global agent definitions (.md files)
@@ -39,6 +40,10 @@ field: a project setting overrides the corresponding global setting when it is e
   "taskMaxRecursionDepth": 3,
   "theme": "dark",
   "showUsageFooter": true,
+  "updates": {
+    "automatic": true,
+    "checkIntervalHours": 24
+  },
   "modelRoles": {
     "smol": "cerebras/zai-glm-4.6",
     "slow": "gpt-5.2-codex"
@@ -75,6 +80,11 @@ maps are combined (union), so a project can add new roles without removing globa
 recent tokens to preserve verbatim when compacting older context.
 
 `retry` controls automatic retry on transient API failures with exponential backoff.
+
+`updates.automatic` controls whether interactive native installations check GitHub Releases for updates on startup.
+Update policy is read only from the global settings file, so a project cannot enable executable updates. Checks are
+rate-limited by `updates.checkIntervalHours`, which defaults to 24 hours. Verified updates atomically replace the current
+executable and restart agent47. Set `AGENT47_NO_AUTO_UPDATE=1` to skip the check for a single launch.
 
 ## Models
 

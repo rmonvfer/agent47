@@ -21,6 +21,8 @@ public class SettingsManager private constructor(
 ) {
     public fun get(): Settings = settings
 
+    public fun getGlobal(): Settings = globalSettings
+
     public fun update(transform: (Settings) -> Settings) {
         settings = transform(settings)
         // Apply the same change to the global-scope settings and persist only those, so a project's
@@ -66,6 +68,7 @@ public class SettingsManager private constructor(
                 defaultThinkingLevel = project?.defaultThinkingLevel ?: global?.defaultThinkingLevel,
                 compaction = mergeCompaction(global?.compaction, project?.compaction),
                 retry = mergeRetry(global?.retry, project?.retry),
+                updates = mergeUpdates(global?.updates, project?.updates),
                 shellPath = project?.shellPath ?: global?.shellPath,
                 shellCommandPrefix = project?.shellCommandPrefix ?: global?.shellCommandPrefix,
                 modelRoles = (global?.modelRoles ?: emptyMap()) + (project?.modelRoles ?: emptyMap()),
@@ -100,6 +103,18 @@ public class SettingsManager private constructor(
                 maxRetries = project?.maxRetries ?: global?.maxRetries ?: d.maxRetries,
                 baseDelayMs = project?.baseDelayMs ?: global?.baseDelayMs ?: d.baseDelayMs,
                 maxDelayMs = project?.maxDelayMs ?: global?.maxDelayMs ?: d.maxDelayMs,
+            )
+        }
+
+        private fun mergeUpdates(global: UpdateSettingsPatch?, project: UpdateSettingsPatch?): UpdateSettings {
+            val defaults = UpdateSettings()
+            return UpdateSettings(
+                automatic = project?.automatic ?: global?.automatic ?: defaults.automatic,
+                checkIntervalHours = (
+                    project?.checkIntervalHours
+                        ?: global?.checkIntervalHours
+                        ?: defaults.checkIntervalHours
+                    ).coerceIn(1, 24 * 30),
             )
         }
     }

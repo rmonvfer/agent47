@@ -50,6 +50,13 @@ tasks.withType<AbstractCopyTask> {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
+tasks.processResources {
+    inputs.property("version", project.version)
+    filesMatching("agent47-version.properties") {
+        expand("version" to project.version)
+    }
+}
+
 graalvmNative {
     toolchainDetection.set(false)
     binaries {
@@ -60,6 +67,7 @@ graalvmNative {
             imageName.set("agent47")
             mainClass.set("co.agentmode.agent47.app.MainKt")
             resources.autodetect()
+            resources.includedPatterns.add("agent47-version\\.properties")
             buildArgs.add("--no-fallback")
             buildArgs.add("-H:+ReportExceptionStackTraces")
         }

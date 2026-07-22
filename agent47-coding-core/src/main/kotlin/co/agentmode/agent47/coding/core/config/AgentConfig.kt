@@ -24,6 +24,8 @@ public class AgentConfig(
         get() = agentDir.resolve("models.json")
     public val globalSettingsPath: Path
         get() = agentDir.resolve("settings.json")
+    public val updateStatePath: Path
+        get() = agentDir.resolve("update-state.json")
     public val projectSettingsPath: Path
         get() = projectDir.resolve("settings.json")
     public val globalSubagentsSettingsPath: Path
