@@ -16,7 +16,6 @@ allprojects {
     version = rootProject.version
 
     repositories {
-        mavenLocal()
         mavenCentral()
         google()
     }
