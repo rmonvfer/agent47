@@ -11,6 +11,26 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
+ * Desired theme appearance. AUTO defers to terminal background detection, which is
+ * performed outside this file (OSC 11 / COLORFGBG); call [resolve] with the detection
+ * result to obtain a concrete DARK or LIGHT value for theme loading.
+ */
+public enum class ThemeAppearance {
+    AUTO,
+    DARK,
+    LIGHT,
+    ;
+
+    /** Resolves AUTO using the terminal's detected background darkness. */
+    public fun resolve(terminalIsDark: Boolean): ThemeAppearance = when (this) {
+        AUTO -> if (terminalIsDark) DARK else LIGHT
+        else -> this
+    }
+
+    public val isLight: Boolean get() = this == LIGHT
+}
+
+/**
  * Semantic color roles for the Mosaic TUI.
  */
 public data class MosaicThemeColors(
@@ -19,8 +39,8 @@ public data class MosaicThemeColors(
     val success: Color = Color(181, 189, 104), // #b5bd68 (green)
     val error: Color = Color(204, 102, 102), // #cc6666 (red)
     val warning: Color = Color(255, 255, 0), // #ffff00 (yellow)
-    val muted: Color = Color(128, 128, 128), // #808080 (gray)
-    val dim: Color = Color(102, 102, 102), // #666666 (dimGray)
+    val muted: Color = Color(158, 158, 158), // #9e9e9e (gray)
+    val dim: Color = Color(122, 122, 122), // #7a7a7a (dimGray)
 )
 
 /**
@@ -41,7 +61,7 @@ public data class ThemeConfig(
     val toolErrorBg: Color = Color(60, 40, 40), // #3c2828
     val thinkingText: Color = Color(128, 128, 128), // #808080 (gray)
     val toolTitle: Color = Color(212, 212, 212), // #d4d4d4 (text) — ohm tool titles are plain bold
-    val toolOutput: Color = Color(128, 128, 128), // #808080 (gray)
+    val toolOutput: Color = Color(158, 158, 158), // #9e9e9e (gray)
     val toolDiffAdded: Color = Color(181, 189, 104), // #b5bd68 (green)
     val toolDiffRemoved: Color = Color(204, 102, 102), // #cc6666 (red)
     val toolDiffContext: Color = Color(128, 128, 128), // #808080 (gray)
@@ -106,8 +126,8 @@ public data class ThemeConfig(
 
     // Editor border colors keyed to thinking level (ohm parity — the input rule
     // color is the primary mode indicator; bash mode overrides all of these).
-    val thinkingOff: Color = Color(80, 80, 80), // #505050 (darkGray)
-    val thinkingMinimal: Color = Color(110, 110, 110), // #6e6e6e
+    val thinkingOff: Color = Color(118, 118, 118), // #767676
+    val thinkingMinimal: Color = Color(138, 138, 138), // #8a8a8a
     val thinkingLow: Color = Color(95, 135, 175), // #5f87af
     val thinkingMedium: Color = Color(129, 162, 190), // #81a2be
     val thinkingHigh: Color = Color(178, 148, 187), // #b294bb
@@ -164,15 +184,42 @@ public fun Color.darken(factor: Float): Color {
     return Color(red = r * factor, green = g * factor, blue = b * factor)
 }
 
+/**
+ * Returns this color scaled toward white by (1 - [factor]) (1 = unchanged, 0 = white).
+ * Used as the light-appearance counterpart of [darken] when dimming a scrim: on a light
+ * background the base layer must wash out toward white, not toward black.
+ * Unspecified colors (terminal default) are returned untouched.
+ */
+public fun Color.washOut(factor: Float): Color {
+    if (!isSpecifiedColor) return this
+    val (r, g, b) = this
+    val amount = 1f - factor
+    return Color(
+        red = r + (1f - r) * amount,
+        green = g + (1f - g) * amount,
+        blue = b + (1f - b) * amount,
+    )
+}
+
+/**
+ * Appearance-aware scrim dimming: fades toward black on dark backgrounds and toward
+ * white on light backgrounds, so the dimmed base layer recedes in both cases.
+ */
+public fun Color.scrimmed(factor: Float, appearance: ThemeAppearance): Color =
+    if (appearance.isLight) washOut(factor) else darken(factor)
+
 /** Uniformly darkens every semantic color by [factor]. */
-public fun MosaicThemeColors.dimmed(factor: Float): MosaicThemeColors = MosaicThemeColors(
-    accent = accent.darken(factor),
-    accentBright = accentBright.darken(factor),
-    success = success.darken(factor),
-    error = error.darken(factor),
-    warning = warning.darken(factor),
-    muted = muted.darken(factor),
-    dim = dim.darken(factor),
+public fun MosaicThemeColors.dimmed(
+    factor: Float,
+    appearance: ThemeAppearance = ThemeAppearance.DARK,
+): MosaicThemeColors = MosaicThemeColors(
+    accent = accent.scrimmed(factor, appearance),
+    accentBright = accentBright.scrimmed(factor, appearance),
+    success = success.scrimmed(factor, appearance),
+    error = error.scrimmed(factor, appearance),
+    warning = warning.scrimmed(factor, appearance),
+    muted = muted.scrimmed(factor, appearance),
+    dim = dim.scrimmed(factor, appearance),
 )
 
 /**
@@ -181,8 +228,13 @@ public fun MosaicThemeColors.dimmed(factor: Float): MosaicThemeColors = MosaicTh
  * no real alpha to draw a translucent film with.
  */
 @Suppress("LongMethod")
-public fun ThemeConfig.dimmed(factor: Float): ThemeConfig = copy(
-    colors = colors.dimmed(factor),
+public fun ThemeConfig.dimmed(
+    factor: Float,
+    appearance: ThemeAppearance = ThemeAppearance.DARK,
+): ThemeConfig {
+    fun Color.darken(f: Float): Color = scrimmed(f, appearance)
+    return copy(
+    colors = colors.dimmed(factor, appearance),
     background = background.darken(factor),
     userMessageBg = userMessageBg.darken(factor),
     userMessageText = userMessageText.darken(factor),
@@ -254,7 +306,8 @@ public fun ThemeConfig.dimmed(factor: Float): ThemeConfig = copy(
     thinkingXhigh = thinkingXhigh.darken(factor),
     thinkingMax = thinkingMax.darken(factor),
     bashModeBorder = bashModeBorder.darken(factor),
-)
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Standard terminal palette mapped to 24-bit RGB.
@@ -351,17 +404,23 @@ private val themeJson = Json { ignoreUnknownKeys = true }
  * Supports the OpenCode theme format with `defs` for color aliases and
  * `theme` for the actual color mappings.
  */
-internal fun loadThemeFromResource(name: String): ThemeConfig? {
+internal fun loadThemeFromResource(
+    name: String,
+    appearance: ThemeAppearance = ThemeAppearance.DARK,
+): ThemeConfig? {
     val path = "themes/$name.json"
     val stream = Thread.currentThread().contextClassLoader?.getResourceAsStream(path)
         ?: ThemeConfig::class.java.classLoader?.getResourceAsStream(path)
         ?: return null
 
     val content = stream.bufferedReader().readText()
-    return parseThemeJson(content)
+    return parseThemeJson(content, appearance)
 }
 
-internal fun parseThemeJson(json: String): ThemeConfig? {
+internal fun parseThemeJson(
+    json: String,
+    appearance: ThemeAppearance = ThemeAppearance.DARK,
+): ThemeConfig? {
     return runCatching {
         val root = themeJson.parseToJsonElement(json).jsonObject
         val defs = root["defs"]?.jsonObject ?: JsonObject(emptyMap())
@@ -381,7 +440,7 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
             // Reference to another theme key
             val themeRef = theme[value]
             if (themeRef != null) {
-                val refStr = extractDarkValue(themeRef)
+                val refStr = extractAppearanceValue(themeRef, appearance)
                 if (refStr != null) return resolve(refStr)
             }
             return RgbColor(Color.White, 255, 255, 255)
@@ -389,7 +448,7 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
 
         fun color(key: String, default: RgbColor): RgbColor {
             val element = theme[key] ?: return default
-            val valueStr = extractDarkValue(element) ?: return default
+            val valueStr = extractAppearanceValue(element, appearance) ?: return default
             return resolve(valueStr)
         }
 
@@ -398,7 +457,12 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
         // Derive distinct, tonal surfaces from the theme's own colors rather than trusting
         // backgroundPanel/backgroundElement, which some themes (e.g. Vesper) leave equal to
         // background — which would make every tinted block and dialog vanish into the base.
-        fun lighten(c: RgbColor, amount: Float): Color = blendColors(255, 255, 255, c.r, c.g, c.b, amount)
+        // Surfaces must move away from the base background: toward white on dark themes,
+        // toward black on light themes.
+        val light = appearance.isLight
+        fun surface(c: RgbColor, amount: Float): Color =
+            if (light) blendColors(0, 0, 0, c.r, c.g, c.b, amount)
+            else blendColors(255, 255, 255, c.r, c.g, c.b, amount)
         fun tint(base: RgbColor, hue: RgbColor, amount: Float): Color =
             blendColors(hue.r, hue.g, hue.b, base.r, base.g, base.b, amount)
 
@@ -409,11 +473,11 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
         val warning = color("warning", rgb(245, 167, 66))
         val success = color("success", rgb(127, 216, 143))
         val info = color("info", rgb(86, 182, 194))
-        val text = color("text", rgb(238, 238, 238))
-        val textMuted = color("textMuted", rgb(128, 128, 128))
-        val background = color("background", rgb(10, 10, 10))
-        val backgroundPanel = color("backgroundPanel", rgb(20, 20, 20))
-        val backgroundElement = color("backgroundElement", rgb(30, 30, 30))
+        val text = color("text", if (light) rgb(26, 26, 26) else rgb(238, 238, 238))
+        val textMuted = color("textMuted", if (light) rgb(138, 138, 138) else rgb(128, 128, 128))
+        val background = color("background", if (light) rgb(255, 255, 255) else rgb(10, 10, 10))
+        val backgroundPanel = color("backgroundPanel", if (light) rgb(245, 245, 245) else rgb(20, 20, 20))
+        val backgroundElement = color("backgroundElement", if (light) rgb(235, 235, 235) else rgb(30, 30, 30))
 
         ThemeConfig(
             colors = MosaicThemeColors(
@@ -428,12 +492,12 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
                 dim = tint(textMuted, background, 0.35f),
             ),
             background = background.color,
-            userMessageBg = lighten(background, 0.09f),
+            userMessageBg = surface(background, 0.09f),
             userMessageText = text.color,
             customMessageBg = tint(background, accent, 0.12f),
             customMessageText = text.color,
             customMessageLabel = accent.color,
-            toolPendingBg = lighten(background, 0.06f),
+            toolPendingBg = surface(background, 0.06f),
             toolSuccessBg = tint(background, success, 0.12f),
             toolErrorBg = tint(background, error, 0.16f),
             thinkingText = textMuted.color,
@@ -447,8 +511,8 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
             link = info.color,
             linkUrl = textMuted.color,
             statusBarBg = Color.Unspecified,
-            overlayBg = lighten(background, 0.13f),
-            overlaySelectedBg = lighten(background, 0.24f),
+            overlayBg = surface(background, 0.13f),
+            overlaySelectedBg = surface(background, 0.24f),
             codeBlockFg = text.color,
 
             diffAddedBg = color("diffAddedBg", rgb(32, 48, 59)).color,
@@ -500,15 +564,24 @@ internal fun parseThemeJson(json: String): ThemeConfig? {
 }
 
 /**
- * Extract the "dark" variant from a theme value.
- * Values can be:
+ * Extract the variant matching [appearance] from a theme value (AUTO is treated as DARK;
+ * callers should resolve AUTO before parsing). Values can be:
  * - A plain string (color name or hex): `"purple"`
  * - A dark/light object: `{"dark": "purple", "light": "purple"}`
+ * Falls back to the other branch if the requested one is absent.
  */
-private fun extractDarkValue(element: kotlinx.serialization.json.JsonElement): String? {
+private fun extractAppearanceValue(
+    element: kotlinx.serialization.json.JsonElement,
+    appearance: ThemeAppearance,
+): String? {
     return when {
         element is kotlinx.serialization.json.JsonPrimitive -> element.content
-        element is JsonObject -> element["dark"]?.jsonPrimitive?.content
+        element is JsonObject -> {
+            val preferred = if (appearance.isLight) "light" else "dark"
+            val fallback = if (appearance.isLight) "dark" else "light"
+            element[preferred]?.jsonPrimitive?.content
+                ?: element[fallback]?.jsonPrimitive?.content
+        }
         else -> null
     }
 }
@@ -561,7 +634,15 @@ private fun blendColors(
 public data class NamedTheme(
     val name: String,
     val config: ThemeConfig,
-)
+    val lightConfig: ThemeConfig = config,
+) {
+    /**
+     * Returns the variant matching a resolved [appearance] (AUTO is treated as DARK;
+     * resolve it with terminal detection first).
+     */
+    public fun forAppearance(appearance: ThemeAppearance): ThemeConfig =
+        if (appearance.isLight) lightConfig else config
+}
 
 /**
  * All available themes, loaded from JSON resources where available,
@@ -579,15 +660,21 @@ public val AVAILABLE_THEMES: List<NamedTheme> by lazy {
         "vercel", "vesper", "zenburn",
     )
 
+    // The hardcoded defaults are dark-only; for their light variants prefer the
+    // opencode JSON theme's light branch rather than fabricating an inversion.
+    // Bubble uses the terminal's own ANSI palette, which adapts with the terminal,
+    // so it is its own light variant.
+    val opencodeLight = loadThemeFromResource("opencode", ThemeAppearance.LIGHT)
     val themes = mutableListOf(
-        NamedTheme("default", ThemeConfig()),
+        NamedTheme("default", ThemeConfig(), opencodeLight ?: ThemeConfig()),
         NamedTheme("bubble", MosaicBubbleTheme),
     )
 
     for (name in jsonThemeNames) {
         val config = loadThemeFromResource(name)
         if (config != null) {
-            themes += NamedTheme(name, config)
+            val lightConfig = loadThemeFromResource(name, ThemeAppearance.LIGHT) ?: config
+            themes += NamedTheme(name, config, lightConfig)
         }
     }
 

@@ -26,6 +26,10 @@ public class AgentConfig(
         get() = agentDir.resolve("settings.json")
     public val projectSettingsPath: Path
         get() = projectDir.resolve("settings.json")
+    public val globalSubagentsSettingsPath: Path
+        get() = agentDir.resolve("subagents.json")
+    public val projectSubagentsSettingsPath: Path
+        get() = projectDir.resolve("subagents.json")
     public val sessionsDir: Path
         get() = agentDir.resolve("sessions")
 

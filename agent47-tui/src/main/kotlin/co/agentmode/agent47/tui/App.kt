@@ -4,7 +4,13 @@ import androidx.compose.runtime.*
 import co.agentmode.agent47.agent.core.*
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.coding.core.agents.AgentRegistry
+import co.agentmode.agent47.coding.core.agents.AgentSource
 import co.agentmode.agent47.coding.core.agents.BackgroundAgents
+import co.agentmode.agent47.coding.core.agents.PushNotifier
+import co.agentmode.agent47.coding.core.agents.RunningAgent
+import co.agentmode.agent47.coding.core.agents.schedule.SubagentScheduler
+import co.agentmode.agent47.coding.core.settings.SubagentsSettings
 import co.agentmode.agent47.coding.core.compaction.CompactionResult
 import co.agentmode.agent47.coding.core.compaction.CompactionSettings
 import co.agentmode.agent47.coding.core.compaction.applyCompaction
@@ -25,6 +31,7 @@ import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.coding.core.tools.ToolDetails
 import co.agentmode.agent47.coding.core.session.ModelChangeEntry
 import co.agentmode.agent47.coding.core.session.SessionManager
+import co.agentmode.agent47.coding.core.session.SessionMessageEntry
 import co.agentmode.agent47.coding.core.session.ThinkingLevelChangeEntry
 import co.agentmode.agent47.tui.components.*
 import co.agentmode.agent47.tui.editor.Editor
@@ -38,6 +45,7 @@ import co.agentmode.agent47.tui.rendering.MarkdownTheme
 import co.agentmode.agent47.tui.rendering.MarkdownRenderer
 import co.agentmode.agent47.tui.theme.AVAILABLE_THEMES
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
+import co.agentmode.agent47.tui.theme.ThemeAppearance
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import co.agentmode.agent47.tui.theme.dimmed
 import androidx.compose.runtime.CompositionLocalProvider
@@ -63,6 +71,9 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicReference
 import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
@@ -70,6 +81,36 @@ import kotlin.math.min
 
 /** How far the base layer is darkened toward black while a dialog is open (1 = unchanged). */
 private const val SCRIM_DIM_FACTOR = 0.5f
+
+private val SESSION_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d HH:mm")
+
+/**
+ * The session the interactive app is currently in. Read by the terminal-restore shutdown hook —
+ * the app exits via exitProcess(), so that hook is the only reliable place to print on the way out.
+ */
+private val activeResumeSession = AtomicReference<SessionManager?>(null)
+
+/** Prints a "resume this session" hint to [out] once the terminal has been restored. */
+private fun printResumeHint(out: java.io.PrintStream) {
+    val session = activeResumeSession.get() ?: return
+    val hasContent = runCatching { session.getEntries().any { it is SessionMessageEntry } }.getOrDefault(false)
+    if (!hasContent) return
+    val id = runCatching { session.getHeader().id }.getOrNull() ?: return
+    runCatching {
+        out.write("\nTo resume this session:  agent47 --resume $id\n".toByteArray())
+        out.flush()
+    }
+}
+
+private fun firstUserText(session: SessionManager): String? {
+    val entry = session.getEntries()
+        .filterIsInstance<SessionMessageEntry>()
+        .firstOrNull { it.message is UserMessage } ?: return null
+    return (entry.message as UserMessage).content
+        .filterIsInstance<TextContent>()
+        .firstOrNull()?.text
+        ?.replace("\n", " ")?.trim()?.ifBlank { null }
+}
 
 private data class SlashCommandSpec(
     val command: String,
@@ -81,6 +122,7 @@ private enum class SettingsAction {
     Provider,
     Thinking,
     Theme,
+    Appearance,
     Usage,
     Session,
     Commands,
@@ -124,6 +166,7 @@ internal fun Agent47App(
     initialThinkingLevel: AgentThinkingLevel = AgentThinkingLevel.OFF,
     initialModel: Model? = null,
     theme: ThemeConfig = ThemeConfig.DEFAULT,
+    themeAppearance: ThemeAppearance = ThemeAppearance.DARK,
     fileCommands: List<SlashCommand> = emptyList(),
     getAllProviders: () -> List<ProviderInfo> = { emptyList() },
     storeApiKey: (provider: String, apiKey: String) -> Unit = { _, _ -> },
@@ -131,6 +174,7 @@ internal fun Agent47App(
     refreshModels: () -> List<Model> = { availableModels },
     authorizeOAuth: suspend (provider: String) -> OAuthAuthorization? = { null },
     pollOAuthToken: suspend (provider: String) -> OAuthResult? = { null },
+    isUsingOAuth: (Model) -> Boolean = { false },
     onSettingsChanged: (transform: (Settings) -> Settings) -> Unit = {},
     initialShowUsageFooter: Boolean = true,
     todoState: TodoState? = null,
@@ -138,8 +182,13 @@ internal fun Agent47App(
     compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
     compactionSettings: CompactionSettings = CompactionSettings(),
     backgroundAgents: BackgroundAgents? = null,
+    subagentsSettings: SubagentsSettings = SubagentsSettings(),
+    agentRegistry: AgentRegistry? = null,
+    scheduler: SubagentScheduler? = null,
+    persistSubagentsSettings: (SubagentsSettings) -> Unit = {},
 ) {
     var activeTheme by remember { mutableStateOf(theme) }
+    var activeAppearance by remember { mutableStateOf(themeAppearance) }
     CompositionLocalProvider(LocalThemeConfig provides activeTheme) {
         Agent47AppContent(
             client = client,
@@ -152,13 +201,16 @@ internal fun Agent47App(
             initialModel = initialModel,
             fileCommands = fileCommands,
             activeTheme = activeTheme,
+            themeAppearance = activeAppearance,
             setActiveTheme = { activeTheme = it },
+            setThemeAppearance = { activeAppearance = it },
             getAllProviders = getAllProviders,
             storeApiKey = storeApiKey,
             storeOAuthCredential = storeOAuthCredential,
             refreshModels = refreshModels,
             authorizeOAuth = authorizeOAuth,
             pollOAuthToken = pollOAuthToken,
+            isUsingOAuth = isUsingOAuth,
             onSettingsChanged = onSettingsChanged,
             initialShowUsageFooter = initialShowUsageFooter,
             todoState = todoState,
@@ -166,6 +218,10 @@ internal fun Agent47App(
             compactContext = compactContext,
             compactionSettings = compactionSettings,
             backgroundAgents = backgroundAgents,
+            subagentsSettings = subagentsSettings,
+            agentRegistry = agentRegistry,
+            scheduler = scheduler,
+            persistSubagentsSettings = persistSubagentsSettings,
         )
     }
 }
@@ -182,13 +238,16 @@ private fun Agent47AppContent(
     initialModel: Model?,
     fileCommands: List<SlashCommand>,
     activeTheme: ThemeConfig,
+    themeAppearance: ThemeAppearance,
     setActiveTheme: (ThemeConfig) -> Unit,
+    setThemeAppearance: (ThemeAppearance) -> Unit,
     getAllProviders: () -> List<ProviderInfo>,
     storeApiKey: (provider: String, apiKey: String) -> Unit,
     storeOAuthCredential: (provider: String, credential: OAuthCredential) -> Unit,
     refreshModels: () -> List<Model>,
     authorizeOAuth: suspend (provider: String) -> OAuthAuthorization?,
     pollOAuthToken: suspend (provider: String) -> OAuthResult?,
+    isUsingOAuth: (Model) -> Boolean,
     onSettingsChanged: (transform: (Settings) -> Settings) -> Unit,
     initialShowUsageFooter: Boolean,
     todoState: TodoState? = null,
@@ -196,6 +255,10 @@ private fun Agent47AppContent(
     compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
     compactionSettings: CompactionSettings = CompactionSettings(),
     backgroundAgents: BackgroundAgents? = null,
+    subagentsSettings: SubagentsSettings = SubagentsSettings(),
+    agentRegistry: AgentRegistry? = null,
+    scheduler: SubagentScheduler? = null,
+    persistSubagentsSettings: (SubagentsSettings) -> Unit = {},
 ) {
     val mosaicTheme = LocalThemeConfig.current
     val terminalState = LocalTerminalState.current
@@ -224,6 +287,7 @@ private fun Agent47AppContent(
             SlashCommandSpec("/session", "Load a saved session"),
             SlashCommandSpec("/compact", "Compact conversation context"),
             SlashCommandSpec("/memory", "Show loaded instruction files"),
+            SlashCommandSpec("/agents", "View and steer background sub-agents"),
             SlashCommandSpec("/settings", "Open interactive settings"),
             SlashCommandSpec("/exit", "Exit interactive mode"),
         )
@@ -238,6 +302,18 @@ private fun Agent47AppContent(
 
     val chatHistoryState = remember { ChatHistoryState() }
     val overlayHostState = remember { OverlayHostState() }
+    // Live copy of subagent settings, editable via /agents → Settings and persisted through the callback.
+    var subagentsSettingsState by remember { mutableStateOf(subagentsSettings) }
+    // Thread-safe hand-off for opt-in push notifications: PushNotifier (background thread) enqueues,
+    // the background ticker below drains on the UI coroutine and delivers to the orchestrator.
+    val pushQueue = remember { java.util.concurrent.ConcurrentLinkedQueue<String>() }
+    val pushNotifier = remember {
+        if (subagentsSettings.pushNotifications && backgroundAgents != null) {
+            PushNotifier(promptScope, subagentsSettings.defaultJoinMode, deliver = { pushQueue.add(it) })
+        } else {
+            null
+        }
+    }
     val editor = remember {
         Editor(
             slashCommands = slashCommands.map { it.command },
@@ -250,7 +326,11 @@ private fun Agent47AppContent(
     // While a dialog is open, the whole base layer is rendered with a darkened copy of the
     // theme so the (undimmed) dialog reads as a distinct layer floating above a scrim.
     // Terminals have no real alpha, so we darken every color instead of drawing a film.
-    val baseTheme = if (overlayHostState.hasOverlay) mosaicTheme.dimmed(SCRIM_DIM_FACTOR) else mosaicTheme
+    val baseTheme = if (overlayHostState.hasOverlay) {
+        mosaicTheme.dimmed(SCRIM_DIM_FACTOR, themeAppearance)
+    } else {
+        mosaicTheme
+    }
     val markdownRenderer = remember(baseTheme) {
         MarkdownRenderer(MarkdownTheme.fromTheme(baseTheme))
     }
@@ -283,32 +363,37 @@ private fun Agent47AppContent(
 
     val currentModel = currentModels.getOrNull(selectedModelIndex) ?: initialModel
 
+    val usageHolder = remember { UsageHolder() }
+    LaunchedEffect(activeSessionManager) {
+        usageHolder.reset(
+            activeSessionManager?.getEntries()
+                ?.filterIsInstance<SessionMessageEntry>()
+                ?.mapNotNull { it.message as? AssistantMessage }
+                ?.map { it.usage }
+                .orEmpty(),
+        )
+    }
+    val contextEstimate = estimateContextTokens(client.rawAgent().state.messages)
+    val providerCount = getAllProviders().count { it.connected }
     val statusBarState = MosaicStatusBarState(
-        cwdName = cwd.fileName?.toString() ?: cwd.toString(),
         cwdPath = cwd.toString().replace(System.getProperty("user.home"), "~"),
         branch = remember { detectBranchName(cwd) },
+        providerId = currentModel?.provider?.value,
+        availableProviderCount = providerCount,
         modelId = currentModel?.id,
-        thinking = thinkingLevel != AgentThinkingLevel.OFF,
-        thinkingLabel = thinkingLevel.takeIf { it != AgentThinkingLevel.OFF }?.name?.lowercase(),
-        inputTokens = null,
-        outputTokens = null,
-        totalTokens = null,
-        cost = null,
-        contextTokens = null,
-        contextWindow = currentModel?.contextWindow,
-        busy = isStreaming,
-        spinnerFrame = spinnerFrame,
-    )
-
-    // Status bar state is rebuilt each frame, usage stats accumulate through
-    // the mutable holder, so they persist across recompositions.
-    val usageHolder = remember { UsageHolder() }
-    val statusBarWithUsage = statusBarState.copy(
+        modelSupportsReasoning = currentModel?.reasoning == true,
+        thinkingLabel = thinkingLevel.name.lowercase(),
         inputTokens = usageHolder.inputTokens,
         outputTokens = usageHolder.outputTokens,
-        totalTokens = usageHolder.totalTokens,
+        cacheReadTokens = usageHolder.cacheReadTokens,
+        cacheWriteTokens = usageHolder.cacheWriteTokens,
+        latestCacheHitRate = usageHolder.latestCacheHitRate,
         cost = usageHolder.cost,
-        contextTokens = usageHolder.contextTokens,
+        usingSubscription = currentModel?.let(isUsingOAuth) == true,
+        contextTokens = contextEstimate.tokens.takeIf { contextEstimate.lastUsageIndex != null },
+        contextWindow = currentModel?.contextWindow ?: 0,
+        autoCompactEnabled = compactionSettings.enabled && compactionSettings.auto,
+        showUsage = showUsageFooter,
     )
 
     // --- Layout calculations ---
@@ -326,7 +411,14 @@ private fun Agent47AppContent(
     val marginHeight = 1
     val borderHeight = 2
     val runningAgents = backgroundAgents?.runningStatus().orEmpty()
-    val backgroundPanelHeight = if (runningAgents.isEmpty()) 0 else runningAgents.size + 1
+    val backgroundPanelHeight = if (runningAgents.isEmpty()) {
+        0
+    } else {
+        val runningCount = runningAgents.count { it.status == RunningAgent.Status.RUNNING }
+        val queuedCount = runningAgents.count { it.status == RunningAgent.Status.QUEUED }
+        // Leading blank line + header + running rows + optional queued line (matches the panel).
+        2 + runningCount + if (queuedCount > 0) 1 else 0
+    }
     val historyHeight = max(1, height - statusHeight - borderHeight - popupHeight - baseInputHeight - activityHeight - taskBarHeight - marginHeight - backgroundPanelHeight)
 
     // --- Helper lambdas (closures over state) ---
@@ -609,6 +701,274 @@ private fun Agent47AppContent(
         )
     }
 
+    fun renderAgentTranscript(messages: List<Message>): List<String> = buildList {
+        for (message in messages) {
+            when (message) {
+                is UserMessage -> {
+                    add("[User]")
+                    message.content.filterIsInstance<TextContent>()
+                        .flatMap { it.text.split("\n") }
+                        .forEach { add("  $it") }
+                    add("")
+                }
+                is AssistantMessage -> {
+                    add("[Assistant]")
+                    message.content.filterIsInstance<TextContent>()
+                        .flatMap { it.text.split("\n") }
+                        .forEach { add("  $it") }
+                    add("")
+                }
+                else -> {}
+            }
+        }
+        if (isEmpty()) add("(waiting for the agent's first message…)")
+    }
+
+    fun openAgentActionsOverlay(id: String) {
+        val bg = backgroundAgents ?: return
+        val actions = listOf(
+            SelectItem(label = "View transcript", value = "view"),
+            SelectItem(label = "Steer (send a message)", value = "steer"),
+            SelectItem(label = "Stop", value = "stop"),
+        )
+        overlayHostState.push(
+            title = "Agent $id",
+            items = actions,
+            selectedIndex = 0,
+            onSubmit = { action ->
+                when (action) {
+                    "view" -> {
+                        val agent = bg.runningStatus().firstOrNull { it.id == id }
+                        val lines = agent?.agentRef?.state?.messages?.let { renderAgentTranscript(it) }
+                            ?: listOf("(no transcript available — the agent may have finished)")
+                        overlayHostState.pushScrollableText(title = "Agent $id — transcript", lines = lines)
+                    }
+                    "steer" -> {
+                        overlayHostState.pushPrompt(
+                            title = "Steer $id",
+                            placeholder = "Message to inject into the running agent",
+                            onSubmit = { msg ->
+                                if (msg.isNotBlank()) {
+                                    val ok = bg.post(BackgroundAgents.ORCHESTRATOR, id, msg)
+                                    appendCommandResult(if (ok) "Steered $id." else "Agent $id is no longer running.")
+                                }
+                            },
+                        )
+                    }
+                    "stop" -> {
+                        val ok = bg.abort(id)
+                        appendCommandResult(if (ok) "Stopped $id." else "Agent $id could not be stopped.")
+                    }
+                }
+            },
+        )
+    }
+
+    fun openRunningAgentsOverlay() {
+        val bg = backgroundAgents
+        if (bg == null) {
+            appendCommandResult("Background agents are unavailable.")
+            return
+        }
+        val agents = bg.runningStatus()
+        if (agents.isEmpty()) {
+            appendCommandResult("No background agents are running.")
+            return
+        }
+        val options = agents.map { agent ->
+            val activity = when {
+                agent.status == RunningAgent.Status.QUEUED -> "queued"
+                agent.progress?.currentTool != null -> "running ${agent.progress?.currentTool}"
+                else -> "working"
+            }
+            SelectItem(label = "${agent.id} (${agent.agentName}) · $activity", value = agent.id)
+        }
+        overlayHostState.push(
+            title = "Background agents (${agents.size})",
+            items = options,
+            selectedIndex = 0,
+            onSubmit = { id -> openAgentActionsOverlay(id) },
+        )
+    }
+
+    fun openAgentTypesOverlay() {
+        val registry = agentRegistry
+        if (registry == null) {
+            appendCommandResult("Agent registry is unavailable.")
+            return
+        }
+        val all = registry.getAll()
+        val options = all.map { def ->
+            val flag = when (def.source) {
+                AgentSource.PROJECT -> "•"
+                AgentSource.USER -> "◦"
+                AgentSource.BUNDLED -> " "
+            }
+            val disabled = if (!def.enabled) " ✕" else ""
+            SelectItem(label = "$flag ${def.label}$disabled — ${def.description}", value = def.name)
+        }
+        overlayHostState.push(
+            title = "Agent types (${all.size})",
+            items = options,
+            selectedIndex = 0,
+            onSubmit = { name ->
+                val def = registry.getAll().firstOrNull { it.name == name } ?: return@push
+                overlayHostState.pushInfo(
+                    title = def.label,
+                    lines = buildList {
+                        add(def.description)
+                        add("")
+                        add("name: ${def.name}")
+                        add("source: ${def.source}")
+                        add("enabled: ${def.enabled}")
+                        add("promptMode: ${def.promptMode}")
+                        def.model?.let { add("model: ${it.joinToString(", ")}") }
+                        def.thinkingLevel?.let { add("thinking: $it") }
+                        add("tools: ${def.tools?.joinToString(", ") ?: "all"}")
+                        def.memory?.let { add("memory: $it") }
+                        def.isolation?.let { add("isolation: $it") }
+                        def.skills?.let { add("skills: ${it.joinToString(", ")}") }
+                    },
+                )
+            },
+        )
+    }
+
+    fun applySubagentsSettings(updated: SubagentsSettings) {
+        subagentsSettingsState = updated
+        persistSubagentsSettings(updated)
+        appendCommandResult("Updated subagent settings.")
+    }
+
+    fun editSubagentSetting(key: String) {
+        val cur = subagentsSettingsState
+        fun promptInt(title: String, current: Int, min: Int, max: Int, apply: (Int) -> SubagentsSettings) {
+            overlayHostState.pushPrompt(
+                title = title,
+                placeholder = current.toString(),
+                onSubmit = { v -> v.trim().toIntOrNull()?.let { applySubagentsSettings(apply(it.coerceIn(min, max))) } },
+            )
+        }
+        fun choose(title: String, values: List<String>, apply: (String) -> SubagentsSettings) {
+            overlayHostState.push(
+                title = title,
+                items = values.map { SelectItem(it, it) },
+                selectedIndex = 0,
+                onSubmit = { applySubagentsSettings(apply(it)) },
+            )
+        }
+        fun toggle(title: String, apply: (Boolean) -> SubagentsSettings) {
+            overlayHostState.push(
+                title = title,
+                items = listOf(SelectItem("on", true), SelectItem("off", false)),
+                selectedIndex = 0,
+                onSubmit = { applySubagentsSettings(apply(it)) },
+            )
+        }
+        when (key) {
+            "maxConcurrent" -> promptInt("Max concurrency (1–1024)", cur.maxConcurrent, 1, 1024) { cur.copy(maxConcurrent = it) }
+            "defaultMaxTurns" -> promptInt("Default max turns (0 = unlimited)", cur.defaultMaxTurns, 0, 10_000) { cur.copy(defaultMaxTurns = it) }
+            "graceTurns" -> promptInt("Grace turns (1–1000)", cur.graceTurns, 1, 1_000) { cur.copy(graceTurns = it) }
+            "defaultJoinMode" -> choose("Join mode", listOf("smart", "async", "group")) { cur.copy(defaultJoinMode = it) }
+            "widgetMode" -> choose("Widget", listOf("background", "all", "off")) { cur.copy(widgetMode = it) }
+            "toolDescriptionMode" -> choose("Tool description", listOf("full", "compact", "custom")) { cur.copy(toolDescriptionMode = it) }
+            "schedulingEnabled" -> toggle("Scheduling") { cur.copy(schedulingEnabled = it) }
+            "disableDefaultAgents" -> toggle("Disable default agents") { cur.copy(disableDefaultAgents = it) }
+            "outputTranscript" -> toggle("Output transcript") { cur.copy(outputTranscript = it) }
+            "fleetView" -> toggle("Fleet view") { cur.copy(fleetView = it) }
+            "pushNotifications" -> toggle("Push notifications") { cur.copy(pushNotifications = it) }
+        }
+    }
+
+    fun openSubagentSettingsOverlay() {
+        fun onOff(b: Boolean) = if (b) "on" else "off"
+        val s = subagentsSettingsState
+        val items = listOf(
+            SelectItem("Max concurrency: ${s.maxConcurrent}", "maxConcurrent"),
+            SelectItem("Default max turns: ${s.defaultMaxTurns} (0 = unlimited)", "defaultMaxTurns"),
+            SelectItem("Grace turns: ${s.graceTurns}", "graceTurns"),
+            SelectItem("Join mode: ${s.defaultJoinMode}", "defaultJoinMode"),
+            SelectItem("Scheduling: ${onOff(s.schedulingEnabled)}", "schedulingEnabled"),
+            SelectItem("Disable default agents: ${onOff(s.disableDefaultAgents)}", "disableDefaultAgents"),
+            SelectItem("Output transcript: ${onOff(s.outputTranscript)}", "outputTranscript"),
+            SelectItem("Fleet view: ${onOff(s.fleetView)}", "fleetView"),
+            SelectItem("Widget: ${s.widgetMode}", "widgetMode"),
+            SelectItem("Push notifications: ${onOff(s.pushNotifications)}", "pushNotifications"),
+            SelectItem("Tool description: ${s.toolDescriptionMode}", "toolDescriptionMode"),
+        )
+        overlayHostState.push(
+            title = "Subagent settings",
+            items = items,
+            selectedIndex = 0,
+            onSubmit = { key -> editSubagentSetting(key) },
+        )
+    }
+
+    fun openScheduledJobsOverlay() {
+        val sched = scheduler
+        if (sched == null || !sched.isActive()) {
+            appendCommandResult("Scheduling is not active.")
+            return
+        }
+        val jobs = sched.list()
+        if (jobs.isEmpty()) {
+            appendCommandResult("No scheduled jobs.")
+            return
+        }
+        val options = jobs.map { job ->
+            val state = if (job.enabled) "" else " (disabled)"
+            SelectItem(
+                label = "${job.name} · ${job.schedule} [${job.scheduleType}] · runs ${job.runCount}$state",
+                value = job.id,
+            )
+        }
+        overlayHostState.push(
+            title = "Scheduled jobs (${jobs.size})",
+            items = options,
+            selectedIndex = 0,
+            onSubmit = { id ->
+                overlayHostState.push(
+                    title = "Cancel this job?",
+                    items = listOf(SelectItem("Cancel job", true), SelectItem("Keep", false)),
+                    selectedIndex = 1,
+                    onSubmit = { cancel ->
+                        if (cancel) {
+                            promptScope.launch {
+                                sched.removeJob(id)
+                                appendCommandResult("Cancelled scheduled job.")
+                            }
+                        }
+                    },
+                )
+            },
+        )
+    }
+
+    fun openAgentsOverlay() {
+        val menu = buildList {
+            val runningCount = backgroundAgents?.runningStatus()?.size ?: 0
+            add(SelectItem("Running agents ($runningCount)", "running"))
+            agentRegistry?.let { add(SelectItem("Agent types (${it.getAll().size})", "types")) }
+            add(SelectItem("Settings", "settings"))
+            if (scheduler?.isActive() == true) {
+                add(SelectItem("Scheduled jobs (${scheduler.list().size})", "scheduled"))
+            }
+        }
+        overlayHostState.push(
+            title = "Agents",
+            items = menu,
+            selectedIndex = 0,
+            onSubmit = { choice ->
+                when (choice) {
+                    "running" -> openRunningAgentsOverlay()
+                    "types" -> openAgentTypesOverlay()
+                    "settings" -> openSubagentSettingsOverlay()
+                    "scheduled" -> openScheduledJobsOverlay()
+                }
+            },
+        )
+    }
+
     fun openCommandsOverlay() {
         val options = slashCommands.map { spec ->
             SelectItem(
@@ -642,20 +1002,37 @@ private fun Agent47AppContent(
                 stream
                     .filter { Files.isRegularFile(it) }
                     .filter { it.fileName.toString().endsWith(".jsonl") }
+                    // Exclude sub-agent sessions — they aren't top-level conversations.
+                    .filter { !it.fileName.toString().startsWith("subagent-") }
                     .sorted(Comparator.comparing<Path, String> { it.fileName.toString() }.reversed())
-                    .limit(200)
+                    .limit(50)
                     .toList()
             }
         }.getOrElse {
             appendCommandResult("Failed to list sessions: ${it.message ?: it::class.simpleName}")
             return
         }
-        if (sessions.isEmpty()) {
-            appendCommandResult("No saved sessions found")
-            return
+        val projectCwd = cwd.toAbsolutePath().normalize().toString()
+        val options = sessions.mapNotNull { path ->
+            val session = runCatching { SessionManager(path) }.getOrNull() ?: return@mapNotNull null
+            val header = session.getHeader()
+            // Only show sessions that were started in this project.
+            val sessionCwd = runCatching { Path.of(header.cwd).toAbsolutePath().normalize().toString() }.getOrNull()
+            if (sessionCwd != projectCwd) return@mapNotNull null
+            val date = runCatching {
+                Instant.parse(header.timestamp).atZone(ZoneId.systemDefault()).format(SESSION_DATE_FORMAT)
+            }.getOrNull()
+            val title = firstUserText(session)?.take(56) ?: "(no messages)"
+            val count = session.getEntries().count { it is SessionMessageEntry }
+            SelectItem(
+                label = if (date != null) "$date  $title" else title,
+                value = path,
+                rightLabel = "$count msg",
+            )
         }
-        val options = sessions.map { path ->
-            SelectItem(label = path.fileName.toString(), value = path)
+        if (options.isEmpty()) {
+            appendCommandResult("No saved sessions found for this project")
+            return
         }
         overlayHostState.push(
             title = "Sessions",
@@ -687,19 +1064,41 @@ private fun Agent47AppContent(
         val options = AVAILABLE_THEMES.map { named ->
             SelectItem(label = named.name, value = named)
         }
-        val currentIndex = AVAILABLE_THEMES.indexOfFirst { it.config == activeTheme }
-            .coerceAtLeast(0)
+        val currentIndex = AVAILABLE_THEMES.indexOfFirst {
+            it.forAppearance(themeAppearance) == activeTheme
+        }.coerceAtLeast(0)
 
         overlayHostState.push(
             title = "Theme",
             items = options,
             selectedIndex = currentIndex,
             onSubmit = { namedTheme ->
-                setActiveTheme(namedTheme.config)
+                setActiveTheme(namedTheme.forAppearance(themeAppearance))
                 onSettingsChanged { it.copy(theme = namedTheme.name) }
             },
             onClose = { setActiveTheme(activeTheme) },
-            onSelectionChanged = { namedTheme -> setActiveTheme(namedTheme.config) },
+            onSelectionChanged = { namedTheme ->
+                setActiveTheme(namedTheme.forAppearance(themeAppearance))
+            },
+        )
+    }
+
+    fun openAppearanceOverlay() {
+        val appearances = listOf(ThemeAppearance.AUTO, ThemeAppearance.DARK, ThemeAppearance.LIGHT)
+        val options = appearances.map { appearance ->
+            SelectItem(label = appearance.name.lowercase(), value = appearance)
+        }
+        overlayHostState.push(
+            title = "Appearance",
+            items = options,
+            selectedIndex = appearances.indexOf(themeAppearance).coerceAtLeast(0),
+            onSubmit = { appearance ->
+                val resolved = if (appearance == ThemeAppearance.AUTO) themeAppearance else appearance
+                setThemeAppearance(resolved)
+                AVAILABLE_THEMES.firstOrNull { it.config == activeTheme || it.lightConfig == activeTheme }
+                    ?.let { setActiveTheme(it.forAppearance(resolved)) }
+                onSettingsChanged { it.copy(themeAppearance = appearance.name.lowercase()) }
+            },
         )
     }
 
@@ -709,6 +1108,7 @@ private fun Agent47AppContent(
             SelectItem("Provider - connect provider", SettingsAction.Provider),
             SelectItem("Thinking - choose level", SettingsAction.Thinking),
             SelectItem("Theme - pick color theme", SettingsAction.Theme),
+            SelectItem("Appearance - auto, dark, or light", SettingsAction.Appearance),
             SelectItem("Usage footer - toggle", SettingsAction.Usage),
             SelectItem("Session - load session", SettingsAction.Session),
             SelectItem("Commands - list slash cmds", SettingsAction.Commands),
@@ -726,6 +1126,7 @@ private fun Agent47AppContent(
                     SettingsAction.Provider -> openProviderOverlay()
                     SettingsAction.Thinking -> openThinkingOverlay()
                     SettingsAction.Theme -> openThemeOverlay()
+                    SettingsAction.Appearance -> openAppearanceOverlay()
                     SettingsAction.Usage -> {
                         showUsageFooter = !showUsageFooter
                         onSettingsChanged { it.copy(showUsageFooter = showUsageFooter) }
@@ -905,11 +1306,32 @@ private fun Agent47AppContent(
     // when the main loop is idle between turns.
     if (backgroundAgents != null) {
         LaunchedEffect(Unit) {
+            // Opt-in push: route completions through the notifier, which enqueues onto pushQueue.
+            pushNotifier?.let { notifier -> backgroundAgents.setCompletionListener { agent -> notifier.onComplete(agent) } }
             while (true) {
-                delay(250L)
+                delay(100L)
                 if (backgroundAgents.hasRunning()) spinnerFrame++
+                // Deliver any queued push notifications to the orchestrator: follow-up while it is
+                // mid-turn, otherwise start a fresh turn so it reacts to the completion.
+                while (true) {
+                    val text = pushQueue.poll() ?: break
+                    val msg = UserMessage(content = listOf(TextContent(text = text)), timestamp = System.currentTimeMillis())
+                    if (isStreaming) {
+                        runCatching { client.followUp(msg) }
+                    } else {
+                        chatHistoryState.appendMessage(msg)
+                        chatVersion++
+                        activeSessionManager?.appendMessage(msg)
+                        promptScope.launch(Dispatchers.IO) { runCatching { client.prompt(listOf(msg)) } }
+                    }
+                }
             }
         }
+    }
+
+    // Track the active session so the shutdown hook can print a resume hint on exit.
+    LaunchedEffect(activeSessionManager) {
+        activeResumeSession.set(activeSessionManager)
     }
 
     // --- Render the editor ---
@@ -1095,11 +1517,17 @@ private fun Agent47AppContent(
 
     // --- Rendering ---
 
+    val backgroundModifier = if (baseTheme.background.isSpecifiedColor) {
+        Modifier.background(baseTheme.background)
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = Modifier
             .height(height)
             .fillMaxWidth()
-            .background(baseTheme.background)
+            .then(backgroundModifier)
             .onKeyEvent { event ->
                 if (overlayHostState.hasOverlay) {
                     // Let overlay handle via its own Modifier.onKeyEvent
@@ -1158,6 +1586,7 @@ private fun Agent47AppContent(
                         openThemeOverlay = ::openThemeOverlay,
                         openProviderOverlay = ::openProviderOverlay,
                         openMemoryOverlay = ::openMemoryOverlay,
+                        openAgentsOverlay = ::openAgentsOverlay,
                         setModelById = { modelId ->
                             val match = currentModels.firstOrNull { model ->
                                 model.id.equals(modelId, ignoreCase = true) ||
@@ -1222,7 +1651,12 @@ private fun Agent47AppContent(
                 )
 
                 // Live background sub-agents launched via the task tool
-                BackgroundAgentsPanel(agents = runningAgents, width = width)
+                BackgroundAgentsPanel(
+                    agents = runningAgents,
+                    width = width,
+                    spinnerFrame = spinnerFrame,
+                    mode = subagentsSettingsState.widgetMode,
+                )
 
                 // Margin between chat area and editor border
                 Text("")
@@ -1255,7 +1689,7 @@ private fun Agent47AppContent(
 
                 // Status bar
                 StatusBar(
-                    state = statusBarWithUsage,
+                    state = statusBarState,
                     width = width,
                 )
             }
@@ -1454,11 +1888,7 @@ private fun handleAgentEvent(
         is TurnEndEvent -> {
             val assistant = event.message as? AssistantMessage
             if (assistant != null) {
-                usageHolder.inputTokens = assistant.usage.input
-                usageHolder.outputTokens = assistant.usage.output
-                usageHolder.totalTokens = assistant.usage.totalTokens
-                usageHolder.cost = assistant.usage.cost.total
-                usageHolder.contextTokens = assistant.usage.totalTokens
+                usageHolder.add(assistant.usage)
             }
         }
 
@@ -1496,6 +1926,7 @@ private fun handleSubmit(
     openThemeOverlay: () -> Unit,
     openProviderOverlay: () -> Unit,
     openMemoryOverlay: () -> Unit,
+    openAgentsOverlay: () -> Unit,
     setModelById: (String) -> Unit,
     startNewSession: () -> Unit,
     tryExpandFileCommand: (String) -> String?,
@@ -1555,6 +1986,10 @@ private fun handleSubmit(
                 "/settings" -> {
                     showCommandInput(rawInput)
                     openSettingsOverlay()
+                }
+                "/agents" -> {
+                    showCommandInput(rawInput)
+                    openAgentsOverlay()
                 }
                 "/session" -> {
                     showCommandInput(rawInput)
@@ -1959,11 +2394,32 @@ private fun helpText(slashCommands: List<SlashCommandSpec>): String = buildStrin
  * and read during composition to build the status bar state.
  */
 private class UsageHolder {
-    var inputTokens: Int? by mutableStateOf(null)
-    var outputTokens: Int? by mutableStateOf(null)
-    var totalTokens: Int? by mutableStateOf(null)
-    var cost: Double? by mutableStateOf(null)
-    var contextTokens: Int? by mutableStateOf(null)
+    var inputTokens: Int by mutableIntStateOf(0)
+    var outputTokens: Int by mutableIntStateOf(0)
+    var cacheReadTokens: Int by mutableIntStateOf(0)
+    var cacheWriteTokens: Int by mutableIntStateOf(0)
+    var latestCacheHitRate: Double? by mutableStateOf(null)
+    var cost: Double by mutableDoubleStateOf(0.0)
+
+    fun reset(usages: List<Usage>) {
+        inputTokens = 0
+        outputTokens = 0
+        cacheReadTokens = 0
+        cacheWriteTokens = 0
+        latestCacheHitRate = null
+        cost = 0.0
+        usages.forEach(::add)
+    }
+
+    fun add(usage: Usage) {
+        inputTokens += usage.input
+        outputTokens += usage.output
+        cacheReadTokens += usage.cacheRead
+        cacheWriteTokens += usage.cacheWrite
+        cost += usage.cost.total
+        val promptTokens = usage.input + usage.cacheRead + usage.cacheWrite
+        latestCacheHitRate = if (promptTokens > 0) usage.cacheRead.toDouble() / promptTokens * 100.0 else null
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1984,6 +2440,7 @@ public fun runTui(
     initialThinkingLevel: AgentThinkingLevel = AgentThinkingLevel.OFF,
     initialModel: Model? = null,
     theme: ThemeConfig = ThemeConfig.DEFAULT,
+    themeAppearance: ThemeAppearance = ThemeAppearance.DARK,
     fileCommands: List<SlashCommand> = emptyList(),
     getAllProviders: () -> List<ProviderInfo> = { emptyList() },
     storeApiKey: (provider: String, apiKey: String) -> Unit = { _, _ -> },
@@ -1991,6 +2448,7 @@ public fun runTui(
     refreshModels: () -> List<Model> = { availableModels },
     authorizeOAuth: suspend (provider: String) -> OAuthAuthorization? = { null },
     pollOAuthToken: suspend (provider: String) -> OAuthResult? = { null },
+    isUsingOAuth: (Model) -> Boolean = { false },
     onSettingsChanged: (transform: (Settings) -> Settings) -> Unit = {},
     initialShowUsageFooter: Boolean = true,
     todoState: TodoState? = null,
@@ -1998,6 +2456,10 @@ public fun runTui(
     compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
     compactionSettings: CompactionSettings = CompactionSettings(),
     backgroundAgents: BackgroundAgents? = null,
+    subagentsSettings: SubagentsSettings = SubagentsSettings(),
+    agentRegistry: AgentRegistry? = null,
+    scheduler: SubagentScheduler? = null,
+    persistSubagentsSettings: (SubagentsSettings) -> Unit = {},
 ) {
     val out = System.out
     val restoreTerminal = "\u001b[<u\u001b[?25h\u001b[?1049l"
@@ -2007,6 +2469,7 @@ public fun runTui(
     val shutdownHook = Thread({
         out.write(restoreTerminal.toByteArray())
         out.flush()
+        printResumeHint(out)
     }, "terminal-restore")
     Runtime.getRuntime().addShutdownHook(shutdownHook)
 
@@ -2043,6 +2506,7 @@ public fun runTui(
                 initialThinkingLevel = initialThinkingLevel,
                 initialModel = initialModel,
                 theme = theme,
+                themeAppearance = themeAppearance,
                 fileCommands = fileCommands,
                 getAllProviders = getAllProviders,
                 storeApiKey = storeApiKey,
@@ -2050,6 +2514,7 @@ public fun runTui(
                 refreshModels = refreshModels,
                 authorizeOAuth = authorizeOAuth,
                 pollOAuthToken = pollOAuthToken,
+                isUsingOAuth = isUsingOAuth,
                 onSettingsChanged = onSettingsChanged,
                 initialShowUsageFooter = initialShowUsageFooter,
                 todoState = todoState,
@@ -2057,6 +2522,10 @@ public fun runTui(
                 compactContext = compactContext,
                 compactionSettings = compactionSettings,
                 backgroundAgents = backgroundAgents,
+                subagentsSettings = subagentsSettings,
+                agentRegistry = agentRegistry,
+                scheduler = scheduler,
+                persistSubagentsSettings = persistSubagentsSettings,
             )
         }
     } catch (e: UnsupportedOperationException) {

@@ -165,6 +165,7 @@ public data class SessionTreeNode(
 
 public class SessionManager(
     private val sessionFile: Path,
+    private val projectCwd: Path? = null,
 ) {
     private var header: SessionHeader
     private val entries: MutableList<SessionEntry> = mutableListOf()
@@ -181,7 +182,7 @@ public class SessionManager(
                 ?: SessionHeader(
                     id = UUID.randomUUID().toString(),
                     timestamp = Instant.now().toString(),
-                    cwd = sessionFile.parent.toString(),
+                    cwd = (projectCwd ?: sessionFile.parent).toString(),
                 )
 
             entries.clear()
@@ -196,7 +197,7 @@ public class SessionManager(
             header = SessionHeader(
                 id = UUID.randomUUID().toString(),
                 timestamp = Instant.now().toString(),
-                cwd = sessionFile.parent.toString(),
+                cwd = (projectCwd ?: sessionFile.parent).toString(),
             )
             save()
         }

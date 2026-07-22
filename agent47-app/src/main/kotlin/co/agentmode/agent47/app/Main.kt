@@ -26,8 +26,17 @@ import co.agentmode.agent47.coding.core.models.ModelRegistry
 import co.agentmode.agent47.coding.core.models.ModelResolver
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.settings.SettingsManager
+import co.agentmode.agent47.coding.core.settings.SubagentsSettings
+import co.agentmode.agent47.coding.core.settings.SubagentsSettingsManager
 import co.agentmode.agent47.coding.core.agents.AgentRegistry
+import co.agentmode.agent47.coding.core.agents.AgentInvocationParams
 import co.agentmode.agent47.coding.core.agents.BackgroundAgents
+import co.agentmode.agent47.coding.core.agents.IsolationMode
+import co.agentmode.agent47.coding.core.agents.SubAgentOptions
+import co.agentmode.agent47.coding.core.agents.Worktree
+import co.agentmode.agent47.coding.core.agents.runSubAgent
+import co.agentmode.agent47.coding.core.agents.schedule.ScheduleStore
+import co.agentmode.agent47.coding.core.agents.schedule.SubagentScheduler
 import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.coding.core.commands.SlashCommandDiscovery
 import co.agentmode.agent47.coding.core.skills.Skill
@@ -40,6 +49,9 @@ import co.agentmode.agent47.coding.core.tools.TodoState
 import co.agentmode.agent47.coding.core.tools.createCoreTools
 import co.agentmode.agent47.tui.runTui
 import co.agentmode.agent47.tui.theme.AVAILABLE_THEMES
+import co.agentmode.agent47.tui.theme.TerminalAppearance
+import co.agentmode.agent47.tui.theme.TerminalAppearanceDetector
+import co.agentmode.agent47.tui.theme.ThemeAppearance
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.command.main
@@ -170,6 +182,10 @@ class Agent47Command :
             config.globalSettingsPath,
             config.projectSettingsPath
         )
+        val subagentsSettings = SubagentsSettingsManager.load(
+            config.globalSubagentsSettingsPath,
+            config.projectSubagentsSettingsPath,
+        )
 
         if (listModels) {
             listModels(modelRegistry, listModelsSearch)
@@ -199,7 +215,11 @@ class Agent47Command :
 
         val (promptContent, images) = processPrompt(promptArgs)
 
-        val agentRegistry = AgentRegistry(config.projectAgentsDir, config.globalAgentsDir)
+        val agentRegistry = AgentRegistry(
+            config.projectAgentsDir,
+            config.globalAgentsDir,
+            disableDefaultAgents = subagentsSettings.disableDefaultAgents,
+        )
         val skillRegistry = SkillRegistry(config.projectSkillsDir, config.globalSkillsDir)
         val fileCommands = SlashCommandDiscovery.discover(config.projectCommandsDir, config.globalCommandsDir)
 
@@ -218,7 +238,66 @@ class Agent47Command :
         val toolRegistry = createCoreTools(workingDir, toolsEnabled, skillReader, todoState)
         val allTools = toolRegistry.all().toMutableList<co.agentmode.agent47.agent.core.AgentTool<*>>()
 
-        val backgroundAgents = BackgroundAgents()
+        val backgroundAgents = BackgroundAgents(maxConcurrent = subagentsSettings.maxConcurrent)
+        // Clean up any worktrees orphaned by a previous crashed run.
+        Worktree.pruneWorktrees(workingDir)
+
+        // Session-scoped scheduler: fires scheduled subagents while this session runs.
+        val scheduler = if (subagentsSettings.schedulingEnabled) {
+            val sessionId = sessionManager?.getHeader()?.id ?: "default"
+            val store = ScheduleStore(config.projectDir.resolve("subagent-schedules").resolve("$sessionId.json"))
+            SubagentScheduler(store) { job ->
+                val def = agentRegistry.get(job.subagentType)
+                val parentModel = modelRegistry.getAvailable().firstOrNull()
+                if (def != null && parentModel != null) {
+                    val agentId = backgroundAgents.uniqueId(job.name)
+                    backgroundAgents.launch(
+                        id = agentId,
+                        agentName = def.name,
+                        description = job.description,
+                        task = job.prompt,
+                        bypassQueue = true,
+                    ) {
+                        runSubAgent(
+                            SubAgentOptions(
+                                agentDefinition = def,
+                                task = job.prompt,
+                                taskId = agentId,
+                                description = job.description,
+                                context = null,
+                                cwd = workingDir,
+                                parentModel = parentModel,
+                                modelRegistry = modelRegistry,
+                                settings = settings.get(),
+                                currentDepth = 0,
+                                maxDepth = settings.get().taskMaxRecursionDepth,
+                                agentRegistry = agentRegistry,
+                                getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
+                                subagentsSettings = subagentsSettings,
+                                invocation = AgentInvocationParams(
+                                    model = job.model,
+                                    thinking = job.thinking,
+                                    maxTurns = job.maxTurns,
+                                    isolation = if (job.isolation == "worktree") IsolationMode.WORKTREE else null,
+                                ),
+                                onProgress = { p -> backgroundAgents.updateProgress(agentId, p) },
+                                onEvent = null,
+                                onAgentReady = { a -> backgroundAgents.setAgentRef(agentId, a) },
+                                backgroundAgents = backgroundAgents,
+                                backgroundAgentId = agentId,
+                                memoryProjectDir = config.projectDir,
+                                memoryGlobalDir = config.globalDir,
+                                skillContentProvider = { name -> skillRegistry.readSkillFile(name) },
+                                sessionsDir = sessionsBaseDir(config),
+                                parentSessionId = sessionId,
+                            ),
+                        )
+                    }
+                }
+            }.also { it.start() }
+        } else {
+            null
+        }
         if (!noTools) {
             val taskTool = TaskTool(
                 agentRegistry = agentRegistry,
@@ -226,11 +305,16 @@ class Agent47Command :
                 settings = settings.get(),
                 cwd = workingDir,
                 backgroundAgents = backgroundAgents,
+                subagentsSettings = subagentsSettings,
                 currentDepth = 0,
                 maxDepth = settings.get().taskMaxRecursionDepth,
                 getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
                 sessionsDir = sessionsBaseDir(config),
                 parentSessionId = sessionManager?.getHeader()?.id,
+                memoryProjectDir = config.projectDir,
+                memoryGlobalDir = config.globalDir,
+                scheduler = scheduler,
+                skillContentProvider = { name -> skillRegistry.readSkillFile(name) },
             )
             allTools += taskTool
             allTools += CheckInboxTool(backgroundAgents)
@@ -257,6 +341,9 @@ class Agent47Command :
                 getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
             ),
         )
+        // Let background sub-agents inherit the orchestrator's prompt/conversation and (later)
+        // receive push notifications.
+        backgroundAgents.setOrchestrator(client.rawAgent())
 
         val userContent = mutableListOf<ContentBlock>()
         if (promptContent.isNotBlank()) {
@@ -339,8 +426,14 @@ class Agent47Command :
                 compactContext = compactContext,
                 compactionSettings = settings.get().compaction,
                 backgroundAgents = backgroundAgents,
+                subagentsSettings = subagentsSettings,
+                agentRegistry = agentRegistry,
+                scheduler = scheduler,
+                persistSubagentsSettings = { updated ->
+                    SubagentsSettingsManager.save(config.projectSubagentsSettingsPath, updated)
+                    backgroundAgents.setMaxConcurrent(updated.maxConcurrent)
+                },
             )
-            printResumeHint(sessionManager)
         }
     }
 
@@ -459,7 +552,7 @@ class Agent47Command :
             else -> createNewSession(config)
         }
 
-        return SessionManager(sessionPath)
+        return SessionManager(sessionPath, projectCwd = Path.of(System.getProperty("user.dir")))
     }
 
     private fun sessionsBaseDir(config: AgentConfig): Path =
@@ -502,13 +595,6 @@ class Agent47Command :
             }
         }
         return if (prefixCount == 1) prefixMatch else null
-    }
-
-    /** On exit, tell the user how to resume the session they were just in. */
-    private fun printResumeHint(sessionManager: SessionManager?) {
-        if (sessionManager == null || sessionManager.getEntries().isEmpty()) return
-        terminal.println("")
-        terminal.println("Continue this session:  agent47 --resume ${sessionManager.getHeader().id}")
     }
 
     private fun resolveTools(): List<String> {
@@ -697,10 +783,25 @@ class Agent47Command :
         compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
         compactionSettings: co.agentmode.agent47.coding.core.compaction.CompactionSettings = co.agentmode.agent47.coding.core.compaction.CompactionSettings(),
         backgroundAgents: BackgroundAgents,
+        subagentsSettings: SubagentsSettings,
+        agentRegistry: AgentRegistry,
+        scheduler: SubagentScheduler?,
+        persistSubagentsSettings: (SubagentsSettings) -> Unit,
     ) {
+        val configuredAppearance = settingsManager.get().themeAppearance
+            ?.uppercase()
+            ?.let { runCatching { ThemeAppearance.valueOf(it) }.getOrNull() }
+            ?: ThemeAppearance.AUTO
+        val terminalAppearance = if (configuredAppearance == ThemeAppearance.AUTO) {
+            TerminalAppearanceDetector.detect().appearance
+        } else {
+            null
+        }
+        val resolvedAppearance = configuredAppearance.resolve(terminalAppearance != TerminalAppearance.LIGHT)
         val resolvedTheme = settingsManager.get().theme?.let { name ->
-            AVAILABLE_THEMES.firstOrNull { it.name == name }?.config
-        } ?: ThemeConfig.DEFAULT
+            AVAILABLE_THEMES.firstOrNull { it.name == name }?.forAppearance(resolvedAppearance)
+        } ?: AVAILABLE_THEMES.firstOrNull { it.name == "default" }?.forAppearance(resolvedAppearance)
+            ?: ThemeConfig.DEFAULT
 
         val initialShowUsageFooter = settingsManager.get().showUsageFooter ?: true
 
@@ -714,6 +815,7 @@ class Agent47Command :
             initialThinkingLevel = thinkingLevel,
             initialModel = model,
             theme = resolvedTheme,
+            themeAppearance = resolvedAppearance,
             fileCommands = fileCommands,
             getAllProviders = { modelRegistry.getAllProviders() },
             storeApiKey = { provider, apiKey -> modelRegistry.storeApiKey(provider, apiKey) },
@@ -725,6 +827,7 @@ class Agent47Command :
             pollOAuthToken = { provider ->
                 modelRegistry.getAuthPlugin(provider)?.pollForToken()
             },
+            isUsingOAuth = modelRegistry::isUsingOAuth,
             onSettingsChanged = { transform -> settingsManager.update(transform) },
             initialShowUsageFooter = initialShowUsageFooter,
             todoState = todoState,
@@ -732,6 +835,10 @@ class Agent47Command :
             compactContext = compactContext,
             compactionSettings = compactionSettings,
             backgroundAgents = backgroundAgents,
+            subagentsSettings = subagentsSettings,
+            agentRegistry = agentRegistry,
+            scheduler = scheduler,
+            persistSubagentsSettings = persistSubagentsSettings,
         )
     }
 

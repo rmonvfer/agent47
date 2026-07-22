@@ -27,7 +27,7 @@ class AgentDiscoveryTest {
         )
 
         val agents = AgentDiscovery.discover(projectDir = projectAgents, globalDir = null)
-        assertEquals(4 + 1, agents.size) // 4 bundled + 1 project
+        assertEquals(5 + 1, agents.size) // 5 bundled + 1 project
         val helper = agents.first { it.name == "helper" }
         assertEquals("A helper agent", helper.description)
         assertEquals(listOf("read", "bash"), helper.tools)
@@ -116,6 +116,7 @@ class AgentDiscoveryTest {
     fun `discovers bundled agents when no directories provided`() {
         val agents = AgentDiscovery.discover(projectDir = null, globalDir = null)
         val bundledNames = agents.filter { it.source == AgentSource.BUNDLED }.map { it.name }.toSet()
+        assertTrue("general-purpose" in bundledNames)
         assertTrue("explore" in bundledNames)
         assertTrue("plan" in bundledNames)
         assertTrue("task" in bundledNames)

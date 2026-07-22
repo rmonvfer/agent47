@@ -317,4 +317,76 @@ class SettingsManagerTest {
         assertEquals("dark", manager.get().theme)
         assertEquals(true, manager.get().showUsageFooter)
     }
+
+    @Test
+    fun `loads themeAppearance`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        globalPath.writeText(
+            """
+            {
+              "themeAppearance": "light"
+            }
+            """.trimIndent(),
+        )
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        assertEquals("light", manager.get().themeAppearance)
+    }
+
+    @Test
+    fun `themeAppearance defaults to null when unset`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        assertNull(manager.get().themeAppearance)
+    }
+
+    @Test
+    fun `project themeAppearance overrides global`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        globalPath.writeText(
+            """
+            {
+              "theme": "dark",
+              "themeAppearance": "dark"
+            }
+            """.trimIndent(),
+        )
+
+        projectPath.writeText(
+            """
+            {
+              "themeAppearance": "light"
+            }
+            """.trimIndent(),
+        )
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        assertEquals("light", manager.get().themeAppearance)
+        // Global theme is preserved since project didn't set it
+        assertEquals("dark", manager.get().theme)
+    }
+
+    @Test
+    fun `update persists themeAppearance to global settings file`() {
+        val dir = createTempDirectory("settings-test")
+        val globalPath = dir.resolve("global-settings.json")
+        val projectPath = dir.resolve("project-settings.json")
+
+        val manager = SettingsManager.create(globalPath, projectPath)
+        manager.update { it.copy(themeAppearance = "light") }
+        assertEquals("light", manager.get().themeAppearance)
+
+        // Reloading from disk sees the persisted value.
+        val reloaded = SettingsManager.create(globalPath, projectPath)
+        assertEquals("light", reloaded.get().themeAppearance)
+    }
 }

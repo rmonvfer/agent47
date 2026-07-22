@@ -203,9 +203,9 @@ public fun <T> SelectDialog(
                 if (visibleIndex < visibleIndices.size) {
                     val optionIndex = visibleIndices[visibleIndex]
                     val selected = optionIndex == state.selectedIndex
-                    val label = state.items[optionIndex].label
+                    val item = state.items[optionIndex]
                     val positions = state.matchedPositions(optionIndex)
-                    Text(renderSelectLine(label, selected, width, theme, positions))
+                    Text(renderSelectLine(item.label, selected, width, theme, positions, item.rightLabel ?: ""))
                 } else if (visibleIndices.isEmpty() && i == 0) {
                     Text(renderSelectLine("(no matches)", false, width, theme))
                 } else {
@@ -226,12 +226,15 @@ private fun renderSelectLine(
     width: Int,
     theme: ThemeConfig,
     matchedPositions: List<Int> = emptyList(),
+    rightText: String = "",
 ) = buildAnnotatedString {
     val prefix = "  "
-    val maxLabelWidth = (width - prefix.length).coerceAtLeast(0)
-    val label = text.take(maxLabelWidth)
     val bg = if (selected) theme.overlaySelectedBg else theme.overlayBg
     val fg = theme.markdownText
+    // Reserve room for the right-aligned segment (+ a 2-space gap) so the label truncates first.
+    val rightReserve = if (rightText.isEmpty()) 0 else rightText.length + 2
+    val maxLabelWidth = (width - prefix.length - rightReserve).coerceAtLeast(0)
+    val label = text.take(maxLabelWidth)
     val matchSet = matchedPositions.toSet()
 
     withStyle(SpanStyle(color = fg, background = bg)) {
@@ -243,10 +246,15 @@ private fun renderSelectLine(
             append(ch)
         }
     }
-    val remaining = (width - prefix.length - label.length).coerceAtLeast(0)
-    if (remaining > 0) {
+    val gap = (width - prefix.length - label.length - rightText.length).coerceAtLeast(0)
+    if (gap > 0) {
         withStyle(SpanStyle(color = fg, background = bg)) {
-            append(" ".repeat(remaining))
+            append(" ".repeat(gap))
+        }
+    }
+    if (rightText.isNotEmpty()) {
+        withStyle(SpanStyle(color = theme.colors.muted, background = bg)) {
+            append(rightText)
         }
     }
 }

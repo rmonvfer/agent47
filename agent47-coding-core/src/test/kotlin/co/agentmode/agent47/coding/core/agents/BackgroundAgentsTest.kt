@@ -1,5 +1,7 @@
 package co.agentmode.agent47.coding.core.agents
 
+import kotlinx.coroutines.CompletableDeferred
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -100,5 +102,81 @@ class BackgroundAgentsTest {
     fun `sending to an unknown agent fails cleanly`() {
         val bg = BackgroundAgents()
         assertFalse(bg.post(from = "orchestrator", to = "nope", text = "hi"))
+    }
+
+    @Test
+    fun `concurrency queue caps running agents and drains as slots free`() {
+        val bg = BackgroundAgents(maxConcurrent = 2)
+        val gate = CompletableDeferred<Unit>()
+        val started = AtomicInteger(0)
+
+        repeat(5) { i ->
+            bg.launch("a$i", "explore", "desc", "task") {
+                started.incrementAndGet()
+                gate.await()
+                result("a$i")
+            }
+        }
+
+        // Slot reservation is synchronous in launch(): exactly maxConcurrent run, the rest queue.
+        assertEquals(2, bg.runningCount())
+        assertEquals(3, bg.queuedCount())
+        awaitCondition { started.get() == 2 }
+        assertEquals(2, started.get(), "only maxConcurrent agents should have started")
+
+        gate.complete(Unit)
+
+        val messages = awaitInbox(bg, 5)
+        assertEquals(5, messages.size)
+        assertEquals(0, bg.queuedCount())
+        assertEquals(0, bg.runningCount())
+        assertTrue(bg.runningStatus().isEmpty())
+    }
+
+    @Test
+    fun `bypassQueue starts an agent even at capacity`() {
+        val bg = BackgroundAgents(maxConcurrent = 1)
+        val gate = CompletableDeferred<Unit>()
+
+        bg.launch("blocker", "explore", "desc", "task") { gate.await(); result("blocker") }
+        bg.launch("vip", "explore", "desc", "task", bypassQueue = true) { gate.await(); result("vip") }
+
+        assertEquals(2, bg.runningCount())
+        assertEquals(0, bg.queuedCount())
+
+        gate.complete(Unit)
+        assertEquals(2, awaitInbox(bg, 2).size)
+    }
+
+    @Test
+    fun `abort removes a queued agent and cancels a running one`() {
+        val bg = BackgroundAgents(maxConcurrent = 1)
+        val gate = CompletableDeferred<Unit>()
+        val started = AtomicInteger(0)
+
+        bg.launch("run", "explore", "desc", "task") { started.incrementAndGet(); gate.await(); result("run") }
+        bg.launch("wait", "explore", "desc", "task") { started.incrementAndGet(); gate.await(); result("wait") }
+
+        awaitCondition { started.get() == 1 }
+        assertEquals(1, bg.queuedCount())
+
+        // Queued agent: removed before it starts, with a note to the orchestrator.
+        assertTrue(bg.abort("wait"))
+        assertEquals(0, bg.queuedCount())
+        val note = awaitInbox(bg, 1)
+        assertTrue(note.any { it.from == "wait" && it.text.contains("cancelled before") })
+
+        // Running agent: cancelled, leaving no COMPLETED trace.
+        assertTrue(bg.abort("run"))
+        awaitCondition { bg.runningCount() == 0 }
+        assertTrue(bg.drainInbox().none { it.from == "run" && it.kind == InboxMessage.Kind.COMPLETED })
+
+        assertFalse(bg.abort("nope"))
+    }
+
+    private fun awaitCondition(timeoutMs: Long = 5000, predicate: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (!predicate() && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        assertTrue(predicate(), "condition not met within ${timeoutMs}ms")
     }
 }

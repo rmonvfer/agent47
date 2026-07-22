@@ -10,11 +10,6 @@
   <a href="https://github.com/rmonvfer/agent47/actions/workflows/ci.yml"><img src="https://github.com/rmonvfer/agent47/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-<p align="center">
-  <!-- Replace with your terminal recording: drop a GIF at docs/assets/demo.gif -->
-  <img src="docs/assets/demo.gif" width="720" alt="agent47 terminal demo">
-</p>
-
 ---
 
 agent47 connects to any LLM provider and gives it coding tools - file reading, editing, shell execution, grep, glob - so
@@ -25,13 +20,15 @@ it can work on your codebase autonomously. It ships as a single native binary wi
 **Install script** (macOS and Linux):
 
 ```bash
-curl -fsSL https://agent47.co/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
 
-**Homebrew**:
+The installer supports macOS and Linux on ARM64 and x86-64. It verifies the release binary against the published
+SHA-256 checksums before replacing an existing installation. To install a specific release or update to the latest one:
 
 ```bash
-brew install rmonvfer/tap/agent47
+curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.0 bash
+curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
 
 **Build from source** (requires JDK 25):

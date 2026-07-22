@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 public data class SelectItem<T>(
     val label: String,
     val value: T,
+    val rightLabel: String? = null,
 )
 
 /**

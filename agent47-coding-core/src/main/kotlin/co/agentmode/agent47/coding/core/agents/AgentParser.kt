@@ -1,18 +1,19 @@
 package co.agentmode.agent47.coding.core.agents
 
 import com.charleskorn.kaml.Yaml
-import kotlinx.serialization.Serializable
+import com.charleskorn.kaml.YamlList
+import com.charleskorn.kaml.YamlMap
+import com.charleskorn.kaml.YamlNode
+import com.charleskorn.kaml.YamlNull
+import com.charleskorn.kaml.YamlScalar
 import kotlinx.serialization.json.JsonObject
 
-@Serializable
-internal data class AgentFrontMatter(
-    val name: String? = null,
-    val description: String? = null,
-    val tools: List<String>? = null,
-    val spawns: String? = null,
-    val model: String? = null,
-)
-
+/**
+ * Parses an agent markdown file into an [AgentDefinition]: a YAML frontmatter block followed by a
+ * body (the system prompt). Frontmatter is parsed into a [YamlNode] tree rather than a strict data
+ * class so that unknown keys are ignored and list-or-CSV fields (e.g. `tools`, `disallowed_tools`)
+ * are both accepted.
+ */
 public object AgentParser {
 
     private val frontMatterRegex = Regex("""^---\s*\n(.*?)\n---\s*\n?(.*)$""", RegexOption.DOT_MATCHES_ALL)
@@ -27,36 +28,55 @@ public object AgentParser {
         val yamlBlock = match?.groupValues?.get(1)?.trim().orEmpty()
         val body = match?.groupValues?.get(2)?.trim() ?: content.trim()
 
-        val frontMatter = if (yamlBlock.isNotBlank()) {
-            runCatching {
-                Yaml.default.decodeFromString(AgentFrontMatter.serializer(), yamlBlock)
-            }.getOrElse { AgentFrontMatter() }
+        val fm = if (yamlBlock.isNotBlank()) {
+            runCatching { Yaml.default.parseToYamlNode(yamlBlock) as? YamlMap }.getOrNull()
         } else {
-            AgentFrontMatter()
+            null
         }
 
-        val name = frontMatter.name ?: fallbackName
-        val description = frontMatter.description ?: name
-
-        val spawns = parseSpawnsPolicy(frontMatter.spawns)
-        val modelPatterns = frontMatter.model?.let { raw ->
-            raw.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        }
-        val thinkingLevel = parseThinkingLevel(yamlBlock)
-
-        val outputSchema = parseOutputSchema(yamlBlock)
+        val name = fm.scalar("name") ?: fallbackName
+        val description = fm.scalar("description") ?: name
 
         return AgentDefinition(
             name = name,
             description = description,
             systemPrompt = body,
-            tools = frontMatter.tools,
-            spawns = spawns,
-            model = modelPatterns,
-            thinkingLevel = thinkingLevel,
-            output = outputSchema,
+            tools = fm.stringList("tools"),
+            spawns = parseSpawnsPolicy(fm.scalar("spawns")),
+            model = fm.scalar("model")?.let { raw ->
+                raw.split(",").map { it.trim() }.filter { it.isNotBlank() }.ifEmpty { null }
+            },
+            thinkingLevel = fm.scalar("thinking-level") ?: fm.scalar("thinking"),
+            output = parseOutputSchema(yamlBlock),
             source = source,
             filePath = filePath,
+            skills = fm.stringList("skills"),
+            displayName = fm.scalar("display_name"),
+            disallowedTools = fm.stringList("disallowed_tools"),
+            promptMode = if (fm.scalar("prompt_mode")?.equals("append", ignoreCase = true) == true) {
+                PromptMode.APPEND
+            } else {
+                PromptMode.REPLACE
+            },
+            inheritContext = fm.bool("inherit_context"),
+            isolated = fm.bool("isolated"),
+            isolation = if (fm.scalar("isolation")?.equals("worktree", ignoreCase = true) == true) {
+                IsolationMode.WORKTREE
+            } else {
+                null
+            },
+            memory = when (fm.scalar("memory")?.lowercase()) {
+                "user" -> MemoryScope.USER
+                "project" -> MemoryScope.PROJECT
+                "local" -> MemoryScope.LOCAL
+                else -> null
+            },
+            maxTurns = fm.nonNegativeInt("max_turns"),
+            persistSession = fm.bool("persist_session"),
+            outputTranscript = fm.bool("output_transcript"),
+            sessionDir = fm.scalar("session_dir"),
+            // Default true; only an explicit `enabled: false` disables the agent.
+            enabled = fm.bool("enabled") != false,
         )
     }
 
@@ -73,16 +93,49 @@ public object AgentParser {
         }
     }
 
-    private fun parseThinkingLevel(yamlBlock: String): String? {
-        val regex = Regex("""thinking-level:\s*(\S+)""")
-        return regex.find(yamlBlock)?.groupValues?.get(1)
-    }
-
     private fun parseOutputSchema(yamlBlock: String): JsonObject? {
         val regex = Regex("""output:\s*(\{.*})""", RegexOption.DOT_MATCHES_ALL)
         val raw = regex.find(yamlBlock)?.groupValues?.get(1) ?: return null
         return runCatching {
             co.agentmode.agent47.ai.types.Agent47Json.decodeFromString(JsonObject.serializer(), raw)
         }.getOrNull()
+    }
+
+    // ---- YamlNode field readers. All tolerate a null map (no frontmatter) and absent keys. ----
+
+    private fun YamlMap?.child(key: String): YamlNode? = this?.get<YamlNode>(key)
+
+    /** A scalar string value, or null when absent/blank/null-node. */
+    private fun YamlMap?.scalar(key: String): String? =
+        (child(key) as? YamlScalar)?.content?.trim()?.takeIf { it.isNotBlank() }
+
+    /** Tri-state boolean: explicit `true`/`false`, or null when absent/unparseable. */
+    private fun YamlMap?.bool(key: String): Boolean? =
+        when ((child(key) as? YamlScalar)?.content?.trim()?.lowercase()) {
+            "true" -> true
+            "false" -> false
+            else -> null
+        }
+
+    /** Non-negative integer, or null when absent/negative/unparseable. `0` is a valid value. */
+    private fun YamlMap?.nonNegativeInt(key: String): Int? =
+        (child(key) as? YamlScalar)?.content?.trim()?.toIntOrNull()?.takeIf { it >= 0 }
+
+    /**
+     * A list field accepting either a YAML list (`[a, b]`) or a CSV scalar (`a, b`).
+     * Absent → null (meaning "unset"); `none`/empty → emptyList; otherwise the trimmed items.
+     */
+    private fun YamlMap?.stringList(key: String): List<String>? = when (val node = child(key)) {
+        null, is YamlNull -> null
+        is YamlList -> node.items.mapNotNull { (it as? YamlScalar)?.content?.trim() }.filter { it.isNotBlank() }
+        is YamlScalar -> {
+            val s = node.content.trim()
+            if (s.isEmpty() || s.equals("none", ignoreCase = true)) {
+                emptyList()
+            } else {
+                s.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            }
+        }
+        else -> null
     }
 }

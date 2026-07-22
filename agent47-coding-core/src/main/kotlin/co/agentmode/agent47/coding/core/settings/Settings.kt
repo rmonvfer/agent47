@@ -23,6 +23,7 @@ public data class Settings(
     val modelRoles: Map<String, String> = emptyMap(),
     val taskMaxRecursionDepth: Int = 2,
     val theme: String? = null,
+    val themeAppearance: String? = null,
     val showUsageFooter: Boolean? = null,
     val instructions: List<String> = emptyList(),
 )
@@ -61,6 +62,7 @@ public data class SettingsPatch(
     val modelRoles: Map<String, String>? = null,
     val taskMaxRecursionDepth: Int? = null,
     val theme: String? = null,
+    val themeAppearance: String? = null,
     val showUsageFooter: Boolean? = null,
     val instructions: List<String>? = null,
 )

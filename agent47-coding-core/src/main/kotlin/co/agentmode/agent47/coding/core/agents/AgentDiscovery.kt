@@ -52,7 +52,7 @@ public object AgentDiscovery {
     }
 
     private fun discoverFromClasspath(seen: MutableSet<String>, out: MutableList<AgentDefinition>) {
-        val resourceNames = listOf("explore.md", "plan.md", "task.md", "quick_task.md")
+        val resourceNames = listOf("general-purpose.md", "explore.md", "plan.md", "task.md", "quick_task.md")
         for (resourceName in resourceNames) {
             val stream = AgentDiscovery::class.java.classLoader
                 .getResourceAsStream("agents/$resourceName")
