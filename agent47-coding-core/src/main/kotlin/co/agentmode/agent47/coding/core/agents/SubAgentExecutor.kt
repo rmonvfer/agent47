@@ -126,13 +126,17 @@ public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult {
     val params = options.invocation
     val startTime = System.currentTimeMillis()
 
-    // Worktree isolation: run in an isolated copy of the repo when requested. Falls back to the
-    // normal cwd if the directory isn't a git repo (createWorktree returns null).
+    // Worktree isolation: run in an isolated copy of the repo when requested. A creation failure
+    // fails the invocation rather than allowing isolated work to mutate the caller's checkout.
     val isolation = params.isolation ?: definition.isolation
     val worktree: WorktreeInfo? = if (isolation == IsolationMode.WORKTREE) {
         Worktree.createWorktree(options.cwd, id)
     } else {
         null
+    }
+    if (isolation == IsolationMode.WORKTREE && worktree == null) {
+        val failure = "Worktree isolation was requested, but an isolated worktree could not be created from ${options.cwd}"
+        return isolationFailureResult(options, id, startTime, failure)
     }
     val effectiveCwd = worktree?.let { Path.of(it.workPath) } ?: options.cwd
 
@@ -311,10 +315,18 @@ public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult {
     // Commit any changes made in the worktree to a branch and remove the worktree.
     val worktreeNote = if (worktree != null) {
         val cleanup = Worktree.cleanupWorktree(options.cwd, worktree, options.description ?: definition.name)
-        if (cleanup.hasChanges && cleanup.branch != null) {
-            "\n\n(changes committed to branch: ${cleanup.branch})"
-        } else {
-            ""
+        when {
+            cleanup.error != null -> {
+                val cleanupError = "Worktree cleanup failed: ${cleanup.error}"
+                error = listOfNotNull(error, cleanupError).joinToString("; ")
+                if (cleanup.path != null) {
+                    "\n\n(worktree preserved for recovery at: ${cleanup.path})"
+                } else {
+                    "\n\n(worktree cleanup failed: ${cleanup.error})"
+                }
+            }
+            cleanup.hasChanges && cleanup.branch != null -> "\n\n(changes committed to branch: ${cleanup.branch})"
+            else -> ""
         }
     } else {
         ""
@@ -344,6 +356,26 @@ public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult {
         outputFile = transcript?.pathString(),
     )
 }
+
+private fun isolationFailureResult(
+    options: SubAgentOptions,
+    id: String,
+    startTime: Long,
+    failure: String,
+): SubAgentResult = SubAgentResult(
+    id = id,
+    agent = options.agentDefinition.name,
+    agentSource = options.agentDefinition.source,
+    task = options.task,
+    description = options.description,
+    exitCode = 1,
+    output = "Sub-agent failed: $failure",
+    truncated = false,
+    durationMs = System.currentTimeMillis() - startTime,
+    tokens = 0,
+    error = failure,
+    aborted = false,
+)
 
 /**
  * Builds the per-agent memory block for the prompt, or null when the agent has no `memory:` scope

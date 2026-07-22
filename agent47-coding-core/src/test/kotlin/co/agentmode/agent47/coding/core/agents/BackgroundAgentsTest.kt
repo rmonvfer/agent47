@@ -1,6 +1,8 @@
 package co.agentmode.agent47.coding.core.agents
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -134,18 +136,31 @@ class BackgroundAgentsTest {
     }
 
     @Test
-    fun `bypassQueue starts an agent even at capacity`() {
+    fun `launch returns a handle that completes after a queued agent runs`() = kotlinx.coroutines.runBlocking {
         val bg = BackgroundAgents(maxConcurrent = 1)
         val gate = CompletableDeferred<Unit>()
 
         bg.launch("blocker", "explore", "desc", "task") { gate.await(); result("blocker") }
-        bg.launch("vip", "explore", "desc", "task", bypassQueue = true) { gate.await(); result("vip") }
+        val queued = bg.launch("queued", "explore", "desc", "task") { result("queued") }
 
-        assertEquals(2, bg.runningCount())
-        assertEquals(0, bg.queuedCount())
+        assertEquals(1, bg.runningCount())
+        assertEquals(1, bg.queuedCount())
 
         gate.complete(Unit)
+        assertEquals("queued", queued.awaitResult()?.id)
         assertEquals(2, awaitInbox(bg, 2).size)
+    }
+
+    @Test
+    fun `cancel all completes queued agent handles`() = runBlocking {
+        val bg = BackgroundAgents(maxConcurrent = 1)
+        val gate = CompletableDeferred<Unit>()
+        bg.launch("blocker", "explore", "desc", "task") { gate.await(); result("blocker") }
+        val queued = bg.launch("queued", "explore", "desc", "task") { result("queued") }
+
+        bg.cancelAll()
+
+        assertEquals(null, withTimeout(1_000) { queued.awaitResult() })
     }
 
     @Test

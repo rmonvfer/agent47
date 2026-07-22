@@ -28,8 +28,10 @@ public data class WorktreeCleanupResult(
     val hasChanges: Boolean,
     /** Branch name if changes were committed and kept. */
     val branch: String? = null,
-    /** Worktree path if changes were committed and kept. */
+    /** Worktree path when cleanup failed and the worktree was preserved for recovery. */
     val path: String? = null,
+    /** Cleanup failure. A non-null value means the worktree was not removed. */
+    val error: String? = null,
 )
 
 /**
@@ -52,8 +54,7 @@ public object Worktree {
 
     /**
      * Creates a temporary detached git worktree at HEAD for the agent identified by [agentId].
-     * Returns null on any failure (not a git repo, no commits yet, or a git command failing), in
-     * which case the agent runs in its normal [cwd].
+     * Returns null on any failure (not a git repo, no commits yet, or a git command failing).
      */
     public fun createWorktree(cwd: Path, agentId: String): WorktreeInfo? {
         // Verify we're in a git repo with at least one commit (HEAD must exist).
@@ -97,26 +98,35 @@ public object Worktree {
      * committed. If it is clean and still at [WorktreeInfo.baseSha], the worktree is removed and no
      * changes are reported. Otherwise a branch is created at the worktree HEAD (with a timestamp
      * suffix if the branch name is taken) and the worktree is removed, leaving the branch in the main
-     * repo. [agentDescription] is truncated to 200 chars for the commit message.
+     * repo. If inspection, staging, committing, or branch creation fails, the worktree is preserved
+     * and its path and the error are returned for recovery. [agentDescription] is truncated to 200
+     * chars for the commit message.
      */
     public fun cleanupWorktree(cwd: Path, worktree: WorktreeInfo, agentDescription: String): WorktreeCleanupResult {
         val worktreeDir = Path.of(worktree.path)
         if (!worktreeDir.exists()) {
-            return WorktreeCleanupResult(hasChanges = false)
+            return WorktreeCleanupResult(
+                hasChanges = false,
+                error = "Worktree directory no longer exists: ${worktree.path}",
+            )
         }
 
         val status = runGit(worktreeDir, listOf("status", "--porcelain"), GIT_COMMAND_TIMEOUT_SECONDS)
-        if (status.exitCode != 0) return failCleanup(cwd, worktree.path)
+        if (status.exitCode != 0) {
+            return preserveWorktree(worktree.path, "inspect worktree status", status, hasChanges = false)
+        }
 
         if (status.stdout.trim().isNotEmpty()) {
             // Changes exist — stage and commit them. No shell sanitization is needed: runGit passes
             // an argv list, so the description can never break out into shell metacharacters.
-            if (runGit(worktreeDir, listOf("add", "-A"), GIT_COMMAND_TIMEOUT_SECONDS).exitCode != 0) {
-                return failCleanup(cwd, worktree.path)
+            val add = runGit(worktreeDir, listOf("add", "-A"), GIT_COMMAND_TIMEOUT_SECONDS)
+            if (add.exitCode != 0) {
+                return preserveWorktree(worktree.path, "stage worktree changes", add, hasChanges = true)
             }
             val commitMessage = "agent47-agent: ${agentDescription.take(COMMIT_MESSAGE_MAX_LENGTH)}"
-            if (runGit(worktreeDir, listOf("commit", "--no-verify", "-m", commitMessage), GIT_COMMAND_TIMEOUT_SECONDS).exitCode != 0) {
-                return failCleanup(cwd, worktree.path)
+            val commit = runGit(worktreeDir, listOf("commit", "-m", commitMessage), GIT_COMMAND_TIMEOUT_SECONDS)
+            if (commit.exitCode != 0) {
+                return preserveWorktree(worktree.path, "commit worktree changes", commit, hasChanges = true)
             }
         } else {
             val current = runGit(worktreeDir, listOf("rev-parse", "HEAD"), REV_PARSE_TIMEOUT_SECONDS)
@@ -130,16 +140,18 @@ public object Worktree {
         // Create a branch pointing at the worktree's HEAD. If the branch already exists, append a
         // timestamp suffix to avoid overwriting previous work.
         var branchName = worktree.branch
-        if (runGit(worktreeDir, listOf("branch", branchName), GIT_COMMAND_TIMEOUT_SECONDS).exitCode != 0) {
+        val createBranch = runGit(worktreeDir, listOf("branch", branchName), GIT_COMMAND_TIMEOUT_SECONDS)
+        if (createBranch.exitCode != 0) {
             branchName = "${worktree.branch}-${System.currentTimeMillis()}"
-            if (runGit(worktreeDir, listOf("branch", branchName), GIT_COMMAND_TIMEOUT_SECONDS).exitCode != 0) {
-                return failCleanup(cwd, worktree.path)
+            val createFallbackBranch = runGit(worktreeDir, listOf("branch", branchName), GIT_COMMAND_TIMEOUT_SECONDS)
+            if (createFallbackBranch.exitCode != 0) {
+                return preserveWorktree(worktree.path, "create recovery branch", createFallbackBranch, hasChanges = true)
             }
         }
 
         // Remove the worktree; the branch persists in the main repo.
         removeWorktree(cwd, worktree.path)
-        return WorktreeCleanupResult(hasChanges = true, branch = branchName, path = worktree.path)
+        return WorktreeCleanupResult(hasChanges = true, branch = branchName)
     }
 
     /** Force-removes the worktree at [path]; if git refuses, falls back to pruning stale entries. */
@@ -154,10 +166,19 @@ public object Worktree {
         runGit(cwd, listOf("worktree", "prune"), PRUNE_TIMEOUT_SECONDS)
     }
 
-    /** Best-effort worktree removal followed by a "no changes" result, used on any cleanup failure. */
-    private fun failCleanup(cwd: Path, path: String): WorktreeCleanupResult {
-        removeWorktree(cwd, path)
-        return WorktreeCleanupResult(hasChanges = false)
+    /** Reports a cleanup failure without removing the worktree so its contents remain recoverable. */
+    private fun preserveWorktree(
+        path: String,
+        operation: String,
+        result: GitResult,
+        hasChanges: Boolean,
+    ): WorktreeCleanupResult {
+        val detail = result.stderr.trim().ifEmpty { result.stdout.trim() }.ifEmpty { "git exited with ${result.exitCode}" }
+        return WorktreeCleanupResult(
+            hasChanges = hasChanges,
+            path = path,
+            error = "Could not $operation: $detail",
+        )
     }
 
     /**

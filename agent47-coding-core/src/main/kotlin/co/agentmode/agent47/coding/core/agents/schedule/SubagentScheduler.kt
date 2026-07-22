@@ -1,5 +1,6 @@
 package co.agentmode.agent47.coding.core.agents.schedule
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,9 +19,8 @@ import java.util.concurrent.ConcurrentHashMap
  * while the app runs (no OS daemon). Each enabled job is armed by a coroutine that sleeps until its
  * next fire time: intervals loop, one-shots fire once then disable, cron recomputes each iteration.
  *
- * Firing calls [spawn], which is expected to launch a background agent bypassing the concurrency
- * queue so a timed fire never waits behind long-running agents. Job status is updated after the
- * launch returns (session-lifetime scheduling does not track the agent to completion).
+ * Firing calls [spawn], which completes when the scheduled work completes. A job cannot fire again
+ * while its previous invocation is active. Job status is updated after the invocation returns.
  */
 public class SubagentScheduler(
     private val store: ScheduleStore,
@@ -28,6 +28,7 @@ public class SubagentScheduler(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val armed = ConcurrentHashMap<String, Job>()
+    private val firing = ConcurrentHashMap.newKeySet<String>()
 
     @Volatile
     private var active = false
@@ -125,6 +126,16 @@ public class SubagentScheduler(
     }
 
     private suspend fun fire(id: String) {
+        if (!firing.add(id)) return
+
+        try {
+            fireJob(id)
+        } finally {
+            firing.remove(id)
+        }
+    }
+
+    private suspend fun fireJob(id: String) {
         val job = store.get(id) ?: return
         if (!job.enabled) return
 
@@ -139,6 +150,8 @@ public class SubagentScheduler(
                     nextRun = computeNextRun(it),
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             store.update(id) { it.copy(lastRun = Instant.now().toString(), lastStatus = "error") }
         }

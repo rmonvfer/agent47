@@ -1,6 +1,7 @@
 package co.agentmode.agent47.agent.core
 
 import co.agentmode.agent47.ai.core.AiRuntime
+import co.agentmode.agent47.ai.core.ToolValidation
 import co.agentmode.agent47.ai.core.utils.MessageTransforms
 import co.agentmode.agent47.ai.types.*
 import kotlinx.coroutines.CancellationException
@@ -396,15 +397,16 @@ private suspend fun executeToolCalls(
 
         try {
             require(tool != null) { "Tool ${toolCall.name} not found" }
+            val parameters = ToolValidation.validateToolArguments(tool.definition, toolCall)
             executionResult = tool.execute(
                 toolCallId = toolCall.id,
-                parameters = toolCall.arguments,
+                parameters = parameters,
                 onUpdate = { partial ->
                     stream.push(
                         ToolExecutionUpdateEvent(
                             toolCallId = toolCall.id,
                             toolName = toolCall.name,
-                            arguments = toolCall.arguments,
+                            arguments = parameters,
                             partialResult = partial,
                         ),
                     )

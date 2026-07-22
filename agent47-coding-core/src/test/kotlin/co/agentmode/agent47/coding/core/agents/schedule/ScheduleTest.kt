@@ -1,10 +1,14 @@
 package co.agentmode.agent47.coding.core.agents.schedule
 
+import co.agentmode.agent47.coding.core.agents.AgentSource
+import co.agentmode.agent47.coding.core.agents.BackgroundAgents
+import co.agentmode.agent47.coding.core.agents.SubAgentResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -15,6 +19,21 @@ import kotlin.test.assertTrue
 class ScheduleTest {
 
     private val now = Instant.parse("2026-07-22T12:00:00Z")
+
+    private fun result(id: String) = SubAgentResult(
+        id = id,
+        agent = "explore",
+        agentSource = AgentSource.BUNDLED,
+        task = "task",
+        description = "desc",
+        exitCode = 0,
+        output = "done",
+        truncated = false,
+        durationMs = 1,
+        tokens = 0,
+        error = null,
+        aborted = false,
+    )
 
     @Test
     fun `detects relative one-shot`() {
@@ -93,5 +112,95 @@ class ScheduleTest {
         }
         assertTrue(disabled, "one-shot job should be disabled after firing")
         scheduler.stop()
+    }
+
+    @Test
+    fun `interval schedule does not overlap an active invocation`() = runBlocking {
+        val store = ScheduleStore(createTempDirectory("sched-overlap").resolve("s.json"))
+        val gate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val active = AtomicInteger(0)
+        val maxActive = AtomicInteger(0)
+        val scheduler = SubagentScheduler(store) {
+            val current = active.incrementAndGet()
+            maxActive.updateAndGet { previous -> maxOf(previous, current) }
+            started.complete(Unit)
+            try {
+                gate.await()
+            } finally {
+                active.decrementAndGet()
+            }
+        }
+        store.add(
+            ScheduledSubagent(
+                id = "frequent",
+                name = "frequent",
+                description = "d",
+                schedule = "50ms",
+                scheduleType = ScheduleType.INTERVAL,
+                intervalMs = 50,
+                subagentType = "explore",
+                prompt = "go",
+                createdAt = Instant.now().toString(),
+            ),
+        )
+        scheduler.start()
+
+        withTimeout(5_000) { started.await() }
+        delay(250)
+
+        assertEquals(1, maxActive.get())
+        assertEquals(1, active.get())
+        gate.complete(Unit)
+        scheduler.stop()
+    }
+
+    @Test
+    fun `scheduled invocation waits for the background agent concurrency limit`() = runBlocking {
+        val backgroundAgents = BackgroundAgents(maxConcurrent = 1)
+        val blockerGate = CompletableDeferred<Unit>()
+        val scheduledGate = CompletableDeferred<Unit>()
+        val scheduledStarted = CompletableDeferred<Unit>()
+        backgroundAgents.launch("blocker", "explore", "d", "block") {
+            blockerGate.await()
+            result("blocker")
+        }
+
+        val store = ScheduleStore(createTempDirectory("sched-concurrency").resolve("s.json"))
+        store.add(
+            ScheduledSubagent(
+                id = "queued-schedule",
+                name = "queued-schedule",
+                description = "d",
+                schedule = "50ms",
+                scheduleType = ScheduleType.INTERVAL,
+                intervalMs = 50,
+                subagentType = "explore",
+                prompt = "go",
+                createdAt = Instant.now().toString(),
+            ),
+        )
+        val scheduler = SubagentScheduler(store) { job ->
+            val running = backgroundAgents.launch(job.id, "explore", job.description, job.prompt) {
+                scheduledStarted.complete(Unit)
+                scheduledGate.await()
+                result(job.id)
+            }
+            check(running.awaitResult() != null)
+        }
+        scheduler.start()
+
+        withTimeout(5_000) {
+            while (backgroundAgents.queuedCount() == 0) delay(10)
+        }
+        assertEquals(1, backgroundAgents.runningCount())
+        assertEquals(1, backgroundAgents.queuedCount())
+        assertTrue(!scheduledStarted.isCompleted)
+
+        blockerGate.complete(Unit)
+        withTimeout(5_000) { scheduledStarted.await() }
+        assertEquals(1, backgroundAgents.runningCount())
+        scheduler.stop()
+        scheduledGate.complete(Unit)
     }
 }

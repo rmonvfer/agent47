@@ -12,10 +12,12 @@ import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -70,22 +72,29 @@ public class BashTool(
                         }
                     }
 
-                    val finished = if (timeoutSeconds != null && timeoutSeconds > 0) {
-                        process.waitFor(timeoutSeconds.toLong(), TimeUnit.SECONDS)
-                    } else {
-                        process.waitFor()
-                        true
-                    }
+                    try {
+                        val finished = runInterruptible {
+                            if (timeoutSeconds != null && timeoutSeconds > 0) {
+                                process.waitFor(timeoutSeconds.toLong(), TimeUnit.SECONDS)
+                            } else {
+                                process.waitFor()
+                                true
+                            }
+                        }
 
-                    if (!finished) {
-                        killProcessTree(process)
-                        readerJob.cancelAndJoin()
-                        throw IllegalStateException("Command timed out after $timeoutSeconds seconds")
-                    }
+                        if (!finished) {
+                            throw IllegalStateException("Command timed out after $timeoutSeconds seconds")
+                        }
 
-                    readerJob.join()
+                        readerJob.join()
+                    } finally {
+                        if (process.isAlive) killProcessTree(process)
+                        runCatching { process.inputStream.close() }
+                        withContext(NonCancellable) { readerJob.cancelAndJoin() }
+                    }
                 }
             } finally {
+                if (process.isAlive) killProcessTree(process)
                 collector.close()
             }
 

@@ -77,7 +77,7 @@ public class GoogleFamilyProvider(
         options: StreamOptions?,
     ): AssistantMessageEventStream = streamWithCoroutine(model) { stream ->
         val payload = buildPayload(context, options)
-        val url = endpoint(model, options)
+        val url = endpoint(model)
         val headers = buildHeaders(model, options)
 
         // Google's streamGenerateContent returns newline-delimited JSON chunks wrapped in a JSON array.
@@ -271,22 +271,10 @@ public class GoogleFamilyProvider(
         return stream(model, context, options?.toStreamOptions())
     }
 
-    private fun endpoint(model: Model, options: StreamOptions?): String {
+    private fun endpoint(model: Model): String {
         val path = pathTemplate.replace("{model}", model.id)
         val base = model.baseUrl.trimEnd('/')
-
-        val explicitKey = options?.apiKey
-            ?: model.headers?.get("x-goog-api-key")
-            ?: model.headers?.get("X-Goog-Api-Key")
-
-        val fullPath = "$base$path"
-
-        if (explicitKey != null && !fullPath.contains("key=")) {
-            val separator = if (fullPath.contains("?")) "&" else "?"
-            return "$fullPath${separator}key=$explicitKey"
-        }
-
-        return fullPath
+        return "$base$path"
     }
 }
 
@@ -295,6 +283,7 @@ private fun buildHeaders(model: Model, options: StreamOptions?): Map<String, Str
     // Google headers are case-insensitive; normalize keys to lowercase
     val normalized = mutableMapOf<String, String>()
     headers.forEach { (key, value) -> normalized[key.lowercase()] = value }
+    options?.apiKey?.let { normalized["x-goog-api-key"] = it }
     return normalized
 }
 

@@ -5,6 +5,7 @@ import co.agentmode.agent47.ai.types.Message
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.UserMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,6 +37,8 @@ public class RunningAgent(
     /** Number of agents in this agent's batch. */
     public val groupSize: Int = 1,
 ) {
+    private val completion = CompletableDeferred<SubAgentResult?>()
+
     public enum class Status { QUEUED, RUNNING }
 
     @Volatile public var status: Status = Status.QUEUED
@@ -45,7 +48,15 @@ public class RunningAgent(
     @Volatile public var result: SubAgentResult? = null
     @Volatile public var agentRef: Agent? = null
     @Volatile public var job: Job? = null
-    public val done: Boolean get() = result != null
+    @Volatile private var finished: Boolean = false
+    public val done: Boolean get() = finished
+
+    public suspend fun awaitResult(): SubAgentResult? = completion.await()
+
+    internal fun complete(result: SubAgentResult?) {
+        finished = true
+        completion.complete(result)
+    }
 }
 
 /**
@@ -54,8 +65,8 @@ public class RunningAgent(
  * polls progress/results via [drainInbox]/[runningStatus] and routes messages via [post].
  *
  * At most [maxConcurrent] agents run concurrently; the rest wait in a FIFO queue and start as
- * running slots free up ([drainQueue]). A launch may [bypass][launch] the queue (used by the
- * scheduler). A failing agent never takes down its siblings (supervisor) nor the registry.
+ * running slots free up ([drainQueue]). A failing agent never takes down its siblings (supervisor)
+ * nor the registry.
  */
 public class BackgroundAgents(
     maxConcurrent: Int = DEFAULT_MAX_CONCURRENT,
@@ -119,25 +130,23 @@ public class BackgroundAgents(
      * Registers a background agent and either starts it immediately or queues it if the
      * concurrency ceiling is reached. [run] performs the actual work (typically [runSubAgent]);
      * it is expected not to throw for normal agent errors (those come back inside [SubAgentResult]).
-     * When [bypassQueue] is set the agent starts immediately regardless of the ceiling (used by the
-     * scheduler so a timed fire never waits behind the queue).
+     * The returned [RunningAgent] can be used to await completion, including while it is queued.
      */
     public fun launch(
         id: String,
         agentName: String,
         description: String?,
         task: String,
-        bypassQueue: Boolean = false,
         groupId: String? = null,
         groupSize: Int = 1,
         run: suspend (RunningAgent) -> SubAgentResult,
-    ) {
+    ): RunningAgent {
         val running = RunningAgent(id, agentName, description, task, groupId, groupSize)
         agents[id] = running
         order.add(id)
 
         val startNow = synchronized(lock) {
-            if (bypassQueue || runningBackground < maxConcurrentLimit) {
+            if (runningBackground < maxConcurrentLimit) {
                 runningBackground++
                 true
             } else {
@@ -146,6 +155,7 @@ public class BackgroundAgents(
             }
         }
         if (startNow) startAgent(running, run)
+        return running
     }
 
     private fun startAgent(running: RunningAgent, run: suspend (RunningAgent) -> SubAgentResult) {
@@ -155,6 +165,7 @@ public class BackgroundAgents(
             try {
                 val result = run(running)
                 running.result = result
+                running.complete(result)
                 inbox.add(
                     InboxMessage(
                         from = running.id,
@@ -166,7 +177,9 @@ public class BackgroundAgents(
                 completionListener?.invoke(running)
             } catch (_: CancellationException) {
                 // Cancelled (abort / new session) — leave no inbox trace.
+                running.complete(null)
             } catch (e: Throwable) {
+                running.complete(null)
                 inbox.add(
                     InboxMessage(
                         from = running.id,
@@ -225,6 +238,7 @@ public class BackgroundAgents(
             if (queued != null) queue.remove(queued) else false
         }
         if (wasQueued) {
+            running.complete(null)
             agents.remove(id)
             order.remove(id)
             inbox.add(
@@ -280,6 +294,7 @@ public class BackgroundAgents(
     public fun cancelAll() {
         job.cancelChildren()
         synchronized(lock) {
+            queue.forEach { it.running.complete(null) }
             queue.clear()
             runningBackground = 0
         }

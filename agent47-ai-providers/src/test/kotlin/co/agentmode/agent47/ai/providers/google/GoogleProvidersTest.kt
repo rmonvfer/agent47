@@ -11,6 +11,7 @@ import co.agentmode.agent47.ai.types.ModelCost
 import co.agentmode.agent47.ai.types.ModelInputKind
 import co.agentmode.agent47.ai.types.ProviderId
 import co.agentmode.agent47.ai.types.StopReason
+import co.agentmode.agent47.ai.types.SimpleStreamOptions
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.TextDeltaEvent
 import co.agentmode.agent47.ai.types.ToolCall
@@ -29,6 +30,7 @@ import kotlinx.serialization.json.put
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class GoogleProvidersTest {
@@ -38,6 +40,47 @@ class GoogleProvidersTest {
     fun tearDown() {
         ApiRegistry.clear()
         server?.stop(0)
+    }
+
+    @Test
+    fun `google provider sends API key in header without adding it to URL`() = runTest {
+        val requestUri = AtomicReference<String>()
+        val apiKeyHeader = AtomicReference<String>()
+        server = HttpServer.create(InetSocketAddress(0), 0)
+        server!!.createContext("/models/gemini-2.5-pro:streamGenerateContent") { exchange ->
+            requestUri.set(exchange.requestURI.toString())
+            apiKeyHeader.set(exchange.requestHeaders.getFirst("x-goog-api-key"))
+            val payload =
+                """[{"candidates":[{"content":{"parts":[{"text":"ok"}]} ,"finishReason":"STOP"}]}]"""
+            exchange.sendResponseHeaders(200, payload.toByteArray().size.toLong())
+            exchange.responseBody.use { it.write(payload.toByteArray()) }
+        }
+        server!!.start()
+
+        registerGoogleProviders()
+
+        val model = Model(
+            id = "gemini-2.5-pro",
+            name = "Gemini",
+            api = KnownApis.GoogleGenerativeAi,
+            provider = ProviderId("google"),
+            baseUrl = "http://127.0.0.1:${server!!.address.port}",
+            reasoning = true,
+            input = listOf(ModelInputKind.TEXT),
+            cost = ModelCost(0.0, 0.0, 0.0, 0.0),
+            contextWindow = 1_000_000,
+            maxTokens = 4096,
+        )
+
+        AiRuntime.completeSimple(
+            model = model,
+            context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
+            options = SimpleStreamOptions(apiKey = "secret-google-key"),
+        )
+
+        assertEquals("secret-google-key", apiKeyHeader.get())
+        assertFalse(requestUri.get().contains("secret-google-key"))
+        assertFalse(requestUri.get().contains("key="))
     }
 
     @Test

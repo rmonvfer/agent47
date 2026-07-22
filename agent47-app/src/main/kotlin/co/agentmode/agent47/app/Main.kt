@@ -64,6 +64,7 @@ import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.mordant.rendering.Theme
 import com.github.ajalt.mordant.table.table
 import com.github.ajalt.mordant.terminal.Terminal
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -87,6 +88,27 @@ private val VALID_THINKING_LEVELS = listOf(
 )
 
 suspend fun main(args: Array<String>): Unit = Agent47Command().main(args)
+
+internal fun findLatestProjectSession(sessionDir: Path, projectCwd: Path): Path? {
+    if (!sessionDir.exists()) return null
+
+    val canonicalProject = projectCwd.canonicalPath()
+    return Files.list(sessionDir).use { stream ->
+        stream
+            .filter { Files.isRegularFile(it) && it.toString().endsWith(".jsonl") }
+            .filter { file ->
+                runCatching {
+                    Path.of(SessionManager(file).getHeader().cwd).canonicalPath() == canonicalProject
+                }.getOrDefault(false)
+            }
+            .sorted { a, b -> b.fileName.compareTo(a.fileName) }
+            .findFirst()
+            .orElse(null)
+    }
+}
+
+private fun Path.canonicalPath(): Path =
+    runCatching { toRealPath() }.getOrElse { toAbsolutePath().normalize() }
 
 class Agent47Command :
     SuspendingCliktCommand(name = "agent47") {
@@ -251,12 +273,11 @@ class Agent47Command :
                 val parentModel = modelRegistry.getAvailable().firstOrNull()
                 if (def != null && parentModel != null) {
                     val agentId = backgroundAgents.uniqueId(job.name)
-                    backgroundAgents.launch(
+                    val running = backgroundAgents.launch(
                         id = agentId,
                         agentName = def.name,
                         description = job.description,
                         task = job.prompt,
-                        bypassQueue = true,
                     ) {
                         runSubAgent(
                             SubAgentOptions(
@@ -292,6 +313,15 @@ class Agent47Command :
                                 parentSessionId = sessionId,
                             ),
                         )
+                    }
+                    val result = try {
+                        running.awaitResult()
+                    } catch (e: CancellationException) {
+                        backgroundAgents.abort(agentId)
+                        throw e
+                    } ?: error("Scheduled agent '$agentId' did not complete")
+                    if (result.aborted || result.error != null || result.exitCode != 0) {
+                        error(result.error ?: "Scheduled agent '$agentId' exited with ${result.exitCode}")
                     }
                 }
             }.also { it.start() }
@@ -543,7 +573,10 @@ class Agent47Command :
 
         val sessionPath = when {
             session != null -> session!!
-            continueSession -> findLatestSession(config) ?: createNewSession(config)
+            continueSession -> findLatestProjectSession(
+                sessionsBaseDir(config),
+                Path.of(System.getProperty("user.dir")),
+            ) ?: createNewSession(config)
             resume != null -> findSessionById(config, resume!!) ?: run {
                 terminal.printWarning("No session found matching '$resume' — starting a new session")
                 createNewSession(config)
@@ -562,19 +595,6 @@ class Agent47Command :
         val dir = sessionsBaseDir(config)
         Files.createDirectories(dir)
         return dir.resolve("session-${System.currentTimeMillis()}.jsonl")
-    }
-
-    private fun findLatestSession(config: AgentConfig): Path? {
-        val dir = sessionsBaseDir(config)
-        if (!dir.exists()) return null
-
-        return Files.list(dir).use { stream ->
-            stream
-                .filter { it.toString().endsWith(".jsonl") }
-                .sorted { a, b -> b.fileName.compareTo(a.fileName) }
-                .findFirst()
-                .orElse(null)
-        }
     }
 
     /** Finds the session file whose header id equals [id], or a unique prefix of it. */

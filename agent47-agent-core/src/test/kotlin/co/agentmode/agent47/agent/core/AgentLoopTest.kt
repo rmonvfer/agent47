@@ -19,9 +19,11 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AgentLoopTest {
@@ -124,6 +126,125 @@ class AgentLoopTest {
         assertTrue(events.any { it is ToolExecutionStartEvent })
         assertTrue(events.any { it is ToolExecutionEndEvent && !it.isError })
         assertEquals("assistant", result.last().role)
+    }
+
+    @Test
+    fun `invalid tool arguments return an error without executing the tool`() = runBlocking {
+        var executed = false
+        val tool = object : AgentTool<JsonObject> {
+            override val label: String = "echo"
+            override val definition: ToolDefinition = ToolDefinition(
+                name = "echo",
+                description = "echo",
+                parameters = buildJsonObject {
+                    put("type", JsonPrimitive("object"))
+                    put("properties", buildJsonObject {
+                        put("value", buildJsonObject { put("type", JsonPrimitive("string")) })
+                    })
+                    put("required", buildJsonArray { add(JsonPrimitive("value")) })
+                },
+            )
+
+            override suspend fun execute(
+                toolCallId: String,
+                parameters: JsonObject,
+                onUpdate: AgentToolUpdateCallback<JsonObject>?,
+            ): AgentToolResult<JsonObject> {
+                executed = true
+                return AgentToolResult(content = listOf(TextContent(text = "executed")), details = parameters)
+            }
+        }
+
+        var callIndex = 0
+        val run = agentLoop(
+            prompts = listOf(user("start")),
+            context = AgentContext("", mutableListOf(), tools = listOf(tool)),
+            config = AgentLoopConfig(model = createModel(), convertToLlm = { it }),
+            streamFunction = { _, _, _ ->
+                AssistantMessageEventStream().also { stream ->
+                    if (callIndex++ == 0) {
+                        val message = assistantToolCall("echo", buildJsonObject { })
+                        stream.push(DoneEvent(reason = StopReason.TOOL_USE, message = message))
+                    } else {
+                        stream.push(DoneEvent(reason = StopReason.STOP, message = assistant("done")))
+                    }
+                }
+            },
+        )
+
+        val events = run.events.toList()
+        val result = run.result()
+        val toolResult = result.filterIsInstance<co.agentmode.agent47.ai.types.ToolResultMessage>().single()
+
+        assertFalse(executed)
+        assertTrue(toolResult.isError)
+        assertTrue(toolResult.content.filterIsInstance<TextContent>().single().text.contains("Invalid arguments for tool 'echo'"))
+        assertTrue(events.any { it is ToolExecutionEndEvent && it.isError })
+    }
+
+    @Test
+    fun `tool argument validation coerces scalar strings before execution`() = runBlocking {
+        var received: JsonObject? = null
+        val tool = object : AgentTool<JsonObject> {
+            override val label: String = "repeat"
+            override val definition: ToolDefinition = ToolDefinition(
+                name = "repeat",
+                description = "repeat",
+                parameters = buildJsonObject {
+                    put("type", JsonPrimitive("object"))
+                    put("properties", buildJsonObject {
+                        put("count", buildJsonObject { put("type", JsonPrimitive("integer")) })
+                    })
+                    put("required", buildJsonArray { add(JsonPrimitive("count")) })
+                },
+            )
+
+            override suspend fun execute(
+                toolCallId: String,
+                parameters: JsonObject,
+                onUpdate: AgentToolUpdateCallback<JsonObject>?,
+            ): AgentToolResult<JsonObject> {
+                received = parameters
+                return AgentToolResult(content = listOf(TextContent(text = "ok")), details = parameters)
+            }
+        }
+
+        var callIndex = 0
+        val run = agentLoop(
+            prompts = listOf(user("start")),
+            context = AgentContext("", mutableListOf(), tools = listOf(tool)),
+            config = AgentLoopConfig(model = createModel(), convertToLlm = { it }),
+            streamFunction = { _, _, _ ->
+                AssistantMessageEventStream().also { stream ->
+                    if (callIndex++ == 0) {
+                        val message = assistantToolCall(
+                            "repeat",
+                            buildJsonObject { put("count", JsonPrimitive("5")) },
+                        )
+                        stream.push(DoneEvent(reason = StopReason.TOOL_USE, message = message))
+                    } else {
+                        stream.push(DoneEvent(reason = StopReason.STOP, message = assistant("done")))
+                    }
+                }
+            },
+        )
+
+        run.events.toList()
+        run.result()
+
+        assertEquals(JsonPrimitive(5), received?.get("count"))
+    }
+
+    private fun assistantToolCall(name: String, arguments: JsonObject): AssistantMessage {
+        return AssistantMessage(
+            content = listOf(ToolCall(id = "tool-1", name = name, arguments = arguments)),
+            api = KnownApis.OpenAiResponses,
+            provider = ProviderId("openai"),
+            model = "mock",
+            usage = emptyUsage(),
+            stopReason = StopReason.TOOL_USE,
+            timestamp = 1L,
+        )
     }
 
     private fun user(text: String): Message {
