@@ -4,17 +4,11 @@ import androidx.compose.runtime.*
 import co.agentmode.agent47.agent.core.*
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
-import co.agentmode.agent47.coding.core.agents.AgentRegistry
-import co.agentmode.agent47.coding.core.agents.AgentSource
 import co.agentmode.agent47.coding.core.agents.PushNotifier
 import co.agentmode.agent47.coding.core.agents.RunningAgent
-import co.agentmode.agent47.coding.core.agents.schedule.SubagentScheduler
-import co.agentmode.agent47.coding.core.settings.SubagentsSettings
 import co.agentmode.agent47.coding.core.compaction.estimateContextTokens
 import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.coding.core.commands.SlashCommandExpander
-import co.agentmode.agent47.coding.core.instructions.InstructionFile
-import co.agentmode.agent47.coding.core.instructions.InstructionSource
 import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.coding.core.tools.ToolDetails
 import co.agentmode.agent47.coding.core.session.SessionManager
@@ -30,8 +24,6 @@ import co.agentmode.agent47.tui.input.toKeyboardEvent
 import co.agentmode.agent47.tui.commands.SlashCommandSpec
 import co.agentmode.agent47.tui.commands.builtinSlashCommands
 import co.agentmode.agent47.tui.commands.helpText
-import co.agentmode.agent47.tui.session.SESSION_DATE_FORMAT
-import co.agentmode.agent47.tui.session.firstUserText
 import co.agentmode.agent47.tui.state.TranscriptFeed
 import co.agentmode.agent47.tui.state.rememberTuiAppState
 import co.agentmode.agent47.tui.controller.CompactionController
@@ -44,6 +36,15 @@ import co.agentmode.agent47.tui.extensions.BindExtensionSessionControl
 import co.agentmode.agent47.tui.extensions.BindExtensionUi
 import co.agentmode.agent47.tui.extensions.TuiExtensionSessionControl
 import co.agentmode.agent47.tui.extensions.TuiExtensionUi
+import co.agentmode.agent47.tui.overlays.OverlayNavigator
+import co.agentmode.agent47.tui.overlays.openAgentsOverlay
+import co.agentmode.agent47.tui.overlays.openCommandsOverlay
+import co.agentmode.agent47.tui.overlays.openMemoryOverlay
+import co.agentmode.agent47.tui.overlays.openModelOverlay
+import co.agentmode.agent47.tui.overlays.openProviderOverlay
+import co.agentmode.agent47.tui.overlays.openSessionOverlay
+import co.agentmode.agent47.tui.overlays.openSettingsOverlay
+import co.agentmode.agent47.tui.overlays.openThemeOverlay
 import co.agentmode.agent47.tui.util.detectBranchName
 import co.agentmode.agent47.tui.util.executeShell
 import co.agentmode.agent47.tui.rendering.DiffRenderer
@@ -79,10 +80,7 @@ import co.agentmode.agent47.ext.core.InputSource
 import co.agentmode.agent47.ext.core.InputStreamingBehavior
 import co.agentmode.agent47.ext.core.RegisteredCommand
 import kotlinx.coroutines.*
-import java.nio.file.Files
 import java.nio.file.Path
-import java.time.Instant
-import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicReference
 import java.util.*
 import kotlin.math.max
@@ -107,19 +105,6 @@ private fun printResumeHint(out: java.io.PrintStream) {
         out.write("\nTo resume this session:  agent47 --resume $id\n".toByteArray())
         out.flush()
     }
-}
-
-private enum class SettingsAction {
-    Model,
-    Provider,
-    Thinking,
-    Theme,
-    Appearance,
-    Usage,
-    Session,
-    Commands,
-    Help,
-    Exit,
 }
 
 /**
@@ -457,508 +442,32 @@ private fun Agent47AppContent(
         return SlashCommandExpander.expand(text, fileSlashCommands)
     }
 
-    // --- Overlay openers ---
-
-    fun openModelOverlay() {
-        if (currentModels.isEmpty()) {
-            appendCommandResult("No models available — use /provider to connect one")
-            return
-        }
-        val options = currentModels.map { model ->
-            SelectItem(label = "${model.provider.value}/${model.id}", value = model)
-        }
-        val current = currentModels.getOrNull(selectedModelIndex)
-        val selIndex = current?.let { model ->
-            currentModels.indexOfFirst { it.id == model.id && it.provider == model.provider }
-        } ?: 0
-        overlayHostState.push(
-            title = "Model",
-            items = options,
-            selectedIndex = selIndex,
-            onSubmit = { model -> modelController.applyModel(model) },
-        )
-    }
-
-    fun openProviderOverlay() {
-        val providers = getAllProviders()
-        if (providers.isEmpty()) {
-            appendSystemMessage("No providers found in model catalog")
-            return
-        }
-        val options = providers.map { info ->
-            val status = if (info.connected) "✓" else "○"
-            val modelLabel = if (info.modelCount == 1) "1 model" else "${info.modelCount} models"
-            SelectItem(
-                label = "$status ${info.name} ($modelLabel)",
-                value = info,
-            )
-        }
-        overlayHostState.push(
-            title = "Connect Provider",
-            items = options,
-            selectedIndex = 0,
-            onSubmit = { info ->
-                if (info.connected) {
-                    appendSystemMessage("${info.name} is already connected")
-                } else {
-                    providerAuthController.startProviderAuth(info)
-                }
-            },
-        )
-    }
-
-    fun openThinkingOverlay() {
-        val options = AgentThinkingLevel.entries.map {
-            SelectItem(label = it.name.lowercase(), value = it)
-        }
-        val selIndex = AgentThinkingLevel.entries.indexOf(thinkingLevel).coerceAtLeast(0)
-        overlayHostState.push(
-            title = "Thinking",
-            items = options,
-            selectedIndex = selIndex,
-            onSubmit = { level -> modelController.setThinkingLevel(level) },
-        )
-    }
-
-    fun openAgentActionsOverlay(id: String) {
-        if (backgroundAgents == null) return
-        val actions = listOf(
-            SelectItem(label = "View transcript", value = "view"),
-            SelectItem(label = "Steer (send a message)", value = "steer"),
-            SelectItem(label = "Stop", value = "stop"),
-        )
-        overlayHostState.push(
-            title = "Agent $id",
-            items = actions,
-            selectedIndex = 0,
-            onSubmit = { action ->
-                when (action) {
-                    "view" -> {
-                        // Enter focus mode: the main chat area renders the agent's live transcript.
-                        viewingAgentId = id
-                        overlayHostState.clear()
-                    }
-                    "steer" -> {
-                        overlayHostState.pushPrompt(
-                            title = "Steer $id",
-                            placeholder = "Message to inject into the running agent",
-                            onSubmit = { msg ->
-                                if (msg.isNotBlank()) {
-                                    agentPanelController.steer(id, msg)
-                                }
-                            },
-                        )
-                    }
-                    "stop" -> {
-                        agentPanelController.stop(id)
-                    }
-                }
-            },
-        )
-    }
-
-    fun openRunningAgentsOverlay() {
-        val bg = backgroundAgents
-        if (bg == null) {
-            appendCommandResult("Background agents are unavailable.")
-            return
-        }
-        val agents = bg.runningStatus()
-        if (agents.isEmpty()) {
-            appendCommandResult("No background agents are running.")
-            return
-        }
-        val options = agents.map { agent ->
-            val activity = when {
-                agent.status == RunningAgent.Status.QUEUED -> "queued"
-                agent.progress?.currentTool != null -> "running ${agent.progress?.currentTool}"
-                else -> "working"
-            }
-            SelectItem(label = "${agent.id} (${agent.agentName}) · $activity", value = agent.id)
-        }
-        overlayHostState.push(
-            title = "Background agents (${agents.size})",
-            items = options,
-            selectedIndex = 0,
-            keepOpenOnSubmit = true,
-            onSubmit = { id -> openAgentActionsOverlay(id) },
-        )
-    }
-
-    fun openAgentTypesOverlay() {
-        val registry = agentRegistry
-        if (registry == null) {
-            appendCommandResult("Agent registry is unavailable.")
-            return
-        }
-        val all = registry.getAll()
-        val options = all.map { def ->
-            val flag = when (def.source) {
-                AgentSource.PROJECT -> "•"
-                AgentSource.USER -> "◦"
-                AgentSource.BUNDLED -> " "
-            }
-            val disabled = if (!def.enabled) " ✕" else ""
-            SelectItem(label = "$flag ${def.label}$disabled — ${def.description}", value = def.name)
-        }
-        overlayHostState.push(
-            title = "Agent types (${all.size})",
-            items = options,
-            selectedIndex = 0,
-            keepOpenOnSubmit = true,
-            onSubmit = { name ->
-                val def = registry.getAll().firstOrNull { it.name == name } ?: return@push
-                overlayHostState.pushInfo(
-                    title = def.label,
-                    lines = buildList {
-                        add(def.description)
-                        add("")
-                        add("name: ${def.name}")
-                        add("source: ${def.source}")
-                        add("enabled: ${def.enabled}")
-                        add("promptMode: ${def.promptMode}")
-                        def.model?.let { add("model: ${it.joinToString(", ")}") }
-                        def.thinkingLevel?.let { add("thinking: $it") }
-                        add("tools: ${def.tools?.joinToString(", ") ?: "all"}")
-                        def.memory?.let { add("memory: $it") }
-                        def.isolation?.let { add("isolation: $it") }
-                        def.skills?.let { add("skills: ${it.joinToString(", ")}") }
-                    },
-                )
-            },
-        )
-    }
-
-    fun editSubagentSetting(key: String) {
-        val cur = subagentsSettingsState
-        fun promptInt(title: String, current: Int, min: Int, max: Int, apply: (Int) -> SubagentsSettings) {
-            overlayHostState.pushPrompt(
-                title = title,
-                placeholder = current.toString(),
-                onSubmit = { v ->
-                    v.trim().toIntOrNull()?.let {
-                        agentPanelController.applySubagentsSettings(apply(it.coerceIn(min, max)))
-                    }
-                },
-            )
-        }
-        fun choose(title: String, values: List<String>, apply: (String) -> SubagentsSettings) {
-            overlayHostState.push(
-                title = title,
-                items = values.map { SelectItem(it, it) },
-                selectedIndex = 0,
-                onSubmit = { agentPanelController.applySubagentsSettings(apply(it)) },
-            )
-        }
-        fun toggle(title: String, apply: (Boolean) -> SubagentsSettings) {
-            overlayHostState.push(
-                title = title,
-                items = listOf(SelectItem("on", true), SelectItem("off", false)),
-                selectedIndex = 0,
-                onSubmit = { agentPanelController.applySubagentsSettings(apply(it)) },
-            )
-        }
-        when (key) {
-            "maxConcurrent" -> promptInt("Max concurrency (1–1024)", cur.maxConcurrent, 1, 1024) { cur.copy(maxConcurrent = it) }
-            "defaultMaxTurns" -> promptInt("Default max turns (0 = unlimited)", cur.defaultMaxTurns, 0, 10_000) { cur.copy(defaultMaxTurns = it) }
-            "graceTurns" -> promptInt("Grace turns (1–1000)", cur.graceTurns, 1, 1_000) { cur.copy(graceTurns = it) }
-            "defaultJoinMode" -> choose("Join mode", listOf("smart", "async", "group")) { cur.copy(defaultJoinMode = it) }
-            "widgetMode" -> choose("Widget", listOf("background", "all", "off")) { cur.copy(widgetMode = it) }
-            "toolDescriptionMode" -> choose("Tool description", listOf("full", "compact", "custom")) { cur.copy(toolDescriptionMode = it) }
-            "schedulingEnabled" -> toggle("Scheduling") { cur.copy(schedulingEnabled = it) }
-            "disableDefaultAgents" -> toggle("Disable default agents") { cur.copy(disableDefaultAgents = it) }
-            "outputTranscript" -> toggle("Output transcript") { cur.copy(outputTranscript = it) }
-            "fleetView" -> toggle("Fleet view") { cur.copy(fleetView = it) }
-            "pushNotifications" -> toggle("Push notifications") { cur.copy(pushNotifications = it) }
-        }
-    }
-
-    fun openSubagentSettingsOverlay() {
-        fun onOff(b: Boolean) = if (b) "on" else "off"
-        val s = subagentsSettingsState
-        val items = listOf(
-            SelectItem("Max concurrency: ${s.maxConcurrent}", "maxConcurrent"),
-            SelectItem("Default max turns: ${s.defaultMaxTurns} (0 = unlimited)", "defaultMaxTurns"),
-            SelectItem("Grace turns: ${s.graceTurns}", "graceTurns"),
-            SelectItem("Join mode: ${s.defaultJoinMode}", "defaultJoinMode"),
-            SelectItem("Scheduling: ${onOff(s.schedulingEnabled)}", "schedulingEnabled"),
-            SelectItem("Disable default agents: ${onOff(s.disableDefaultAgents)}", "disableDefaultAgents"),
-            SelectItem("Output transcript: ${onOff(s.outputTranscript)}", "outputTranscript"),
-            SelectItem("Fleet view: ${onOff(s.fleetView)}", "fleetView"),
-            SelectItem("Widget: ${s.widgetMode}", "widgetMode"),
-            SelectItem("Push notifications: ${onOff(s.pushNotifications)}", "pushNotifications"),
-            SelectItem("Tool description: ${s.toolDescriptionMode}", "toolDescriptionMode"),
-        )
-        overlayHostState.push(
-            title = "Subagent settings",
-            items = items,
-            selectedIndex = 0,
-            keepOpenOnSubmit = true,
-            onSubmit = { key -> editSubagentSetting(key) },
-        )
-    }
-
-    fun openScheduledJobsOverlay() {
-        val sched = scheduler
-        if (sched == null || !sched.isActive()) {
-            appendCommandResult("Scheduling is not active.")
-            return
-        }
-        val jobs = sched.list()
-        if (jobs.isEmpty()) {
-            appendCommandResult("No scheduled jobs.")
-            return
-        }
-        val options = jobs.map { job ->
-            val state = if (job.enabled) "" else " (disabled)"
-            SelectItem(
-                label = "${job.name} · ${job.schedule} [${job.scheduleType}] · runs ${job.runCount}$state",
-                value = job.id,
-            )
-        }
-        overlayHostState.push(
-            title = "Scheduled jobs (${jobs.size})",
-            items = options,
-            selectedIndex = 0,
-            keepOpenOnSubmit = true,
-            onSubmit = { id ->
-                overlayHostState.push(
-                    title = "Cancel this job?",
-                    items = listOf(SelectItem("Cancel job", true), SelectItem("Keep", false)),
-                    selectedIndex = 1,
-                    onSubmit = { cancel ->
-                        if (cancel) {
-                            promptScope.launch {
-                                sched.removeJob(id)
-                                appendCommandResult("Cancelled scheduled job.")
-                            }
-                        }
-                    },
-                )
-            },
-        )
-    }
-
-    fun openAgentsOverlay() {
-        val menu = buildList {
-            val runningCount = backgroundAgents?.runningStatus()?.size ?: 0
-            add(SelectItem("Running agents ($runningCount)", "running"))
-            agentRegistry?.let { add(SelectItem("Agent types (${it.getAll().size})", "types")) }
-            add(SelectItem("Settings", "settings"))
-            if (scheduler?.isActive() == true) {
-                add(SelectItem("Scheduled jobs (${scheduler.list().size})", "scheduled"))
-            }
-        }
-        overlayHostState.push(
-            title = "Agents",
-            items = menu,
-            selectedIndex = 0,
-            keepOpenOnSubmit = true,
-            onSubmit = { choice ->
-                when (choice) {
-                    "running" -> openRunningAgentsOverlay()
-                    "types" -> openAgentTypesOverlay()
-                    "settings" -> openSubagentSettingsOverlay()
-                    "scheduled" -> openScheduledJobsOverlay()
-                }
-            },
-        )
-    }
-
-    fun openCommandsOverlay() {
-        val options = slashCommands.map { spec ->
-            SelectItem(
-                label = "${spec.command} - ${spec.description}",
-                value = spec.command,
-            )
-        }
-        overlayHostState.push(
-            title = "Commands",
-            items = options,
-            selectedIndex = 0,
-            onSubmit = { command ->
-                if (command == "/help" || command == "/commands" || command == "/settings") {
-                    // recursive, handled below via slash command dispatch
-                    editor.setText(command)
-                } else {
-                    editor.setText(if (command == "/exit") command else "$command ")
-                }
-                editorVersion++
-            },
-        )
-    }
-
-    fun openSessionOverlay() {
-        if (sessionsDir == null || !Files.isDirectory(sessionsDir)) {
-            appendCommandResult("Session picker is unavailable: no session directory configured")
-            return
-        }
-        val sessions = runCatching {
-            Files.list(sessionsDir).use { stream ->
-                stream
-                    .filter { Files.isRegularFile(it) }
-                    .filter { it.fileName.toString().endsWith(".jsonl") }
-                    // Exclude sub-agent sessions — they aren't top-level conversations.
-                    .filter { !it.fileName.toString().startsWith("subagent-") }
-                    .sorted(Comparator.comparing<Path, String> { it.fileName.toString() }.reversed())
-                    .limit(50)
-                    .toList()
-            }
-        }.getOrElse {
-            appendCommandResult("Failed to list sessions: ${it.message ?: it::class.simpleName}")
-            return
-        }
-        val projectCwd = cwd.toAbsolutePath().normalize().toString()
-        val options = sessions.mapNotNull { path ->
-            val session = runCatching { SessionManager(path) }.getOrNull() ?: return@mapNotNull null
-            val header = session.getHeader()
-            // Only show sessions that were started in this project.
-            val sessionCwd = runCatching { Path.of(header.cwd).toAbsolutePath().normalize().toString() }.getOrNull()
-            if (sessionCwd != projectCwd) return@mapNotNull null
-            val date = runCatching {
-                Instant.parse(header.timestamp).atZone(ZoneId.systemDefault()).format(SESSION_DATE_FORMAT)
-            }.getOrNull()
-            val title = firstUserText(session)?.take(56) ?: "(no messages)"
-            val count = session.getEntries().count { it is SessionMessageEntry }
-            SelectItem(
-                label = if (date != null) "$date  $title" else title,
-                value = path,
-                rightLabel = "$count msg",
-            )
-        }
-        if (options.isEmpty()) {
-            appendCommandResult("No saved sessions found for this project")
-            return
-        }
-        overlayHostState.push(
-            title = "Sessions",
-            items = options,
-            selectedIndex = 0,
-            onSubmit = { path ->
-                sessionController.load(path)
-            },
-        )
-    }
-
     val extensionSessionControl = remember {
         TuiExtensionSessionControl(state, client, sessionController, sessionsDir, cwd, promptScope)
     }
     BindExtensionSessionControl(extensionContext, extensionSessionControl)
 
-    fun openThemeOverlay() {
-        val options = availableThemes.map { named ->
-            SelectItem(label = named.name, value = named)
-        }
-        val currentIndex = availableThemes.indexOfFirst {
-            it.forAppearance(themeAppearance) == activeTheme
-        }.coerceAtLeast(0)
-
-        overlayHostState.push(
-            title = "Theme",
-            items = options,
-            selectedIndex = currentIndex,
-            onSubmit = { namedTheme ->
-                setActiveTheme(namedTheme.forAppearance(themeAppearance))
-                onSettingsChanged { it.copy(theme = namedTheme.name) }
-            },
-            onClose = { setActiveTheme(activeTheme) },
-            onSelectionChanged = { namedTheme ->
-                setActiveTheme(namedTheme.forAppearance(themeAppearance))
-            },
-        )
-    }
-
-    fun openAppearanceOverlay() {
-        val appearances = listOf(ThemeAppearance.AUTO, ThemeAppearance.DARK, ThemeAppearance.LIGHT)
-        val options = appearances.map { appearance ->
-            SelectItem(label = appearance.name.lowercase(), value = appearance)
-        }
-        overlayHostState.push(
-            title = "Appearance",
-            items = options,
-            selectedIndex = appearances.indexOf(themeAppearance).coerceAtLeast(0),
-            onSubmit = { appearance ->
-                val resolved = if (appearance == ThemeAppearance.AUTO) themeAppearance else appearance
-                setThemeAppearance(resolved)
-                availableThemes.firstOrNull { it.config == activeTheme || it.lightConfig == activeTheme }
-                    ?.let { setActiveTheme(it.forAppearance(resolved)) }
-                onSettingsChanged { it.copy(themeAppearance = appearance.name.lowercase()) }
-            },
-        )
-    }
-
-    fun openSettingsOverlay() {
-        val options = listOf(
-            SelectItem("Model - choose model", SettingsAction.Model),
-            SelectItem("Provider - connect provider", SettingsAction.Provider),
-            SelectItem("Thinking - choose level", SettingsAction.Thinking),
-            SelectItem("Theme - pick color theme", SettingsAction.Theme),
-            SelectItem("Appearance - auto, dark, or light", SettingsAction.Appearance),
-            SelectItem("Usage footer - toggle", SettingsAction.Usage),
-            SelectItem("Session - load session", SettingsAction.Session),
-            SelectItem("Commands - list slash cmds", SettingsAction.Commands),
-            SelectItem("Help - show shortcuts", SettingsAction.Help),
-            SelectItem("Exit", SettingsAction.Exit),
-        )
-        overlayHostState.push(
-            title = "Settings",
-            items = options,
-            selectedIndex = 0,
-            keepOpenOnSubmit = true,
-            onSubmit = { action ->
-                when (action) {
-                    SettingsAction.Model -> openModelOverlay()
-                    SettingsAction.Provider -> openProviderOverlay()
-                    SettingsAction.Thinking -> openThinkingOverlay()
-                    SettingsAction.Theme -> openThemeOverlay()
-                    SettingsAction.Appearance -> openAppearanceOverlay()
-                    SettingsAction.Usage -> {
-                        showUsageFooter = !showUsageFooter
-                        onSettingsChanged { it.copy(showUsageFooter = showUsageFooter) }
-                        appendCommandResult("Usage footer: ${if (showUsageFooter) "on" else "off"}")
-                    }
-                    SettingsAction.Session -> openSessionOverlay()
-                    SettingsAction.Commands -> openCommandsOverlay()
-                    SettingsAction.Help -> appendCommandResult(helpText(slashCommands))
-                    SettingsAction.Exit -> {
-                        state.quit(client)
-                    }
-                }
-            },
-        )
-    }
-
-    fun openMemoryOverlay() {
-        if (instructionFiles.isEmpty()) {
-            appendSystemMessage("No instruction files loaded")
-            return
-        }
-        val options = instructionFiles.map { file ->
-            val sourceLabel = when (file.source) {
-                InstructionSource.PROJECT -> "Project"
-                InstructionSource.GLOBAL -> "Global"
-                InstructionSource.CLAUDE_CODE -> "Claude Code"
-                InstructionSource.SETTINGS -> "Settings"
-            }
-            val relativePath = runCatching {
-                cwd.relativize(file.path).toString()
-            }.getOrElse { file.path.toString() }
-            val lineCount = file.content.count { it == '\n' } + 1
-            SelectItem(
-                label = "$sourceLabel · ${file.path.fileName}    $relativePath  ${lineCount}L",
-                value = file,
-            )
-        }
-        overlayHostState.push(
-            title = "Instructions",
-            items = options,
-            keepOpenOnSubmit = true,
-            onSubmit = { file ->
-                overlayHostState.pushScrollableText(
-                    title = "${file.path.fileName} (${file.source.name.lowercase()})",
-                    lines = file.content.split("\n"),
-                )
-            },
+    val navigator = remember {
+        OverlayNavigator(
+            state = state,
+            feed = feed,
+            client = client,
+            models = modelController,
+            providerAuth = providerAuthController,
+            agentPanel = agentPanelController,
+            session = sessionController,
+            editor = editor,
+            scope = promptScope,
+            cwd = cwd,
+            sessionsDir = sessionsDir,
+            instructionFiles = instructionFiles,
+            backgroundAgents = backgroundAgents,
+            agentRegistry = agentRegistry,
+            scheduler = scheduler,
+            availableThemes = availableThemes,
+            fileSlashCommands = fileSlashCommands,
+            getAllProviders = getAllProviders,
+            onSettingsChanged = onSettingsChanged,
         )
     }
 
@@ -1119,7 +628,7 @@ private fun Agent47AppContent(
                 }
 
                 'o' -> {
-                    openSettingsOverlay()
+                    navigator.openSettingsOverlay(activeTheme, themeAppearance, setActiveTheme, setThemeAppearance)
                     return true
                 }
 
@@ -1289,14 +798,16 @@ private fun Agent47AppContent(
                         appendSystemMessage = ::appendSystemMessage,
                         showCommandInput = ::showCommandInput,
                         appendCommandResult = ::appendCommandResult,
-                        openModelOverlay = ::openModelOverlay,
-                        openSessionOverlay = ::openSessionOverlay,
-                        openSettingsOverlay = ::openSettingsOverlay,
-                        openCommandsOverlay = ::openCommandsOverlay,
-                        openThemeOverlay = ::openThemeOverlay,
-                        openProviderOverlay = ::openProviderOverlay,
-                        openMemoryOverlay = ::openMemoryOverlay,
-                        openAgentsOverlay = ::openAgentsOverlay,
+                        openModelOverlay = { navigator.openModelOverlay() },
+                        openSessionOverlay = { navigator.openSessionOverlay() },
+                        openSettingsOverlay = {
+                            navigator.openSettingsOverlay(activeTheme, themeAppearance, setActiveTheme, setThemeAppearance)
+                        },
+                        openCommandsOverlay = { navigator.openCommandsOverlay() },
+                        openThemeOverlay = { navigator.openThemeOverlay(activeTheme, themeAppearance, setActiveTheme) },
+                        openProviderOverlay = { navigator.openProviderOverlay() },
+                        openMemoryOverlay = { navigator.openMemoryOverlay() },
+                        openAgentsOverlay = { navigator.openAgentsOverlay() },
                         setModelById = { modelId ->
                             val match = currentModels.firstOrNull { model ->
                                 model.id.equals(modelId, ignoreCase = true) ||
