@@ -1,5 +1,6 @@
 package co.agentmode.agent47.app
 
+import co.agentmode.agent47.app.cli.findLatestProjectSession
 import co.agentmode.agent47.coding.core.session.SessionManager
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText

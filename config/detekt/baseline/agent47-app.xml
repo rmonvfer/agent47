@@ -2,26 +2,14 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>CyclomaticComplexMethod:Main.kt:Agent47Command$override suspend fun run()</ID>
-    <ID>LargeClass:Main.kt:Agent47Command : SuspendingCliktCommand</ID>
-    <ID>LongMethod:Main.kt:Agent47Command$override suspend fun run()</ID>
-    <ID>MayBeConstant:Main.kt:private val VALID_ENV_HINT = "ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY"</ID>
     <ID>NestedBlockDepth:UpdateService.kt:UpdateService$fun checkAndInstall(force: Boolean): UpdateResult</ID>
-    <ID>ReturnCount:Main.kt:Agent47Command$override suspend fun run()</ID>
-    <ID>ReturnCount:Main.kt:Agent47Command$private fun findSessionById(config: AgentConfig, id: String): Path?</ID>
-    <ID>ReturnCount:Main.kt:Agent47Command$private fun resizeImage(bytes: ByteArray, mimeType: String): ImageResizeResult</ID>
-    <ID>ReturnCount:Main.kt:private fun installAutomaticUpdate(args: Array&lt;String>): Boolean</ID>
-    <ID>ReturnCount:Main.kt:private fun shouldCheckForUpdates(args: Array&lt;String>): Boolean</ID>
     <ID>ReturnCount:Main.kt:suspend fun main(args: Array&lt;String>)</ID>
     <ID>ReturnCount:UpdateService.kt:SemanticVersion$override fun compareTo(other: SemanticVersion): Int</ID>
     <ID>ReturnCount:UpdateService.kt:UpdateService$fun checkAndInstall(force: Boolean): UpdateResult</ID>
     <ID>ReturnCount:UpdateService.kt:UpdateService$private fun checkAndInstallLocked(force: Boolean): UpdateResult</ID>
     <ID>ReturnCount:UpdateService.kt:UpdateService$private fun wasCheckedRecently(): Boolean</ID>
     <ID>ReturnCount:UpdateService.kt:private fun currentPlatform(): String?</ID>
-    <ID>ThrowsCount:Main.kt:Agent47Command$override suspend fun run()</ID>
     <ID>TooGenericExceptionCaught:UpdateService.kt:UpdateService$error: Exception</ID>
-    <ID>TooManyFunctions:Main.kt:Agent47Command : SuspendingCliktCommand</ID>
-    <ID>WildcardImport:Main.kt:import co.agentmode.agent47.ai.types.*</ID>
-    <ID>WildcardImport:Main.kt:import kotlin.io.path.*</ID>
+    <ID>TooManyFunctions:CliExtensionContext.kt:CliExtensionContext : ExtensionContext</ID>
   </CurrentIssues>
 </SmellBaseline>

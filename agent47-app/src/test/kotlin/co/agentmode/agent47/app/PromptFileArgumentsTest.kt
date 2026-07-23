@@ -1,5 +1,6 @@
 package co.agentmode.agent47.app
 
+import co.agentmode.agent47.app.cli.escapePromptFileArguments
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 
