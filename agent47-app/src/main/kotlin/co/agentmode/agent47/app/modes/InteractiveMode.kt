@@ -1,6 +1,7 @@
 package co.agentmode.agent47.app.modes
 
 import co.agentmode.agent47.ai.types.UserMessage
+import co.agentmode.agent47.app.BuildInfo
 import co.agentmode.agent47.app.bootstrap.AgentRuntime
 import co.agentmode.agent47.app.cli.CliOptions
 import co.agentmode.agent47.app.cli.scopedModels
@@ -41,6 +42,7 @@ private fun buildLaunchConfiguration(
     appearance: ThemeAppearance,
     theme: ThemeConfig,
 ): TuiLaunchConfiguration = TuiLaunchConfiguration(
+    version = BuildInfo.version,
     initialUserMessage = initialMessage,
     availableModels = scopedModels(runtime.modelRegistry.getAvailable(), options.models),
     sessionManager = runtime.sessionTracker.current,
@@ -60,6 +62,8 @@ private fun buildLaunchConfiguration(
     initialShowUsageFooter = runtime.settings.get().showUsageFooter ?: true,
     todoState = runtime.todoState,
     instructionFiles = runtime.instructionLoader.load(),
+    skills = runtime.skillRegistry.getAll(),
+    extensionIds = runtime.extensionRuntime.runner.loadedExtensionIds(),
     compactionSettings = runtime.settings.get().compaction,
 )
 

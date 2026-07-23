@@ -25,10 +25,15 @@ public class TaskBarState {
         get() = items.isNotEmpty() && items.any { it.status == "pending" || it.status == "in_progress" }
 
     /**
-     * Number of lines the task bar occupies (header + items).
+     * Number of lines the task bar occupies (leading spacing + header + visible items + overflow).
      */
     public val lineCount: Int
-        get() = if (visible) 1 + items.size else 0
+        get() {
+            if (!visible) return 0
+            val visibleItemCount = minOf(items.size, TASK_BAR_VISIBLE_ITEM_LIMIT)
+            val overflowLineCount = if (items.size > visibleItemCount) 1 else 0
+            return 2 + visibleItemCount + overflowLineCount
+        }
 
     /**
      * Register a listener on the given [TodoState] so that Compose
@@ -41,3 +46,5 @@ public class TaskBarState {
         }
     }
 }
+
+public const val TASK_BAR_VISIBLE_ITEM_LIMIT: Int = 4

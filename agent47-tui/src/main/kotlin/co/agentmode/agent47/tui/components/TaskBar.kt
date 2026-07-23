@@ -2,7 +2,9 @@ package co.agentmode.agent47.tui.components
 
 import androidx.compose.runtime.*
 import co.agentmode.agent47.coding.core.tools.TodoItem
+import co.agentmode.agent47.tui.rendering.annotated
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
+import co.agentmode.agent47.ui.core.state.TASK_BAR_VISIBLE_ITEM_LIMIT
 import co.agentmode.agent47.ui.core.state.TaskBarState
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import com.jakewharton.mosaic.layout.height
@@ -19,7 +21,8 @@ import com.jakewharton.mosaic.ui.TextStyle
  *
  * When [isStreaming] is true and [activityLabel] is provided, the header line
  * shows a spinner with the activity label. Otherwise it shows a static "Tasks"
- * header. Each item is rendered with a status icon and content.
+ * header. Up to [TASK_BAR_VISIBLE_ITEM_LIMIT] items are rendered with a status icon and content,
+ * followed by an overflow count when additional items are hidden.
  *
  * @param state        The reactive task bar state
  * @param width        Terminal width for truncation
@@ -45,7 +48,7 @@ public fun TaskBar(
     }
 }
 
-private fun renderTaskBarLines(
+internal fun renderTaskBarLines(
     items: List<TodoItem>,
     width: Int,
     isStreaming: Boolean,
@@ -53,6 +56,8 @@ private fun renderTaskBarLines(
     activityLabel: String,
     theme: ThemeConfig,
 ): List<com.jakewharton.mosaic.text.AnnotatedString> = buildList {
+    add(annotated(""))
+
     // Header line: spinner + activity when streaming, "Tasks" otherwise
     add(buildAnnotatedString {
         if (isStreaming) {
@@ -72,7 +77,10 @@ private fun renderTaskBarLines(
 
     // Task items \u2014 textual checkboxes shared with the transcript's todo renderer
     val maxContent = (width - 7).coerceAtLeast(10)
-    items.forEach { item ->
+    val visibleItems = items
+        .sortedBy(::taskBarItemPriority)
+        .take(TASK_BAR_VISIBLE_ITEM_LIMIT)
+    visibleItems.forEach { item ->
         val (marker, markerColor) = when (item.status) {
             "completed" -> "[x]" to theme.todoCompleted
             "in_progress" -> "[~]" to theme.todoInProgress
@@ -95,4 +103,14 @@ private fun renderTaskBarLines(
             }
         })
     }
+    val hiddenItemCount = items.size - visibleItems.size
+    if (hiddenItemCount > 0) {
+        add(annotated("  … +$hiddenItemCount more", SpanStyle(color = theme.colors.dim)))
+    }
+}
+
+private fun taskBarItemPriority(item: TodoItem): Int = when (item.status) {
+    "in_progress" -> 0
+    "pending" -> 1
+    else -> 2
 }

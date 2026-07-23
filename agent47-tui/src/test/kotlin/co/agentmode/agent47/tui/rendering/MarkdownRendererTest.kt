@@ -54,7 +54,7 @@ class MarkdownRendererTest {
     }
 
     @Test
-    fun `renders fenced code block with language label`() {
+    fun `renders fenced code block without fence delimiters or language label`() {
         val md = """
             ```kotlin
             fun main() {
@@ -63,7 +63,8 @@ class MarkdownRendererTest {
             ```
         """.trimIndent()
         val output = render(md, 40)
-        assertTrue(output.contains("```kotlin"))
+        assertTrue(!output.contains("```"))
+        assertTrue(!output.contains("kotlin"))
         assertTrue(output.contains("  fun main()"))
     }
 
@@ -75,8 +76,8 @@ class MarkdownRendererTest {
             ```
         """.trimIndent()
         val output = render(md, 30)
-        assertTrue(output.contains("```"))
-        assertTrue(output.contains("  some code"))
+        assertTrue(!output.contains("```"))
+        assertEquals("  some code", output)
     }
 
     @Test

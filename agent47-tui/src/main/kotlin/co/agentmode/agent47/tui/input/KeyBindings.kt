@@ -11,6 +11,7 @@ internal data class KeyContext(
     val isViewingAgent: Boolean,
     val ctrlCArmed: Boolean,
     val editorBlank: Boolean,
+    val editorHasText: Boolean,
     val hasAutocompletePopup: Boolean,
     val slashPopupItemCount: Int,
     val extensionShortcuts: List<RegisteredShortcut>,
@@ -41,6 +42,8 @@ internal object KeyBindings {
             return when {
                 ctx.isViewingAgent -> TuiIntent.ExitFocusMode
                 ctx.isStreaming -> TuiIntent.InterruptStreaming
+                ctx.hasAutocompletePopup -> TuiIntent.PassToEditor
+                ctx.editorHasText -> TuiIntent.HandleInputEscape
                 else -> null
             }
         }
@@ -61,7 +64,7 @@ internal object KeyBindings {
             't' -> TuiIntent.ToggleThinking
             'p' -> TuiIntent.CycleModel(-1)
             'n' -> TuiIntent.CycleModel(1)
-            'o' -> TuiIntent.OpenSettings
+            'o' -> TuiIntent.ToggleStartupDetails
             'g' -> TuiIntent.ToggleThinkingBlock
             // With text in the editor, Ctrl+E is move-to-end-of-line; only act globally
             // when the editor is empty so the line-editing shortcut isn't shadowed.

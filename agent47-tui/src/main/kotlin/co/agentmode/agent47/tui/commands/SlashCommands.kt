@@ -37,7 +37,7 @@ internal fun helpText(slashCommands: List<SlashCommandSpec>): String = buildStri
     appendLine("  Ctrl+L         Clear visible chat")
     appendLine("  Ctrl+T         Toggle thinking")
     appendLine("  Ctrl+P/Ctrl+N  Cycle models")
-    appendLine("  Ctrl+O         Open settings overlay")
+    appendLine("  Ctrl+O         Expand startup help and loaded resources")
     appendLine("  Ctrl+G         Toggle latest thinking block")
     appendLine("  Ctrl+E         Toggle latest tool details")
     appendLine("  Ctrl+R         View sub-agent results")
@@ -45,6 +45,6 @@ internal fun helpText(slashCommands: List<SlashCommandSpec>): String = buildStri
     appendLine("  Ctrl+U/Ctrl+D  Scroll chat history")
     appendLine("  Up/Down        Scroll chat when input is empty")
     appendLine("  Alt+PgUp/PgDn  Scroll chat history")
-    appendLine("  Esc            Interrupt agent or close modal")
+    appendLine("  Esc            Interrupt, close modal, or press twice to clear input")
     append("Prefix a line with ! to run local shell commands.")
 }

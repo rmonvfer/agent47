@@ -73,7 +73,6 @@ public data class MarkdownTheme(
     val strikethroughStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Strikethrough),
     val inlineCodeStyle: SpanStyle = SpanStyle(color = TerminalColors.CYAN),
     val codeBlockStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim),
-    val codeBlockBorderStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim),
     val quoteStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim + TextStyle.Italic),
     val quoteBorderStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim),
     val hrStyle: SpanStyle = SpanStyle(textStyle = TextStyle.Dim),
@@ -96,7 +95,6 @@ public data class MarkdownTheme(
             strikethroughStyle = SpanStyle(textStyle = TextStyle.Strikethrough),
             inlineCodeStyle = SpanStyle(color = theme.markdownCode),
             codeBlockStyle = SpanStyle(color = theme.codeBlockFg),
-            codeBlockBorderStyle = SpanStyle(color = theme.colors.muted),
             quoteStyle = SpanStyle(color = theme.markdownBlockQuote, textStyle = TextStyle.Italic),
             quoteBorderStyle = SpanStyle(color = theme.markdownBlockQuote),
             hrStyle = SpanStyle(color = theme.markdownHorizontalRule),
@@ -123,7 +121,7 @@ public data class MarkdownTheme(
  * Renders Markdown text into styled AnnotatedString lines for Mosaic's Text composable.
  *
  * Uses CommonMark AST parsing with GFM extensions for tables, strikethrough,
- * and autolinks. Handles headings, code fences, blockquotes, nested lists,
+ * and autolinks. Handles headings, code blocks, blockquotes, nested lists,
  * horizontal rules, tables, and inline styles (bold, italic, strikethrough,
  * inline code, links, images).
  */
@@ -204,23 +202,19 @@ private class BlockRenderer(
     override fun visit(fencedCodeBlock: FencedCodeBlock) {
         val w = effectiveWidth()
         val language = fencedCodeBlock.info?.trim()?.ifBlank { null }
-        lines += renderCodeBlockTop(language, w)
         val literal = fencedCodeBlock.literal.trimEnd('\n')
         literal.split("\n").forEach { codeLine ->
             lines += renderCodeBlockLines(codeLine, w, language)
         }
-        lines += renderCodeBlockBottom(w)
         addBlankLineAfterBlock(fencedCodeBlock)
     }
 
     override fun visit(indentedCodeBlock: IndentedCodeBlock) {
         val w = effectiveWidth()
-        lines += renderCodeBlockTop(null, w)
         val literal = indentedCodeBlock.literal.trimEnd('\n')
         literal.split("\n").forEach { codeLine ->
             lines += renderCodeBlockLines(codeLine, w, null)
         }
-        lines += renderCodeBlockBottom(w)
         addBlankLineAfterBlock(indentedCodeBlock)
     }
 
@@ -466,12 +460,6 @@ private class BlockRenderer(
         addBlankLineAfterBlock(table)
     }
 
-    private fun renderCodeBlockTop(language: String?, w: Int): AnnotatedString {
-        // ohm frames code with literal ``` fences (gray), not a drawn box.
-        val fence = "```" + (language ?: "")
-        return annotated(fence.take(w), theme.codeBlockBorderStyle)
-    }
-
     private fun renderCodeBlockLines(codeLine: String, w: Int, language: String?): List<AnnotatedString> {
         val indent = theme.codeBlockIndent
         val contentWidth = (w - indent.length).coerceAtLeast(1)
@@ -487,10 +475,6 @@ private class BlockRenderer(
                 append(line)
             }
         }
-    }
-
-    private fun renderCodeBlockBottom(w: Int): AnnotatedString {
-        return annotated("```", theme.codeBlockBorderStyle)
     }
 
     private fun effectiveWidth(): Int = (width - indent).coerceAtLeast(1)

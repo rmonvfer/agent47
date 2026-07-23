@@ -66,3 +66,4 @@ replay_pid*
 ### Project specific ###
 themes/
 docs/jewel/
+/.claude/worktrees/

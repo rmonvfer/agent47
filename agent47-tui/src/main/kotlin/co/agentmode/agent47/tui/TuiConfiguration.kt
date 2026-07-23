@@ -17,6 +17,7 @@ import co.agentmode.agent47.coding.core.models.ProviderInfo
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.coding.core.settings.SubagentsSettings
+import co.agentmode.agent47.coding.core.skills.Skill
 import co.agentmode.agent47.coding.core.tools.TodoState
 import co.agentmode.agent47.ext.core.RegisteredCommand
 import co.agentmode.agent47.ext.core.ExtensionContext
@@ -36,6 +37,7 @@ import co.agentmode.agent47.tui.theme.NamedTheme
 import java.nio.file.Path
 
 public data class TuiLaunchConfiguration(
+    val version: String = "",
     val initialUserMessage: UserMessage? = null,
     val availableModels: List<Model> = emptyList(),
     val sessionManager: SessionManager? = null,
@@ -55,6 +57,8 @@ public data class TuiLaunchConfiguration(
     val initialShowUsageFooter: Boolean = true,
     val todoState: TodoState? = null,
     val instructionFiles: List<InstructionFile> = emptyList(),
+    val skills: List<Skill> = emptyList(),
+    val extensionIds: List<String> = emptyList(),
     val compactionSettings: CompactionSettings = CompactionSettings(),
 )
 

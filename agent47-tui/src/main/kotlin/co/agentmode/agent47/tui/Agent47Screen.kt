@@ -9,8 +9,10 @@ import co.agentmode.agent47.tui.components.ChatHistory
 import co.agentmode.agent47.tui.components.EditorBorder
 import co.agentmode.agent47.tui.components.EditorView
 import co.agentmode.agent47.tui.components.MosaicStatusBarState
+import co.agentmode.agent47.tui.components.StartupSummary
 import co.agentmode.agent47.tui.components.StatusBar
 import co.agentmode.agent47.tui.components.TaskBar
+import co.agentmode.agent47.tui.components.renderStartupSummary
 import co.agentmode.agent47.tui.editor.Editor
 import co.agentmode.agent47.tui.editor.EditorRenderResult
 import co.agentmode.agent47.tui.layout.TuiLayout
@@ -19,6 +21,8 @@ import co.agentmode.agent47.tui.rendering.MarkdownRenderer
 import co.agentmode.agent47.tui.state.TuiAppState
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
+import com.jakewharton.mosaic.layout.padding
+import com.jakewharton.mosaic.modifier.Modifier
 import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Text
 import java.nio.file.Path
@@ -40,11 +44,21 @@ internal fun Agent47Screen(
     diffRenderer: DiffRenderer,
     statusBarState: MosaicStatusBarState,
     baseTheme: ThemeConfig,
+    startupSummary: StartupSummary,
 ) {
-    Column {
-        ChatPane(state, width, layout.historyHeight, markdownRenderer, diffRenderer, cwd)
+    Column(modifier = Modifier.padding(horizontal = layout.horizontalPadding, vertical = 0)) {
+        ChatPane(state, width, layout.historyHeight, markdownRenderer, diffRenderer, cwd, startupSummary)
         FooterPane(state, width, runningAgents)
-        EditorPane(state, editor, editorResult, width, layout.baseInputHeight, baseTheme, statusBarState)
+        EditorPane(
+            state,
+            editor,
+            editorResult,
+            width,
+            layout.baseInputHeight,
+            layout.editorTopMarginHeight,
+            baseTheme,
+            statusBarState,
+        )
     }
 }
 
@@ -56,6 +70,7 @@ private fun ChatPane(
     markdownRenderer: MarkdownRenderer,
     diffRenderer: DiffRenderer,
     cwd: Path,
+    startupSummary: StartupSummary,
 ) {
     val theme = LocalThemeConfig.current
     val cwdDisplay = cwd.toString().replace(System.getProperty("user.home"), "~")
@@ -87,6 +102,12 @@ private fun ChatPane(
             cwd = cwdDisplay,
             toolRenderers = state.extensionToolRenderers,
             messageRenderers = state.extensionMessageRenderers,
+            introLines = renderStartupSummary(
+                summary = startupSummary,
+                width = width,
+                expanded = state.startupExpanded,
+                theme = theme,
+            ),
         )
     }
 }
@@ -144,11 +165,13 @@ private fun EditorPane(
     editorResult: EditorRenderResult,
     width: Int,
     baseInputHeight: Int,
+    topMarginHeight: Int,
     baseTheme: ThemeConfig,
     statusBarState: MosaicStatusBarState,
 ) {
-    // Margin between chat area and editor border
-    Text("")
+    if (topMarginHeight > 0) {
+        Text("")
+    }
 
     val bashMode = editor.text().trimStart().startsWith("!")
 

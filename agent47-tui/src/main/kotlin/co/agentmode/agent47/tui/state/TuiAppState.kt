@@ -69,6 +69,7 @@ internal class TuiAppState(
     var liveActivityLabel: String by mutableStateOf("Thinking")
     var viewingAgentId: String? by mutableStateOf(null)
     var showUsageFooter: Boolean by mutableStateOf(initialShowUsageFooter)
+    var startupExpanded: Boolean by mutableStateOf(false)
     var subagentsSettings: SubagentsSettings by mutableStateOf(initialSubagentsSettings)
     var extensionCommands: List<RegisteredCommand> by mutableStateOf(initialExtensionCommands)
     var extensionShortcuts: List<RegisteredShortcut> by mutableStateOf(initialExtensionShortcuts)

@@ -19,6 +19,9 @@ internal sealed interface TuiIntent {
     /** Leave background-agent transcript focus mode. */
     data object ExitFocusMode : TuiIntent
 
+    /** Register an idle Escape press for double-Escape input clearing. */
+    data object HandleInputEscape : TuiIntent
+
     /** Clear the visible chat history. */
     data object ClearChat : TuiIntent
 
@@ -28,8 +31,8 @@ internal sealed interface TuiIntent {
     /** Move the model selection by [direction] (negative previous, positive next). */
     data class CycleModel(val direction: Int) : TuiIntent
 
-    /** Open the settings overlay. */
-    data object OpenSettings : TuiIntent
+    /** Expand or collapse the startup help and loaded-resource summary. */
+    data object ToggleStartupDetails : TuiIntent
 
     /** Collapse or expand the latest thinking block. */
     data object ToggleThinkingBlock : TuiIntent

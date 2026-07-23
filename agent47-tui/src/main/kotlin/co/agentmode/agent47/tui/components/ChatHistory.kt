@@ -61,12 +61,17 @@ public fun ChatHistory(
     cwd: String = "",
     toolRenderers: List<RegisteredToolRenderer> = emptyList(),
     messageRenderers: List<RegisteredMessageRenderer> = emptyList(),
+    introLines: List<AnnotatedString> = emptyList(),
 ) {
     val theme = LocalThemeConfig.current
     val viewportHeight = height.coerceAtLeast(1)
 
     // Flatten all entries into rendered lines
     val allLines = buildList {
+        addAll(introLines)
+        if (introLines.isNotEmpty() && state.entries.isNotEmpty()) {
+            add(annotated(""))
+        }
         state.entries.forEachIndexed { index, entry ->
             val entryLines = renderEntry(
                 entry,
@@ -90,7 +95,8 @@ public fun ChatHistory(
 
     // Snap to bottom when pinned or explicitly requested, then clamp
     val maxScroll = (allLines.size - viewportHeight).coerceAtLeast(0)
-    if (state.pinnedToBottom || state.scrollToBottom) {
+    val startupOnly = introLines.isNotEmpty() && state.entries.isEmpty()
+    if (!startupOnly && (state.pinnedToBottom || state.scrollToBottom)) {
         state.scrollTopLine = maxScroll
         state.scrollToBottom = false
     }
@@ -112,9 +118,7 @@ public fun ChatHistory(
 
     val contentStart = safeTop + markerAboveHeight
     val contentEnd = (contentStart + contentHeight).coerceAtMost(allLines.size)
-    val visibleLines = if (state.entries.isEmpty() || allLines.isEmpty()) {
-        // ohm shows no persistent banner — an empty transcript is just blank space
-        // above the input, so messages grow up from the editor.
+    val visibleLines = if (allLines.isEmpty()) {
         List(viewportHeight) { annotated("") }
     } else {
         buildList {
@@ -125,12 +129,13 @@ public fun ChatHistory(
             val contentSlice = allLines.subList(contentStart, contentEnd)
             val belowMarkerCount = if (hasBelow) 1 else 0
             val usedRows = size + contentSlice.size + belowMarkerCount
-            val topPadding = (viewportHeight - usedRows).coerceAtLeast(0)
+            val availablePadding = (viewportHeight - usedRows).coerceAtLeast(0)
+            val anchorToTop = startupOnly && safeTop == 0
 
-            // Pad at top to push content to the bottom of the viewport,
-            // so messages appear just above the editor like a chat UI.
-            if (topPadding > 0) {
-                addAll(List(topPadding) { annotated("") })
+            // Startup information begins at the top of an empty transcript. Conversation
+            // content remains bottom-aligned so the newest message stays next to the editor.
+            if (!anchorToTop && availablePadding > 0) {
+                addAll(List(availablePadding) { annotated("") })
             }
 
             addAll(contentSlice)
@@ -138,6 +143,9 @@ public fun ChatHistory(
             if (hasBelow) {
                 val hiddenBelow = allLines.size - contentEnd
                 add(scrollMarker(width, hiddenLines = hiddenBelow, up = false, theme.colors.muted))
+            }
+            if (anchorToTop && availablePadding > 0) {
+                addAll(List(availablePadding) { annotated("") })
             }
         }
     }

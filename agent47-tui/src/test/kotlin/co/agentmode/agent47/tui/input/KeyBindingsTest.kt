@@ -12,6 +12,7 @@ class KeyBindingsTest {
         isViewingAgent: Boolean = false,
         ctrlCArmed: Boolean = false,
         editorBlank: Boolean = true,
+        editorHasText: Boolean = false,
         hasAutocompletePopup: Boolean = false,
         slashPopupItemCount: Int = 0,
         extensionShortcuts: List<RegisteredShortcut> = emptyList(),
@@ -21,6 +22,7 @@ class KeyBindingsTest {
         isViewingAgent = isViewingAgent,
         ctrlCArmed = ctrlCArmed,
         editorBlank = editorBlank,
+        editorHasText = editorHasText,
         hasAutocompletePopup = hasAutocompletePopup,
         slashPopupItemCount = slashPopupItemCount,
         extensionShortcuts = extensionShortcuts,
@@ -38,10 +40,33 @@ class KeyBindingsTest {
     }
 
     @Test
-    fun `escape leaves focus, interrupts while streaming, otherwise is unhandled`() {
+    fun `escape leaves focus, interrupts while streaming, and handles input text`() {
         assertEquals(TuiIntent.ExitFocusMode, KeyBindings.resolve(KeyboardEvent(Key.Escape), ctx(isViewingAgent = true)))
         assertEquals(TuiIntent.InterruptStreaming, KeyBindings.resolve(KeyboardEvent(Key.Escape), ctx(isStreaming = true)))
+        assertEquals(
+            TuiIntent.HandleInputEscape,
+            KeyBindings.resolve(KeyboardEvent(Key.Escape), ctx(editorBlank = false, editorHasText = true)),
+        )
         assertEquals(null, KeyBindings.resolve(KeyboardEvent(Key.Escape), ctx()))
+    }
+
+    @Test
+    fun `escape dismisses autocomplete before handling input text`() {
+        assertEquals(
+            TuiIntent.PassToEditor,
+            KeyBindings.resolve(
+                KeyboardEvent(Key.Escape),
+                ctx(editorBlank = false, editorHasText = true, hasAutocompletePopup = true),
+            ),
+        )
+    }
+
+    @Test
+    fun `escape handles whitespace even when the editor is logically blank`() {
+        assertEquals(
+            TuiIntent.HandleInputEscape,
+            KeyBindings.resolve(KeyboardEvent(Key.Escape), ctx(editorBlank = true, editorHasText = true)),
+        )
     }
 
     @Test
@@ -58,7 +83,7 @@ class KeyBindingsTest {
         assertEquals(TuiIntent.ToggleThinking, KeyBindings.resolve(char('t', ctrl = true), ctx()))
         assertEquals(TuiIntent.CycleModel(-1), KeyBindings.resolve(char('p', ctrl = true), ctx()))
         assertEquals(TuiIntent.CycleModel(1), KeyBindings.resolve(char('n', ctrl = true), ctx()))
-        assertEquals(TuiIntent.OpenSettings, KeyBindings.resolve(char('o', ctrl = true), ctx()))
+        assertEquals(TuiIntent.ToggleStartupDetails, KeyBindings.resolve(char('o', ctrl = true), ctx()))
         assertEquals(TuiIntent.ToggleThinkingBlock, KeyBindings.resolve(char('g', ctrl = true), ctx()))
         assertEquals(TuiIntent.ScrollDown(12), KeyBindings.resolve(char('d', ctrl = true), ctx()))
     }

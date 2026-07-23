@@ -17,6 +17,7 @@ import co.agentmode.agent47.tui.components.*
 import co.agentmode.agent47.tui.editor.Editor
 import co.agentmode.agent47.ui.core.editor.WordWrap
 import co.agentmode.agent47.ui.core.state.*
+import co.agentmode.agent47.tui.input.DoubleEscapeDetector
 import co.agentmode.agent47.tui.input.KeyBindings
 import co.agentmode.agent47.tui.input.KeyContext
 import co.agentmode.agent47.tui.input.KeyboardEvent
@@ -26,6 +27,7 @@ import co.agentmode.agent47.tui.input.resetsCtrlCArm
 import co.agentmode.agent47.tui.input.toKeyboardEvent
 import co.agentmode.agent47.tui.layout.LayoutInputs
 import co.agentmode.agent47.tui.layout.computeTuiLayout
+import co.agentmode.agent47.tui.layout.tuiEditorContentWidth
 import co.agentmode.agent47.tui.runtime.AgentEventCollector
 import co.agentmode.agent47.tui.runtime.AgentTranscriptMirror
 import co.agentmode.agent47.tui.runtime.InitialAgentSetup
@@ -55,7 +57,6 @@ import co.agentmode.agent47.tui.overlays.openMemoryOverlay
 import co.agentmode.agent47.tui.overlays.openModelOverlay
 import co.agentmode.agent47.tui.overlays.openProviderOverlay
 import co.agentmode.agent47.tui.overlays.openSessionOverlay
-import co.agentmode.agent47.tui.overlays.openSettingsOverlay
 import co.agentmode.agent47.tui.overlays.openThemeOverlay
 import co.agentmode.agent47.tui.util.detectBranchName
 import co.agentmode.agent47.tui.util.executeShell
@@ -163,6 +164,7 @@ private fun Agent47AppContent(
     setActiveTheme: (ThemeConfig) -> Unit,
     setThemeAppearance: (ThemeAppearance) -> Unit,
 ) {
+    val version = configuration.version
     val initialUserMessage = configuration.initialUserMessage
     val availableModels = configuration.availableModels
     val sessionManager = configuration.sessionManager
@@ -179,6 +181,8 @@ private fun Agent47AppContent(
     val initialShowUsageFooter = configuration.initialShowUsageFooter
     val todoState = configuration.todoState
     val instructionFiles = configuration.instructionFiles
+    val skills = configuration.skills
+    val extensionIds = configuration.extensionIds
     val compactionSettings = configuration.compactionSettings
     val getAllProviders = providerServices.getAllProviders
     val storeApiKey = providerServices.storeApiKey
@@ -337,6 +341,7 @@ private fun Agent47AppContent(
             fileCompletionRoot = cwd,
         )
     }
+    val doubleEscapeDetector = remember { DoubleEscapeDetector() }
     LaunchedEffect(slashCommands) {
         editor.setSlashCommands(
             slashCommands.map { it.command },
@@ -391,7 +396,7 @@ private fun Agent47AppContent(
     )
 
     val runningAgents = backgroundAgents?.runningStatus().orEmpty()
-    val editorContentWidth = (width - 2).coerceAtLeast(1)
+    val editorContentWidth = tuiEditorContentWidth(width)
     val visualLineCount = WordWrap.createMapping(editor.state.lines, editorContentWidth).visualLines.size
     val layout = computeTuiLayout(
         width = width,
@@ -402,6 +407,7 @@ private fun Agent47AppContent(
             taskBarVisible = taskBarState.visible,
             taskBarLineCount = taskBarState.lineCount,
             isStreaming = isStreaming,
+            chatPinnedToBottom = activeChat().pinnedToBottom,
             hasBackgroundAgents = runningAgents.isNotEmpty(),
             runningAgentCount = runningAgents.count { it.status == RunningAgent.Status.RUNNING },
             queuedAgentCount = runningAgents.count { it.status == RunningAgent.Status.QUEUED },
@@ -483,12 +489,36 @@ private fun Agent47AppContent(
     // Read editorVersion to trigger recomposition when the editor state changes.
     @Suppress("UNUSED_EXPRESSION")
     editorVersion
-    val editorResult = editor.render(width = editorContentWidth, height = layout.baseInputHeight)
+    val editorResult = editor.render(width = layout.editorContentWidth, height = layout.baseInputHeight)
+    val startupSummary = remember(version, cwd, instructionFiles, skills, extensionIds) {
+        StartupSummary(
+            version = version,
+            cwd = cwd,
+            contextFiles = instructionFiles.map { it.path },
+            skills = skills,
+            extensionIds = extensionIds,
+        )
+    }
 
     fun submitInput(applyPopupFirst: Boolean, event: KeyboardEvent) =
         submitDispatcher.submitEditor(applyPopupFirst, event, activeTheme, themeAppearance, setActiveTheme, setThemeAppearance)
 
+    fun handleInputEscape() {
+        if (doubleEscapeDetector.registerEscape()) {
+            editor.setText("")
+            editorVersion++
+        }
+    }
+
+    fun toggleStartupDetails() {
+        state.startupExpanded = !state.startupExpanded
+        if (chatHistoryState.hasEntries()) {
+            chatHistoryState.scrollToTop()
+        }
+    }
+
     fun applyIntent(intent: TuiIntent?, event: KeyboardEvent): Boolean {
+        if (intent != TuiIntent.HandleInputEscape) doubleEscapeDetector.reset()
         if (intent.resetsCtrlCArm()) {
             ctrlCArmed = false
         }
@@ -504,7 +534,8 @@ private fun Agent47AppContent(
             }
             TuiIntent.Quit -> state.quit(client)
             TuiIntent.ExitFocusMode -> viewingAgentId = null
-            TuiIntent.ClearChat -> chatHistoryState.entries.clear()
+            TuiIntent.HandleInputEscape -> handleInputEscape()
+            TuiIntent.ClearChat -> chatHistoryState.clear()
             TuiIntent.ToggleThinking -> {
                 val next = if (thinkingLevel == AgentThinkingLevel.OFF) {
                     AgentThinkingLevel.LOW
@@ -514,8 +545,7 @@ private fun Agent47AppContent(
                 modelController.setThinkingLevel(next)
             }
             is TuiIntent.CycleModel -> modelController.cycleModel(intent.direction)
-            TuiIntent.OpenSettings ->
-                navigator.openSettingsOverlay(activeTheme, themeAppearance, setActiveTheme, setThemeAppearance)
+            TuiIntent.ToggleStartupDetails -> toggleStartupDetails()
             TuiIntent.ToggleThinkingBlock -> {
                 if (!chatHistoryState.toggleLatestThinkingCollapsed()) {
                     appendSystemMessage("No thinking block available to toggle.")
@@ -560,6 +590,7 @@ private fun Agent47AppContent(
             .then(backgroundModifier)
             .onKeyEvent { event ->
                 if (overlayHostState.hasOverlay) {
+                    doubleEscapeDetector.reset()
                     // Let overlay handle via its own Modifier.onKeyEvent
                     return@onKeyEvent false
                 }
@@ -569,6 +600,7 @@ private fun Agent47AppContent(
                     isViewingAgent = viewingAgentId != null,
                     ctrlCArmed = ctrlCArmed,
                     editorBlank = editor.text().isBlank(),
+                    editorHasText = editor.text().isNotEmpty(),
                     hasAutocompletePopup = editor.hasAutocompletePopup(),
                     slashPopupItemCount = editor.slashCommandPopupItemCount(),
                     extensionShortcuts = extensionShortcuts,
@@ -581,7 +613,7 @@ private fun Agent47AppContent(
             Agent47Screen(
                 state = state,
                 layout = layout,
-                width = width,
+                width = layout.contentWidth,
                 runningAgents = runningAgents,
                 cwd = cwd,
                 editor = editor,
@@ -590,6 +622,7 @@ private fun Agent47AppContent(
                 diffRenderer = diffRenderer,
                 statusBarState = statusBarState,
                 baseTheme = baseTheme,
+                startupSummary = startupSummary,
             )
         }
 

@@ -53,7 +53,7 @@ atomically replaces their hooks, tools, and commands when every script is valid.
 session, while `/agents` exposes background-agent status, steering, types, schedules, and subagent settings. Files in
 the project or global `commands/` directories add custom slash commands; see [commands.md](commands.md).
 
-The main shortcuts are Ctrl+C to interrupt and then exit on repeated presses, Ctrl+L to clear visible chat, Ctrl+T to
-toggle thinking, Ctrl+P/Ctrl+N to cycle models, Ctrl+O to open settings, Ctrl+G to toggle the latest thinking block,
-Ctrl+E to toggle the latest tool details, Ctrl+R to view subagent results, and Ctrl+U/Ctrl+D to scroll history. Run
-`/help` for the current shortcut list.
+The main shortcuts are Escape twice to clear the input, Ctrl+C to interrupt and then exit on repeated presses, Ctrl+L
+to clear visible chat, Ctrl+T to toggle thinking, Ctrl+P/Ctrl+N to cycle models, Ctrl+O to expand startup help and
+loaded resources, Ctrl+G to toggle the latest thinking block, Ctrl+E to toggle the latest tool details, Ctrl+R to view
+subagent results, and Ctrl+U/Ctrl+D to scroll history. Run `/help` for the current shortcut list.

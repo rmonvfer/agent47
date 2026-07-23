@@ -145,6 +145,24 @@ public class ChatHistoryState {
         scrollTopLine += lines.coerceAtLeast(1)
     }
 
+    public fun scrollToTop() {
+        scrollTopLine = 0
+        pinnedToBottom = false
+        scrollToBottom = false
+    }
+
+    public fun clear() {
+        entries.clear()
+        toolCollapsedState.clear()
+        thinkingCollapsedState.clear()
+        activeAssistantKey = null
+        assistantSequence = 0L
+        scrollTopLine = 0
+        pinnedToBottom = true
+        scrollToBottom = false
+        version++
+    }
+
     public fun toggleLatestToolCollapsed(): Boolean {
         val entry = entries.asReversed().firstOrNull { it.toolExecution != null } ?: return false
         val key = entry.key

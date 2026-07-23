@@ -38,7 +38,7 @@ public fun EditorView(
     val textStyle = SpanStyle(
         color = theme.markdownText,
     )
-    val paddingX = 1
+    val paddingX = if (width >= MIN_PADDED_EDITOR_WIDTH) 1 else 0
     val pad = " ".repeat(paddingX)
     val contentWidth = (width - 2 * paddingX).coerceAtLeast(1)
 
@@ -171,3 +171,5 @@ private fun renderCompletionItem(
         append(" ")
     }
 }
+
+private const val MIN_PADDED_EDITOR_WIDTH = 3
