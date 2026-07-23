@@ -11,13 +11,7 @@ import co.agentmode.agent47.coding.core.agents.PushNotifier
 import co.agentmode.agent47.coding.core.agents.RunningAgent
 import co.agentmode.agent47.coding.core.agents.schedule.SubagentScheduler
 import co.agentmode.agent47.coding.core.settings.SubagentsSettings
-import co.agentmode.agent47.coding.core.compaction.CompactionResult
-import co.agentmode.agent47.coding.core.compaction.CompactionSettings
-import co.agentmode.agent47.coding.core.compaction.applyCompaction
 import co.agentmode.agent47.coding.core.compaction.estimateContextTokens
-import co.agentmode.agent47.coding.core.compaction.findCutPoint
-import co.agentmode.agent47.coding.core.compaction.shouldCompact
-import co.agentmode.agent47.coding.core.session.CompactionEntry
 import co.agentmode.agent47.coding.core.auth.AuthMethod
 import co.agentmode.agent47.coding.core.auth.OAuthAuthorization
 import co.agentmode.agent47.coding.core.auth.OAuthCredential
@@ -44,10 +38,10 @@ import co.agentmode.agent47.tui.commands.builtinSlashCommands
 import co.agentmode.agent47.tui.commands.helpText
 import co.agentmode.agent47.tui.session.SESSION_DATE_FORMAT
 import co.agentmode.agent47.tui.session.firstUserText
-import co.agentmode.agent47.tui.session.randomEntryId
-import co.agentmode.agent47.tui.state.UsageState
 import co.agentmode.agent47.tui.state.TranscriptFeed
 import co.agentmode.agent47.tui.state.rememberTuiAppState
+import co.agentmode.agent47.tui.controller.CompactionController
+import co.agentmode.agent47.tui.controller.ConversationController
 import co.agentmode.agent47.tui.controller.ModelController
 import co.agentmode.agent47.tui.controller.SessionController
 import co.agentmode.agent47.tui.util.detectBranchName
@@ -307,6 +301,12 @@ private fun Agent47AppContent(
             onSessionChanged = onSessionChanged,
             onSessionTransition = onSessionTransition,
         )
+    }
+    val conversationController = remember {
+        ConversationController(state, client, feed, promptScope)
+    }
+    val compactionController = remember {
+        CompactionController(state, client, feed, promptScope, compactContext, onCompacted, compactionSettings)
     }
 
     // --- Slash command definitions ---
@@ -1201,67 +1201,6 @@ private fun Agent47AppContent(
         )
     }
 
-    // --- Compaction ---
-
-    fun runCompaction(auto: Boolean = false) {
-        if (compactContext == null || currentModel == null) {
-            appendCommandResult("Compaction unavailable")
-            return
-        }
-        liveActivityLabel = if (auto) "Auto-compacting" else "Compacting context"
-        isStreaming = true
-        promptScope.launch(Dispatchers.IO) {
-            try {
-                val messages = client.state.messages
-                val estimate = estimateContextTokens(messages)
-                val reason = if (auto) {
-                    co.agentmode.agent47.ext.core.CompactionReason.THRESHOLD
-                } else {
-                    co.agentmode.agent47.ext.core.CompactionReason.MANUAL
-                }
-                val prepared = compactContext.invoke(messages, currentModel, reason)
-                if (prepared != null) {
-                    val result = prepared.compaction
-                    val cutPoint = findCutPoint(messages, compactionSettings.keepRecentTokens)
-                    val compacted = applyCompaction(
-                        messages = messages,
-                        summary = result.summary,
-                        cutPointIndex = cutPoint.firstKeptEntryIndex,
-                        tokensBefore = estimate.tokens,
-                    )
-                    client.replaceMessages(compacted)
-                    activeSessionManager?.append(
-                        CompactionEntry(
-                            id = randomEntryId(),
-                            parentId = activeSessionManager?.getLeafId(),
-                            timestamp = Instant.now().toString(),
-                            summary = result.summary,
-                            firstKeptEntryId = result.firstKeptEntryId,
-                            tokensBefore = estimate.tokens,
-                        ),
-                    )
-                    onCompacted(
-                        co.agentmode.agent47.ext.core.AfterCompactionEvent(
-                            compaction = result,
-                            reason = reason,
-                            fromExtension = prepared.fromExtension,
-                        ),
-                    )
-                    val after = estimateContextTokens(compacted)
-                    appendCommandResult("Context compacted (${estimate.tokens} → ~${after.tokens} tokens)")
-                } else {
-                    appendCommandResult("Compaction failed")
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                appendCommandResult("Compaction error: ${e.message ?: e::class.simpleName}")
-            } finally {
-                isStreaming = false
-            }
-        }
-    }
-
     // --- Configure agent on first composition ---
 
     LaunchedEffect(Unit) {
@@ -1297,29 +1236,8 @@ private fun Agent47AppContent(
     LaunchedEffect(running) {
         if (!running) return@LaunchedEffect
         client.events.collect { event ->
-            handleAgentEvent(
-                event = event,
-                client = client,
-                chatHistoryState = chatHistoryState,
-                toolArgumentsById = toolArgumentsById,
-                activeSessionManager = activeSessionManager,
-                usageHolder = usageHolder,
-                setIsStreaming = { isStreaming = it },
-                setLiveActivityLabel = { liveActivityLabel = it },
-                setCurrentPromptJob = { currentPromptJob = it },
-            )
-            if (event is AgentEndEvent &&
-                compactionSettings.auto && compactionSettings.enabled &&
-                compactContext != null
-            ) {
-                if (currentModel != null) {
-                    val messages = client.state.messages
-                    val estimate = estimateContextTokens(messages)
-                    if (shouldCompact(estimate.tokens, currentModel.contextWindow, compactionSettings)) {
-                        runCompaction(auto = true)
-                    }
-                }
-            }
+            conversationController.onAgentEvent(event)
+            compactionController.maybeAutoCompactAfter(event)
         }
     }
 
@@ -1355,19 +1273,7 @@ private fun Agent47AppContent(
             while (true) {
                 delay(100L)
                 if (backgroundAgents.hasRunning()) spinnerFrame++
-                // Deliver any queued push notifications to the orchestrator: follow-up while it is
-                // mid-turn, otherwise start a fresh turn so it reacts to the completion.
-                while (true) {
-                    val text = pushQueue.poll() ?: break
-                    val msg = UserMessage(content = listOf(TextContent(text = text)), timestamp = System.currentTimeMillis())
-                    if (isStreaming) {
-                        runCatching { client.followUp(msg) }
-                    } else {
-                        chatHistoryState.appendMessage(msg)
-                        activeSessionManager?.appendMessage(msg)
-                        promptScope.launch(Dispatchers.IO) { runCatching { client.prompt(listOf(msg)) } }
-                    }
-                }
+                conversationController.deliverPushQueue()
             }
         }
     }
@@ -1621,8 +1527,7 @@ private fun Agent47AppContent(
                         activeSessionManager = activeSessionManager,
                         promptScope = promptScope,
                         isStreaming = isStreaming,
-                        currentPromptJob = currentPromptJob,
-                        setCurrentPromptJob = { currentPromptJob = it },
+                        submit = conversationController::submitMessage,
                         appendSystemMessage = ::appendSystemMessage,
                         showCommandInput = ::showCommandInput,
                         appendCommandResult = ::appendCommandResult,
@@ -1655,7 +1560,7 @@ private fun Agent47AppContent(
                                 kotlin.system.exitProcess(0)
                             }
                         },
-                        runCompaction = ::runCompaction,
+                        runCompaction = compactionController::runCompaction,
                         reloadExtensions = {
                             val resources = reloadExtensions()
                             extensionCommands = resources.commands
@@ -1798,139 +1703,6 @@ private fun Agent47AppContent(
 }
 
 @Suppress("CyclomaticComplexMethod", "LongMethod")
-private fun handleAgentEvent(
-    event: AgentEvent,
-    client: AgentClient,
-    chatHistoryState: ChatHistoryState,
-    toolArgumentsById: MutableMap<String, String>,
-    activeSessionManager: SessionManager?,
-    usageHolder: UsageState,
-    setIsStreaming: (Boolean) -> Unit,
-    setLiveActivityLabel: (String) -> Unit,
-    setCurrentPromptJob: (Job?) -> Unit,
-) {
-    when (event) {
-        is AgentStartEvent -> {
-            setIsStreaming(true)
-            setLiveActivityLabel("Thinking")
-        }
-
-        is AgentEndEvent -> {
-            setIsStreaming(false)
-            setCurrentPromptJob(null)
-            setLiveActivityLabel("")
-        }
-
-        is RetryEvent -> {
-            val seconds = (event.delayMs + 999L) / 1000L
-            setLiveActivityLabel("Retrying (${event.attempt}/${event.maxAttempts}) in ${seconds}s")
-        }
-
-        is MessageStartEvent -> {
-            val message = event.message
-            if (message is AssistantMessage) {
-                chatHistoryState.startAssistantMessage(message)
-                // Clear any lingering "Retrying…" label once the model starts responding again.
-                setLiveActivityLabel("Thinking")
-            } else if (message !is ToolResultMessage) {
-                chatHistoryState.appendMessage(message)
-            }
-        }
-
-        is MessageUpdateEvent -> {
-            val message = event.message
-            if (message is AssistantMessage) {
-                chatHistoryState.updateAssistantMessage(message)
-            } else if (message !is ToolResultMessage) {
-                chatHistoryState.updateMessage(message)
-            }
-        }
-
-        is MessageEndEvent -> {
-            val message = event.message
-            if (message is AssistantMessage) {
-                chatHistoryState.endAssistantMessage(message)
-            } else if (message !is ToolResultMessage) {
-                chatHistoryState.updateMessage(message)
-            }
-            // User messages are already persisted in submitMessage / initialUserMessage handling.
-            // Only persist assistant and tool result messages from the event stream.
-            if (message !is UserMessage) {
-                activeSessionManager?.appendMessage(message)
-            }
-        }
-
-        is ToolExecutionStartEvent -> {
-            toolArgumentsById[event.toolCallId] = event.arguments.toString()
-            setLiveActivityLabel("Running ${event.toolName}")
-            chatHistoryState.appendToolExecution(
-                ToolExecutionView(
-                    toolCallId = event.toolCallId,
-                    toolName = event.toolName,
-                    arguments = toolArgumentsById[event.toolCallId].orEmpty(),
-                    output = "",
-                    pending = true,
-                    collapsed = defaultToolCollapsed(event.toolName),
-                    startedAt = System.currentTimeMillis(),
-                ),
-            )
-        }
-
-        is ToolExecutionUpdateEvent -> {
-            val output = event.partialResult.content
-                .filterIsInstance<TextContent>()
-                .joinToString("\n") { it.text }
-            chatHistoryState.updateToolExecution(
-                ToolExecutionView(
-                    toolCallId = event.toolCallId,
-                    toolName = event.toolName,
-                    arguments = toolArgumentsById[event.toolCallId].orEmpty(),
-                    output = output,
-                    details = ToolDetails.from(event.toolName, event.partialResult.details),
-                    pending = true,
-                    collapsed = defaultToolCollapsed(event.toolName),
-                ),
-            )
-        }
-
-        is ToolExecutionEndEvent -> {
-            val output = event.result.content
-                .filterIsInstance<TextContent>()
-                .joinToString("\n") { it.text }
-            setLiveActivityLabel("Thinking")
-            chatHistoryState.updateToolExecution(
-                ToolExecutionView(
-                    toolCallId = event.toolCallId,
-                    toolName = event.toolName,
-                    arguments = toolArgumentsById[event.toolCallId].orEmpty(),
-                    output = output,
-                    isError = event.isError,
-                    pending = false,
-                    details = ToolDetails.from(event.toolName, event.result.details),
-                    collapsed = defaultToolCollapsed(event.toolName),
-                ),
-            )
-            toolArgumentsById.remove(event.toolCallId)
-        }
-
-        is TurnEndEvent -> {
-            val assistant = event.message as? AssistantMessage
-            if (assistant != null) {
-                usageHolder.add(assistant.usage)
-            }
-        }
-
-        else -> {
-            // no-op for TurnStartEvent and any future event types
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Submit handling
-// ---------------------------------------------------------------------------
-
-@Suppress("CyclomaticComplexMethod", "LongMethod")
 private fun handleSubmit(
     rawInput: String,
     client: AgentClient,
@@ -1944,8 +1716,7 @@ private fun handleSubmit(
     activeSessionManager: SessionManager?,
     promptScope: CoroutineScope,
     isStreaming: Boolean,
-    currentPromptJob: Job?,
-    setCurrentPromptJob: (Job?) -> Unit,
+    submit: (UserMessage) -> Unit,
     appendSystemMessage: (String) -> Unit,
     showCommandInput: (String) -> Unit,
     appendCommandResult: (String) -> Unit,
@@ -2086,17 +1857,7 @@ private fun handleSubmit(
                             content = listOf(TextContent(text = expanded)),
                             timestamp = System.currentTimeMillis(),
                         )
-                        submitMessage(
-                            message = message,
-                            client = client,
-                            chatHistoryState = chatHistoryState,
-                            activeSessionManager = activeSessionManager,
-                            promptScope = promptScope,
-                            isStreaming = isStreaming,
-                            currentPromptJob = currentPromptJob,
-                            setCurrentPromptJob = setCurrentPromptJob,
-                            appendSystemMessage = appendSystemMessage,
-                        )
+                        submit(message)
                     } else {
                         showCommandInput(rawInput)
                         appendCommandResult("Unknown command: $command")
@@ -2137,83 +1898,22 @@ private fun handleSubmit(
                 val behavior = if (isStreaming) InputStreamingBehavior.FOLLOW_UP else null
                 when (val result = processInput(InputEvent(rawInput, InputSource.INTERACTIVE, behavior))) {
                     InputHookResult.Handled -> Unit
-                    InputHookResult.Continue -> submitMessage(
-                        message = UserMessage(
+                    InputHookResult.Continue -> submit(
+                        UserMessage(
                             content = listOf(TextContent(text = rawInput)),
                             timestamp = System.currentTimeMillis(),
                         ),
-                        client = client,
-                        chatHistoryState = chatHistoryState,
-                        activeSessionManager = activeSessionManager,
-                        promptScope = promptScope,
-                        isStreaming = isStreaming,
-                        currentPromptJob = currentPromptJob,
-                        setCurrentPromptJob = setCurrentPromptJob,
-                        appendSystemMessage = appendSystemMessage,
                     )
-                    is InputHookResult.Transform -> submitMessage(
-                        message = UserMessage(
+                    is InputHookResult.Transform -> submit(
+                        UserMessage(
                             content = listOf(TextContent(text = result.text)),
                             timestamp = System.currentTimeMillis(),
                         ),
-                        client = client,
-                        chatHistoryState = chatHistoryState,
-                        activeSessionManager = activeSessionManager,
-                        promptScope = promptScope,
-                        isStreaming = isStreaming,
-                        currentPromptJob = currentPromptJob,
-                        setCurrentPromptJob = setCurrentPromptJob,
-                        appendSystemMessage = appendSystemMessage,
                     )
                 }
             }
         }
     }
-}
-
-private fun submitMessage(
-    message: UserMessage,
-    client: AgentClient,
-    chatHistoryState: ChatHistoryState,
-    activeSessionManager: SessionManager?,
-    promptScope: CoroutineScope,
-    isStreaming: Boolean,
-    currentPromptJob: Job?,
-    setCurrentPromptJob: (Job?) -> Unit,
-    appendSystemMessage: (String) -> Unit,
-) {
-    chatHistoryState.appendMessage(message)
-    activeSessionManager?.appendMessage(message)
-
-    if (isStreaming) {
-        // The user message has already been appended above, so it shows in the transcript
-        // right below the in-flight response. Do NOT append an assistant-style "queued" note:
-        // appendSystemMessage builds an AssistantMessage, which would steal the active-assistant
-        // slot and cause the still-streaming response to write into the note's entry.
-        runCatching {
-            client.followUp(message)
-        }.onFailure { error ->
-            appendSystemMessage("Failed to queue follow-up: ${error.message ?: error::class.simpleName}")
-        }
-        return
-    }
-
-    val job = promptScope.launch(Dispatchers.IO) {
-        try {
-            client.prompt(listOf(message))
-        } catch (_: CancellationException) {
-        } catch (error: Throwable) {
-            appendSystemMessage("Failed to submit message: ${error.message ?: error::class.simpleName}")
-        } finally {
-            setCurrentPromptJob(null)
-        }
-    }
-    setCurrentPromptJob(job)
-}
-
-private fun defaultToolCollapsed(toolName: String): Boolean = when (toolName.lowercase()) {
-    "read", "grep", "find", "ls" -> true
-    else -> false
 }
 
 /**
