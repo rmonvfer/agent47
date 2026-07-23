@@ -6,21 +6,15 @@ import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.coding.core.agents.AgentRegistry
 import co.agentmode.agent47.coding.core.agents.AgentSource
-import co.agentmode.agent47.coding.core.agents.BackgroundAgents
 import co.agentmode.agent47.coding.core.agents.PushNotifier
 import co.agentmode.agent47.coding.core.agents.RunningAgent
 import co.agentmode.agent47.coding.core.agents.schedule.SubagentScheduler
 import co.agentmode.agent47.coding.core.settings.SubagentsSettings
 import co.agentmode.agent47.coding.core.compaction.estimateContextTokens
-import co.agentmode.agent47.coding.core.auth.AuthMethod
-import co.agentmode.agent47.coding.core.auth.OAuthAuthorization
-import co.agentmode.agent47.coding.core.auth.OAuthCredential
-import co.agentmode.agent47.coding.core.auth.OAuthResult
 import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.coding.core.commands.SlashCommandExpander
 import co.agentmode.agent47.coding.core.instructions.InstructionFile
 import co.agentmode.agent47.coding.core.instructions.InstructionSource
-import co.agentmode.agent47.coding.core.models.ProviderInfo
 import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.coding.core.tools.ToolDetails
 import co.agentmode.agent47.coding.core.session.SessionManager
@@ -44,6 +38,12 @@ import co.agentmode.agent47.tui.controller.CompactionController
 import co.agentmode.agent47.tui.controller.ConversationController
 import co.agentmode.agent47.tui.controller.ModelController
 import co.agentmode.agent47.tui.controller.SessionController
+import co.agentmode.agent47.tui.controller.AgentPanelController
+import co.agentmode.agent47.tui.controller.ProviderAuthController
+import co.agentmode.agent47.tui.extensions.BindExtensionSessionControl
+import co.agentmode.agent47.tui.extensions.BindExtensionUi
+import co.agentmode.agent47.tui.extensions.TuiExtensionSessionControl
+import co.agentmode.agent47.tui.extensions.TuiExtensionUi
 import co.agentmode.agent47.tui.util.detectBranchName
 import co.agentmode.agent47.tui.util.executeShell
 import co.agentmode.agent47.tui.rendering.DiffRenderer
@@ -73,17 +73,11 @@ import com.jakewharton.mosaic.ui.Text
 import com.jakewharton.mosaic.ui.isSpecifiedColor
 import co.agentmode.agent47.coding.core.tools.TodoState
 import co.agentmode.agent47.ext.core.ExtensionCommandContext
-import co.agentmode.agent47.ext.core.ExtensionNotificationLevel
-import co.agentmode.agent47.ext.core.ExtensionUi
-import co.agentmode.agent47.ext.core.MutableExtensionUi
-import co.agentmode.agent47.ext.core.ExtensionSessionControl
-import co.agentmode.agent47.ext.core.MutableExtensionSessionControl
 import co.agentmode.agent47.ext.core.InputEvent
 import co.agentmode.agent47.ext.core.InputHookResult
 import co.agentmode.agent47.ext.core.InputSource
 import co.agentmode.agent47.ext.core.InputStreamingBehavior
 import co.agentmode.agent47.ext.core.RegisteredCommand
-import co.agentmode.agent47.ext.core.SessionStartReason
 import kotlinx.coroutines.*
 import java.nio.file.Files
 import java.nio.file.Path
@@ -308,6 +302,21 @@ private fun Agent47AppContent(
     val compactionController = remember {
         CompactionController(state, client, feed, promptScope, compactContext, onCompacted, compactionSettings)
     }
+    val providerAuthController = remember {
+        ProviderAuthController(
+            state = state,
+            feed = feed,
+            models = modelController,
+            scope = promptScope,
+            storeApiKey = storeApiKey,
+            storeOAuthCredential = storeOAuthCredential,
+            authorizeOAuth = authorizeOAuth,
+            pollOAuthToken = pollOAuthToken,
+        )
+    }
+    val agentPanelController = remember {
+        AgentPanelController(state, feed, backgroundAgents, persistSubagentsSettings)
+    }
 
     // --- Slash command definitions ---
 
@@ -441,105 +450,8 @@ private fun Agent47AppContent(
 
     fun appendCommandResult(text: String) = feed.appendCommandResult(text)
 
-    DisposableEffect(extensionContext) {
-        val controller = extensionContext?.ui as? MutableExtensionUi
-        controller?.bind(object : ExtensionUi {
-            override fun notify(message: String, level: ExtensionNotificationLevel) {
-                promptScope.launch {
-                    val prefix = when (level) {
-                        ExtensionNotificationLevel.INFO -> ""
-                        ExtensionNotificationLevel.WARNING -> "Warning: "
-                        ExtensionNotificationLevel.ERROR -> "Error: "
-                    }
-                    appendCommandResult(prefix + message)
-                }
-            }
-
-            override suspend fun select(title: String, options: List<String>): String? {
-                if (options.isEmpty()) return null
-                val result = CompletableDeferred<String?>()
-                promptScope.launch {
-                    overlayHostState.push(
-                        title = title,
-                        items = options.map { SelectItem(label = it, value = it) },
-                        onSubmit = result::complete,
-                        onClose = { result.complete(null) },
-                    )
-                }
-                return result.await()
-            }
-
-            override suspend fun confirm(title: String, message: String): Boolean {
-                val result = CompletableDeferred<Boolean>()
-                promptScope.launch {
-                    overlayHostState.push(
-                        title = "$title — $message",
-                        items = listOf(
-                            SelectItem(label = "Yes", value = true),
-                            SelectItem(label = "No", value = false),
-                        ),
-                        onSubmit = result::complete,
-                        onClose = { result.complete(false) },
-                    )
-                }
-                return result.await()
-            }
-
-            override suspend fun input(title: String, placeholder: String): String? =
-                requestText(title, placeholder, "")
-
-            override suspend fun editor(title: String, initialText: String): String? =
-                requestText(title, "", initialText)
-
-            private suspend fun requestText(
-                title: String,
-                placeholder: String,
-                initialValue: String,
-            ): String? {
-                val result = CompletableDeferred<String?>()
-                promptScope.launch {
-                    overlayHostState.pushPrompt(
-                        title = title,
-                        placeholder = placeholder,
-                        initialValue = initialValue,
-                        onSubmit = result::complete,
-                        onClose = { result.complete(null) },
-                    )
-                }
-                return result.await()
-            }
-
-            override fun setStatus(key: String, text: String?) {
-                promptScope.launch {
-                    extensionStatuses = if (text == null) extensionStatuses - key else extensionStatuses + (key to text)
-                }
-            }
-
-            override fun setWidget(key: String, lines: List<String>?) {
-                promptScope.launch {
-                    extensionWidgets = if (lines == null) extensionWidgets - key else extensionWidgets + (key to lines)
-                }
-            }
-
-            override fun setTitle(title: String?) {
-                promptScope.launch { extensionTitle = title }
-            }
-
-            override fun setEditorText(text: String) {
-                promptScope.launch {
-                    editor.setText(text)
-                    editorVersion++
-                }
-            }
-
-            override suspend fun getEditorText(): String {
-                val result = CompletableDeferred<String>()
-                promptScope.launch { result.complete(editor.text()) }
-                return result.await()
-            }
-        })
-        onDispose { controller?.reset() }
-    }
+    val extensionUi = remember { TuiExtensionUi(state, editor, feed, promptScope) }
+    BindExtensionUi(extensionContext, extensionUi)
 
     fun tryExpandFileCommand(text: String): String? {
         return SlashCommandExpander.expand(text, fileSlashCommands)
@@ -567,99 +479,6 @@ private fun Agent47AppContent(
         )
     }
 
-    fun startAuthMethod(info: ProviderInfo, method: AuthMethod) {
-        when (method) {
-            is AuthMethod.ApiKey -> {
-                overlayHostState.pushPrompt(
-                    title = "${info.name} — API Key",
-                    placeholder = "Paste your API key",
-                    masked = true,
-                    onSubmit = { apiKey ->
-                        if (apiKey.isBlank()) {
-                            appendSystemMessage("No API key provided")
-                        } else {
-                            storeApiKey(info.id, apiKey)
-                            modelController.onProviderConnected(info)
-                        }
-                    },
-                )
-            }
-
-            is AuthMethod.OAuth -> {
-                overlayHostState.pushInfo(
-                    title = "${info.name} — Authorizing",
-                    lines = listOf(
-                        "Starting authorization...",
-                        "",
-                        "Please wait...",
-                    ),
-                )
-                promptScope.launch {
-                    val authorization = runCatching { authorizeOAuth(info.id) }.getOrNull()
-                    if (authorization == null) {
-                        overlayHostState.dismissTopSilent()
-                        appendSystemMessage("Failed to start OAuth for ${info.name}")
-                        return@launch
-                    }
-                    // Update the info overlay with the verification URL and user code
-                    overlayHostState.dismissTopSilent()
-                    var cancelled = false
-                    overlayHostState.pushInfo(
-                        title = "${info.name} — Waiting for Authorization",
-                        lines = listOf(
-                            "Open this URL in your browser:",
-                            "",
-                            "  ${authorization.verificationUrl}",
-                            "",
-                            "Enter code: ${authorization.userCode}",
-                            "",
-                            "Waiting for authorization...",
-                        ),
-                        onClose = { cancelled = true },
-                    )
-                    // Try to open the browser
-                    runCatching {
-                        ProcessBuilder("open", authorization.verificationUrl).start()
-                    }
-                    val result = runCatching { pollOAuthToken(info.id) }.getOrNull()
-                    overlayHostState.dismissTopSilent()
-                    if (cancelled) return@launch
-                    when (result) {
-                        is OAuthResult.Success -> {
-                            storeOAuthCredential(info.id, result.credential)
-                            modelController.onProviderConnected(info)
-                        }
-
-                        is OAuthResult.Failed -> {
-                            appendSystemMessage("Authorization failed: ${result.message}")
-                        }
-
-                        null -> {
-                            appendSystemMessage("OAuth flow was cancelled or unavailable")
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fun startProviderAuth(info: ProviderInfo) {
-        val methods = info.authMethods
-        if (methods.size == 1) {
-            startAuthMethod(info, methods.first())
-        } else {
-            val methodOptions = methods.map { method ->
-                SelectItem(label = method.label, value = method)
-            }
-            overlayHostState.push(
-                title = "${info.name} — Auth Method",
-                items = methodOptions,
-                selectedIndex = 0,
-                onSubmit = { method -> startAuthMethod(info, method) },
-            )
-        }
-    }
-
     fun openProviderOverlay() {
         val providers = getAllProviders()
         if (providers.isEmpty()) {
@@ -682,7 +501,7 @@ private fun Agent47AppContent(
                 if (info.connected) {
                     appendSystemMessage("${info.name} is already connected")
                 } else {
-                    startProviderAuth(info)
+                    providerAuthController.startProviderAuth(info)
                 }
             },
         )
@@ -702,7 +521,7 @@ private fun Agent47AppContent(
     }
 
     fun openAgentActionsOverlay(id: String) {
-        val bg = backgroundAgents ?: return
+        if (backgroundAgents == null) return
         val actions = listOf(
             SelectItem(label = "View transcript", value = "view"),
             SelectItem(label = "Steer (send a message)", value = "steer"),
@@ -725,15 +544,13 @@ private fun Agent47AppContent(
                             placeholder = "Message to inject into the running agent",
                             onSubmit = { msg ->
                                 if (msg.isNotBlank()) {
-                                    val ok = bg.post(BackgroundAgents.ORCHESTRATOR, id, msg)
-                                    appendCommandResult(if (ok) "Steered $id." else "Agent $id is no longer running.")
+                                    agentPanelController.steer(id, msg)
                                 }
                             },
                         )
                     }
                     "stop" -> {
-                        val ok = bg.abort(id)
-                        appendCommandResult(if (ok) "Stopped $id." else "Agent $id could not be stopped.")
+                        agentPanelController.stop(id)
                     }
                 }
             },
@@ -812,19 +629,17 @@ private fun Agent47AppContent(
         )
     }
 
-    fun applySubagentsSettings(updated: SubagentsSettings) {
-        subagentsSettingsState = updated
-        persistSubagentsSettings(updated)
-        appendCommandResult("Updated subagent settings.")
-    }
-
     fun editSubagentSetting(key: String) {
         val cur = subagentsSettingsState
         fun promptInt(title: String, current: Int, min: Int, max: Int, apply: (Int) -> SubagentsSettings) {
             overlayHostState.pushPrompt(
                 title = title,
                 placeholder = current.toString(),
-                onSubmit = { v -> v.trim().toIntOrNull()?.let { applySubagentsSettings(apply(it.coerceIn(min, max))) } },
+                onSubmit = { v ->
+                    v.trim().toIntOrNull()?.let {
+                        agentPanelController.applySubagentsSettings(apply(it.coerceIn(min, max)))
+                    }
+                },
             )
         }
         fun choose(title: String, values: List<String>, apply: (String) -> SubagentsSettings) {
@@ -832,7 +647,7 @@ private fun Agent47AppContent(
                 title = title,
                 items = values.map { SelectItem(it, it) },
                 selectedIndex = 0,
-                onSubmit = { applySubagentsSettings(apply(it)) },
+                onSubmit = { agentPanelController.applySubagentsSettings(apply(it)) },
             )
         }
         fun toggle(title: String, apply: (Boolean) -> SubagentsSettings) {
@@ -840,7 +655,7 @@ private fun Agent47AppContent(
                 title = title,
                 items = listOf(SelectItem("on", true), SelectItem("off", false)),
                 selectedIndex = 0,
-                onSubmit = { applySubagentsSettings(apply(it)) },
+                onSubmit = { agentPanelController.applySubagentsSettings(apply(it)) },
             )
         }
         when (key) {
@@ -1025,61 +840,10 @@ private fun Agent47AppContent(
         )
     }
 
-    DisposableEffect(extensionContext) {
-        val controller = extensionContext?.session as? MutableExtensionSessionControl
-        controller?.bind(object : ExtensionSessionControl {
-            override suspend fun newSession(): String? {
-                val result = CompletableDeferred<String?>()
-                promptScope.launch {
-                    sessionController.startNewSession()
-                    result.complete(activeSessionManager?.getSessionFile()?.toString())
-                }
-                return result.await()
-            }
-
-            override suspend fun switchSession(path: Path): Boolean {
-                val result = CompletableDeferred<Boolean>()
-                promptScope.launch {
-                    if (!Files.exists(path)) {
-                        result.complete(false)
-                        return@launch
-                    }
-                    sessionController.load(path)
-                    result.complete(true)
-                }
-                return result.await()
-            }
-
-            override suspend fun forkSession(entryId: String?): String? {
-                val result = CompletableDeferred<String?>()
-                promptScope.launch {
-                    val source = activeSessionManager
-                    val validEntryId = entryId?.takeIf { source?.getEntry(it) != null }
-                    if (entryId != null && validEntryId == null) {
-                        result.complete(null)
-                        return@launch
-                    }
-                    val context = source?.buildContext(validEntryId ?: source.getLeafId())
-                    if (context == null || sessionsDir == null) {
-                        result.complete(null)
-                        return@launch
-                    }
-                    val target = SessionManager(
-                        sessionsDir.resolve("session-${System.currentTimeMillis()}.jsonl"),
-                        cwd,
-                    )
-                    context.messages.forEach(target::appendMessage)
-                    sessionController.transitionSession(target, SessionStartReason.FORK)
-                    client.replaceMessages(context.messages)
-                    chatHistoryState.entries.clear()
-                    context.messages.forEach(chatHistoryState::appendMessage)
-                    result.complete(target.getSessionFile().toString())
-                }
-                return result.await()
-            }
-        })
-        onDispose { controller?.reset() }
+    val extensionSessionControl = remember {
+        TuiExtensionSessionControl(state, client, sessionController, sessionsDir, cwd, promptScope)
     }
+    BindExtensionSessionControl(extensionContext, extensionSessionControl)
 
     fun openThemeOverlay() {
         val options = availableThemes.map { named ->
@@ -1157,10 +921,7 @@ private fun Agent47AppContent(
                     SettingsAction.Commands -> openCommandsOverlay()
                     SettingsAction.Help -> appendCommandResult(helpText(slashCommands))
                     SettingsAction.Exit -> {
-                        client.abort()
-                        currentPromptJob?.cancel(CancellationException("Exiting"))
-                        currentPromptJob = null
-                        kotlin.system.exitProcess(0)
+                        state.quit(client)
                     }
                 }
             },
@@ -1305,10 +1066,7 @@ private fun Agent47AppContent(
                 return true
             }
             if (ctrlCArmed) {
-                client.abort()
-                currentPromptJob?.cancel(CancellationException("Exiting"))
-                currentPromptJob = null
-                kotlin.system.exitProcess(0)
+                state.quit(client)
             }
             ctrlCArmed = true
             appendSystemMessage("Press Ctrl+C again to exit.")
@@ -1554,10 +1312,7 @@ private fun Agent47AppContent(
                         tryExpandFileCommand = ::tryExpandFileCommand,
                         setRunning = { value ->
                             if (!value) {
-                                client.abort()
-                                currentPromptJob?.cancel(CancellationException("Exiting"))
-                                currentPromptJob = null
-                                kotlin.system.exitProcess(0)
+                                state.quit(client)
                             }
                         },
                         runCompaction = compactionController::runCompaction,

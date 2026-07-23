@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import co.agentmode.agent47.agent.core.AgentThinkingLevel
 import co.agentmode.agent47.ai.types.Model
+import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.settings.SubagentsSettings
 import co.agentmode.agent47.ext.core.RegisteredCommand
@@ -18,8 +19,10 @@ import co.agentmode.agent47.ext.core.RegisteredToolRenderer
 import co.agentmode.agent47.ui.core.state.ChatHistoryState
 import co.agentmode.agent47.ui.core.state.OverlayHostState
 import co.agentmode.agent47.ui.core.state.TaskBarState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.system.exitProcess
 
 /**
  * Owns the cross-cutting mutable UI state and the stable sub-holders of the interactive TUI.
@@ -79,6 +82,14 @@ internal class TuiAppState(
         get() = currentModels.getOrNull(selectedModelIndex) ?: initialModel
 
     fun activeChat(): ChatHistoryState = if (viewingAgentId != null) viewingChat else chatHistory
+
+    /** Aborts the client, cancels the in-flight prompt job, and exits the process. */
+    fun quit(client: AgentClient): Nothing {
+        client.abort()
+        currentPromptJob?.cancel(CancellationException("Exiting"))
+        currentPromptJob = null
+        exitProcess(0)
+    }
 }
 
 @Composable
