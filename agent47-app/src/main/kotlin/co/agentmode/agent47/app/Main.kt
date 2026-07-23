@@ -26,6 +26,12 @@ import co.agentmode.agent47.app.cli.resolveThinkingLevel
 import co.agentmode.agent47.app.cli.runSmokeTool
 import co.agentmode.agent47.app.cli.scopedModels
 import co.agentmode.agent47.app.cli.sessionsBaseDir
+import co.agentmode.agent47.app.bootstrap.SessionTracker
+import co.agentmode.agent47.app.extensions.CliExtensionContext
+import co.agentmode.agent47.app.extensions.CliExtensionSessionControl
+import co.agentmode.agent47.app.extensions.ExtensionContextBinding
+import co.agentmode.agent47.app.extensions.ExtensionReloader
+import co.agentmode.agent47.app.extensions.HeadlessExtensionUi
 import co.agentmode.agent47.app.update.UpdateCommand
 import co.agentmode.agent47.app.update.installAutomaticUpdate
 import co.agentmode.agent47.app.update.shouldCheckForUpdates
@@ -44,10 +50,6 @@ import co.agentmode.agent47.coding.core.instructions.InstructionFile
 import co.agentmode.agent47.coding.core.instructions.InstructionLoader
 import co.agentmode.agent47.coding.core.models.ModelRegistry
 import co.agentmode.agent47.coding.core.session.SessionManager
-import co.agentmode.agent47.coding.core.session.CustomEntry
-import co.agentmode.agent47.coding.core.session.CustomMessageEntry
-import co.agentmode.agent47.coding.core.session.SessionInfoEntry
-import co.agentmode.agent47.coding.core.session.LabelEntry
 import co.agentmode.agent47.coding.core.settings.SettingsManager
 import co.agentmode.agent47.coding.core.settings.SubagentsSettings
 import co.agentmode.agent47.coding.core.settings.SubagentsSettingsManager
@@ -75,17 +77,12 @@ import co.agentmode.agent47.coding.core.tools.createCoreTools
 import co.agentmode.agent47.ext.core.KotlinExtensionDiscovery
 import co.agentmode.agent47.ext.core.KotlinExtensionRuntime
 import co.agentmode.agent47.ext.core.ExtensionContext
-import co.agentmode.agent47.ext.core.ExtensionMessageDelivery
-import co.agentmode.agent47.ext.core.ExtensionMode
-import co.agentmode.agent47.ext.core.ExtensionNotificationLevel
 import co.agentmode.agent47.ext.core.AfterCompactionEvent
 import co.agentmode.agent47.ext.core.BeforeCompactionEvent
 import co.agentmode.agent47.ext.core.CompactionReason
 import co.agentmode.agent47.ext.core.PreparedCompaction
 import co.agentmode.agent47.ext.core.ExtensionResources
-import co.agentmode.agent47.ext.core.ExtensionUi
 import co.agentmode.agent47.ext.core.MutableExtensionUi
-import co.agentmode.agent47.ext.core.ExtensionSessionControl
 import co.agentmode.agent47.ext.core.MutableExtensionSessionControl
 import co.agentmode.agent47.ext.core.RegisteredCommand
 import co.agentmode.agent47.ext.core.SessionShutdownEvent
@@ -115,10 +112,6 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
@@ -388,7 +381,7 @@ class Agent47Command :
 
         val thinkingLevel = resolveThinkingLevel(options, settings)
         val sessionManager = resolveSession(options, config, terminal)
-        var activeExtensionSessionManager = sessionManager
+        val sessionTracker = SessionTracker(sessionManager)
 
         val (promptContent, images) = processPrompt(options.promptArgs, terminal)
 
@@ -536,25 +529,8 @@ class Agent47Command :
             instructions = instructionLoader.format(),
         )
 
-        lateinit var extensionContext: ExtensionContext
-        val extensionUi = MutableExtensionUi(object : ExtensionUi {
-            override fun notify(message: String, level: ExtensionNotificationLevel) {
-                when (level) {
-                    ExtensionNotificationLevel.INFO -> terminal.println(message)
-                    ExtensionNotificationLevel.WARNING -> terminal.println("Warning: $message")
-                    ExtensionNotificationLevel.ERROR -> terminal.println("Error: $message")
-                }
-            }
-            override suspend fun select(title: String, options: List<String>): String? = null
-            override suspend fun confirm(title: String, message: String): Boolean = false
-            override suspend fun input(title: String, placeholder: String): String? = null
-            override suspend fun editor(title: String, initialText: String): String? = null
-            override fun setStatus(key: String, text: String?) = Unit
-            override fun setWidget(key: String, lines: List<String>?) = Unit
-            override fun setTitle(title: String?) = Unit
-            override fun setEditorText(text: String) = Unit
-            override suspend fun getEditorText(): String = ""
-        })
+        val extensionBinding = ExtensionContextBinding()
+        val extensionUi = MutableExtensionUi(HeadlessExtensionUi(terminal))
         val client = AgentClient(
             AgentOptions(
                 streamFunction = aiRuntime::streamSimple,
@@ -567,327 +543,53 @@ class Agent47Command :
                 beforeAgent = { messages -> extensionRuntime.runner.runBeforeAgent(messages) },
                 afterAgent = { messages -> extensionRuntime.runner.runAfterAgent(messages) },
                 transformContext = { context -> extensionRuntime.runner.transformContext(context) },
-                onEvent = { event -> extensionRuntime.runner.dispatchAgentEvent(event, extensionContext) },
+                onEvent = { event -> extensionRuntime.runner.dispatchAgentEvent(event, extensionBinding.get()) },
                 getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
             ),
         )
-        val extensionSession = MutableExtensionSessionControl(object : ExtensionSessionControl {
-            override suspend fun newSession(): String? {
-                val previous = activeExtensionSessionManager
-                extensionRuntime.runner.shutdownSession(
-                    SessionShutdownEvent(SessionShutdownReason.NEW),
-                    extensionContext,
-                )
-                client.abort()
-                client.clearMessages()
-                val manager = if (noSession) {
-                    null
-                } else {
-                    SessionManager(
-                        sessionsBaseDir(options, config).resolve("session-${System.currentTimeMillis()}.jsonl"),
-                        workingDir,
-                    )
-                }
-                activeExtensionSessionManager = manager
-                extensionRuntime.runner.startSession(
-                    SessionStartEvent(SessionStartReason.NEW, previous?.getSessionFile()),
-                    extensionContext,
-                )
-                return manager?.getSessionFile()?.toString()
-            }
-
-            override suspend fun switchSession(path: Path): Boolean {
-                val manager = path.takeIf(Files::exists)
-                    ?.let { runCatching { SessionManager(it, workingDir) }.getOrNull() }
-                return if (manager == null) {
-                    false
-                } else {
-                    val previous = activeExtensionSessionManager
-                    extensionRuntime.runner.shutdownSession(
-                        SessionShutdownEvent(SessionShutdownReason.RESUME, manager.getSessionFile()),
-                        extensionContext,
-                    )
-                    client.abort()
-                    client.replaceMessages(manager.buildContext().messages)
-                    activeExtensionSessionManager = manager
-                    extensionRuntime.runner.startSession(
-                        SessionStartEvent(SessionStartReason.RESUME, previous?.getSessionFile()),
-                        extensionContext,
-                    )
-                    true
-                }
-            }
-
-            override suspend fun forkSession(entryId: String?): String? {
-                val source = activeExtensionSessionManager ?: return newSession()
-                val context = source.buildContext(entryId ?: source.getLeafId())
-                val target = SessionManager(
-                    sessionsBaseDir(options, config).resolve("session-${System.currentTimeMillis()}.jsonl"),
-                    workingDir,
-                )
-                context.messages.forEach(target::appendMessage)
-                extensionRuntime.runner.shutdownSession(
-                    SessionShutdownEvent(SessionShutdownReason.FORK, target.getSessionFile()),
-                    extensionContext,
-                )
-                client.abort()
-                client.replaceMessages(context.messages)
-                activeExtensionSessionManager = target
-                extensionRuntime.runner.startSession(
-                    SessionStartEvent(SessionStartReason.FORK, source.getSessionFile()),
-                    extensionContext,
-                )
-                return target.getSessionFile().toString()
-            }
-        })
-        lateinit var reloadExtensions: suspend () -> ExtensionResources
-        extensionContext = object : ExtensionContext {
-            override val ui: ExtensionUi = extensionUi
-            override val session: ExtensionSessionControl = extensionSession
-            override val cwd: Path = workingDir
-            override val hasUi: Boolean
-                get() = mode == ExtensionMode.TUI
-            override val mode: ExtensionMode
-                get() = if (printMode || System.console() == null) ExtensionMode.PRINT else ExtensionMode.TUI
-            override val model: Model
-                get() = client.state.model
-            override val availableModels: List<Model>
-                get() = modelRegistry.getAvailable()
-            override val thinkingLevel: AgentThinkingLevel
-                get() = client.state.thinkingLevel
-            override val messages: List<Message>
-                get() = client.state.messages
-            override val isIdle: Boolean
-                get() = !client.state.isStreaming
-            override val systemPrompt: String
-                get() = client.state.systemPrompt
-            override val availableTools: List<AgentTool<*>>
-                get() = extensionToolCatalog.values.toList()
-            override val activeToolNames: List<String>
-                get() = client.state.tools.map { it.definition.name }
-            override val sessionId: String?
-                get() = activeExtensionSessionManager?.getHeader()?.id
-            override val sessionEntries
-                get() = activeExtensionSessionManager?.getEntries().orEmpty()
-            override val sessionName: String?
-                get() = sessionEntries.filterIsInstance<SessionInfoEntry>().lastOrNull()?.name
-            override val flags: Map<String, String>
-                get() = extensionRuntime.runner.flags().mapNotNull { flag ->
-                    flag.value?.let { flag.name to it }
-                }.toMap()
-
-            override fun notify(message: String) {
-                notify(message, ExtensionNotificationLevel.INFO)
-            }
-
-            override fun notify(message: String, level: ExtensionNotificationLevel) {
-                ui.notify(message, level)
-            }
-
-            override suspend fun sendUserMessage(message: String) {
-                sendUserMessage(message, ExtensionMessageDelivery.FOLLOW_UP)
-            }
-
-            override suspend fun sendUserMessage(message: String, delivery: ExtensionMessageDelivery) {
-                val inputResult = extensionRuntime.runner.processInput(
-                    co.agentmode.agent47.ext.core.InputEvent(
-                        text = message,
-                        source = co.agentmode.agent47.ext.core.InputSource.EXTENSION,
-                        streamingBehavior = when (delivery) {
-                            ExtensionMessageDelivery.STEER ->
-                                co.agentmode.agent47.ext.core.InputStreamingBehavior.STEER
-                            ExtensionMessageDelivery.FOLLOW_UP ->
-                                co.agentmode.agent47.ext.core.InputStreamingBehavior.FOLLOW_UP
-                        },
-                    ),
-                    extensionContext,
-                )
-                if (inputResult == co.agentmode.agent47.ext.core.InputHookResult.Handled) return
-                val processedText = when (inputResult) {
-                    is co.agentmode.agent47.ext.core.InputHookResult.Transform -> inputResult.text
-                    else -> message
-                }
-                val userMessage = UserMessage(
-                    content = listOf(TextContent(text = processedText)),
-                    timestamp = System.currentTimeMillis(),
-                )
-                if (client.state.isStreaming) {
-                    when (delivery) {
-                        ExtensionMessageDelivery.STEER -> client.steer(userMessage)
-                        ExtensionMessageDelivery.FOLLOW_UP -> client.followUp(userMessage)
-                    }
-                } else {
-                    client.prompt(listOf(userMessage))
-                }
-            }
-
-            override fun registerTool(tool: AgentTool<*>) {
-                val name = tool.definition.name
-                require(name !in extensionToolCatalog) { "Tool is already registered: $name" }
-                val wrapped = extensionRuntime.runner.wrapTool(tool)
-                extensionToolCatalog[name] = wrapped
-                client.setTools(client.state.tools + wrapped)
-                updateSystemPromptForTools(client, client.state.tools, workingDir, systemPrompt, appendSystemPrompt, skillRegistry, instructionLoader)
-            }
-
-            override fun unregisterTool(name: String) {
-                require(extensionToolCatalog.remove(name) != null) { "Tool is not registered: $name" }
-                val active = client.state.tools.filterNot { it.definition.name == name }
-                client.setTools(active)
-                updateSystemPromptForTools(client, active, workingDir, systemPrompt, appendSystemPrompt, skillRegistry, instructionLoader)
-            }
-
-            override fun setActiveTools(names: List<String>) {
-                require(names.distinct().size == names.size) { "Active tool names must be unique" }
-                val unknown = names.filterNot(extensionToolCatalog::containsKey)
-                require(unknown.isEmpty()) { "Unknown tools: ${unknown.joinToString()}" }
-                val active = names.map(extensionToolCatalog::getValue)
-                client.setTools(active)
-                updateSystemPromptForTools(client, active, workingDir, systemPrompt, appendSystemPrompt, skillRegistry, instructionLoader)
-            }
-
-            override fun setModel(provider: String, modelId: String) {
-                val selected = modelRegistry.find(provider, modelId)
-                    ?: error("Model not found: $provider/$modelId")
-                client.setModel(selected)
-            }
-
-            override fun setThinkingLevel(level: AgentThinkingLevel) {
-                client.setThinkingLevel(level)
-            }
-
-            override fun appendEntry(customType: String, data: kotlinx.serialization.json.JsonObject?) {
-                val manager = requireNotNull(activeExtensionSessionManager) {
-                    "Session persistence is disabled"
-                }
-                manager.append(
-                    CustomEntry(
-                        id = UUID.randomUUID().toString().substring(0, 8),
-                        parentId = manager.getLeafId(),
-                        timestamp = java.time.Instant.now().toString(),
-                        customType = customType,
-                        data = data,
-                    ),
-                )
-            }
-
-            override fun appendMessage(
-                customType: String,
-                content: String,
-                display: Boolean,
-                details: kotlinx.serialization.json.JsonObject?,
-            ) {
-                val manager = requireNotNull(activeExtensionSessionManager) {
-                    "Session persistence is disabled"
-                }
-                manager.append(
-                    CustomMessageEntry(
-                        id = UUID.randomUUID().toString().substring(0, 8),
-                        parentId = manager.getLeafId(),
-                        timestamp = java.time.Instant.now().toString(),
-                        customType = customType,
-                        content = listOf(TextContent(text = content)),
-                        display = display,
-                        details = details,
-                    ),
-                )
-            }
-
-            override fun sendMessage(
-                customType: String,
-                content: String,
-                display: Boolean,
-                details: kotlinx.serialization.json.JsonObject?,
-            ) {
-                val message = CustomMessage(
-                    customType = customType,
-                    content = listOf(TextContent(text = content)),
-                    display = display,
-                    details = details,
-                    timestamp = System.currentTimeMillis(),
-                )
-                client.appendMessage(message)
-                activeExtensionSessionManager?.let { manager ->
-                    manager.append(
-                        CustomMessageEntry(
-                            id = UUID.randomUUID().toString().substring(0, 8),
-                            parentId = manager.getLeafId(),
-                            timestamp = java.time.Instant.now().toString(),
-                            customType = customType,
-                            content = listOf(TextContent(text = content)),
-                            display = display,
-                            details = details,
-                        ),
-                    )
-                }
-            }
-
-            override fun setSessionName(name: String?) {
-                val manager = requireNotNull(activeExtensionSessionManager) {
-                    "Session persistence is disabled"
-                }
-                manager.append(
-                    SessionInfoEntry(
-                        id = UUID.randomUUID().toString().substring(0, 8),
-                        parentId = manager.getLeafId(),
-                        timestamp = java.time.Instant.now().toString(),
-                        name = name?.trim()?.takeIf(String::isNotEmpty),
-                    ),
-                )
-            }
-
-            override fun setLabel(entryId: String, label: String?) {
-                val manager = requireNotNull(activeExtensionSessionManager) {
-                    "Session persistence is disabled"
-                }
-                require(manager.getEntry(entryId) != null) { "Session entry not found: $entryId" }
-                manager.append(
-                    LabelEntry(
-                        id = UUID.randomUUID().toString().substring(0, 8),
-                        parentId = manager.getLeafId(),
-                        timestamp = java.time.Instant.now().toString(),
-                        targetId = entryId,
-                        label = label,
-                    ),
-                )
-            }
-
-            override suspend fun waitForIdle() {
-                client.waitForIdle()
-            }
-
-            override suspend fun exec(
-                command: String,
-                args: List<String>,
-                timeoutMs: Long,
-            ): co.agentmode.agent47.ext.core.ExtensionExecResult = withContext(Dispatchers.IO) {
-                require(command.isNotBlank()) { "Command cannot be blank" }
-                require(timeoutMs > 0) { "Command timeout must be positive" }
-                val process = ProcessBuilder(listOf(command) + args)
-                    .directory(workingDir.toFile())
-                    .start()
-                coroutineScope {
-                    val stdout = async { process.inputStream.bufferedReader().use { it.readText() } }
-                    val stderr = async { process.errorStream.bufferedReader().use { it.readText() } }
-                    val finished = process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    if (!finished) process.destroyForcibly()
-                    co.agentmode.agent47.ext.core.ExtensionExecResult(
-                        stdout = stdout.await(),
-                        stderr = stderr.await(),
-                        code = if (finished) process.exitValue() else 124,
-                        killed = !finished,
-                    )
-                }
-            }
-
-            override fun abort() {
-                client.abort()
-            }
-
-            override suspend fun reload() {
-                reloadExtensions()
-            }
-        }
+        val extensionSession = MutableExtensionSessionControl(
+            CliExtensionSessionControl(
+                sessionTracker = sessionTracker,
+                extensionRuntime = extensionRuntime,
+                client = client,
+                sessionsDir = sessionsBaseDir(options, config),
+                workingDir = workingDir,
+                noSession = options.noSession,
+                contextProvider = extensionBinding::get,
+            ),
+        )
+        val reloadExtensions = ExtensionReloader(
+            extensionRuntime = extensionRuntime,
+            apiRegistry = apiRegistry,
+            modelRegistry = modelRegistry,
+            allTools = allTools,
+            toolCatalog = extensionToolCatalog,
+            client = client,
+            workingDir = workingDir,
+            customPrompt = options.systemPrompt,
+            appendPrompt = options.appendSystemPrompt,
+            skillRegistry = skillRegistry,
+            instructionLoader = instructionLoader,
+            sessionTracker = sessionTracker,
+            contextProvider = extensionBinding::get,
+        )
+        val extensionContext = CliExtensionContext(
+            ui = extensionUi,
+            session = extensionSession,
+            cwd = workingDir,
+            printMode = options.printMode,
+            client = client,
+            modelRegistry = modelRegistry,
+            toolCatalog = extensionToolCatalog,
+            sessionTracker = sessionTracker,
+            extensionRuntime = extensionRuntime,
+            customPrompt = options.systemPrompt,
+            appendPrompt = options.appendSystemPrompt,
+            skillRegistry = skillRegistry,
+            instructionLoader = instructionLoader,
+            reloader = reloadExtensions,
+        )
+        extensionBinding.bind(extensionContext)
         extensionRunner.bindContext { extensionContext }
         // Let background sub-agents inherit the orchestrator's prompt/conversation and (later)
         // receive push notifications.
@@ -963,63 +665,6 @@ class Agent47Command :
             }
         }
 
-        reloadExtensions = {
-            val previousRunner = extensionRuntime.runner
-            val report = extensionRuntime.reload(keepPreviousOnFailure = true)
-            if (report.failures.isNotEmpty()) {
-                error(
-                    report.failures.joinToString("\n") { failure ->
-                        "${failure.path}: ${failure.diagnostics.joinToString("; ")}"
-                    },
-                )
-            }
-            val runner = report.runner
-            if (runner !== previousRunner) {
-                previousRunner.shutdownSession(
-                    co.agentmode.agent47.ext.core.SessionShutdownEvent(
-                        co.agentmode.agent47.ext.core.SessionShutdownReason.RELOAD,
-                        activeExtensionSessionManager?.getSessionFile(),
-                    ),
-                    extensionContext,
-                )
-                previousRunner.unregisterProviders(apiRegistry, modelRegistry)
-                runner.registerProviders(apiRegistry, modelRegistry)
-            }
-            runner.bindContext { extensionContext }
-            val reloadedTools = runner.wrapAllTools(
-                (runner.tools() + allTools).distinctBy { it.definition.name },
-            )
-            extensionToolCatalog.clear()
-            reloadedTools.forEach { tool -> extensionToolCatalog[tool.definition.name] = tool }
-            client.setTools(reloadedTools)
-            client.setSystemPrompt(
-                buildSystemPrompt(
-                    cwd = workingDir,
-                    toolNames = reloadedTools.map { it.definition.name },
-                    customPrompt = systemPrompt,
-                    appendPrompt = appendSystemPrompt,
-                    skills = skillRegistry.getAll(),
-                    instructions = instructionLoader.format(),
-                ),
-            )
-            if (runner !== previousRunner) {
-                runner.startSession(
-                    co.agentmode.agent47.ext.core.SessionStartEvent(
-                        co.agentmode.agent47.ext.core.SessionStartReason.RELOAD,
-                        activeExtensionSessionManager?.getSessionFile(),
-                    ),
-                    extensionContext,
-                )
-            }
-            ExtensionResources(
-                runner.commands(),
-                runner.shortcuts(),
-                runner.toolRenderers(),
-                runner.messageRenderers(),
-                runner.flags(),
-            )
-        }
-
         extensionRuntime.runner.startSession(
             co.agentmode.agent47.ext.core.SessionStartEvent(
                 co.agentmode.agent47.ext.core.SessionStartReason.STARTUP,
@@ -1059,10 +704,10 @@ class Agent47Command :
                     extensionRuntime.runner.completeCompaction(event, extensionContext)
                 },
                 onSessionChanged = { manager ->
-                    activeExtensionSessionManager = manager
+                    sessionTracker.current = manager
                 },
                 onSessionTransition = { previous, next, reason ->
-                    activeExtensionSessionManager = previous
+                    sessionTracker.current = previous
                     extensionRuntime.runner.shutdownSession(
                         SessionShutdownEvent(
                             reason = SessionShutdownReason.valueOf(reason.name),
@@ -1070,7 +715,7 @@ class Agent47Command :
                         ),
                         extensionContext,
                     )
-                    activeExtensionSessionManager = next
+                    sessionTracker.current = next
                     extensionRuntime.runner.startSession(
                         SessionStartEvent(reason, previous?.getSessionFile()),
                         extensionContext,
@@ -1084,7 +729,7 @@ class Agent47Command :
                 subagentsSettings = subagentsSettings.get(),
                 agentRegistry = agentRegistry,
                 scheduler = scheduler,
-                reloadExtensions = reloadExtensions,
+                reloadExtensions = reloadExtensions::reload,
                 persistSubagentsSettings = { updated ->
                     SubagentsSettingsManager.save(config.projectSubagentsSettingsPath, updated)
                     val previous = subagentsSettings.get()
@@ -1104,27 +749,6 @@ class Agent47Command :
                 extensionContext,
             )
         }
-    }
-
-    private fun updateSystemPromptForTools(
-        client: AgentClient,
-        tools: List<AgentTool<*>>,
-        workingDir: Path,
-        customPrompt: String?,
-        appendPrompt: String?,
-        skillRegistry: SkillRegistry,
-        instructionLoader: InstructionLoader,
-    ) {
-        client.setSystemPrompt(
-            buildSystemPrompt(
-                cwd = workingDir,
-                toolNames = tools.map { it.definition.name },
-                customPrompt = customPrompt,
-                appendPrompt = appendPrompt,
-                skills = skillRegistry.getAll(),
-                instructions = instructionLoader.format(),
-            ),
-        )
     }
 
     private fun handleSpecialCommands(): Boolean {
