@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 
 import errno
+import fcntl
 import os
 import pty
 import select
 import signal
+import struct
 import sys
 import tempfile
+import termios
 import time
 
 
 BOOT_TIMEOUT_SECONDS = 3.0
+TERMINAL_COLUMNS = 80
+TERMINAL_ROWS = 24
 FAILURE_MARKERS = (
     b"Exception in thread",
     b"UnsatisfiedLinkError",
@@ -59,6 +64,11 @@ def read_available(master_fd: int, output: bytearray) -> None:
         output.extend(chunk)
 
 
+def set_terminal_size(fd: int) -> None:
+    window_size = struct.pack("HHHH", TERMINAL_ROWS, TERMINAL_COLUMNS, 0, 0)
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, window_size)
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} <agent47-binary>", file=sys.stderr)
@@ -81,6 +91,7 @@ def main() -> int:
         }
         pid, master_fd = pty.fork()
         if pid == 0:
+            set_terminal_size(sys.stdin.fileno())
             os.execve(binary, [binary], environment)
 
         try:
