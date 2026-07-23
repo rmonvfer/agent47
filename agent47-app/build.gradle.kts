@@ -144,6 +144,12 @@ graalvmNative {
             buildArgs.add("-H:+UnlockExperimentalVMOptions")
             buildArgs.add("-H:+RuntimeClassLoading")
             buildArgs.add("--features=co.agentmode.agent47.app.KotlinCompilerCompatibilityFeature")
+            buildArgs.add("--enable-native-access=ALL-UNNAMED")
+            buildArgs.add(
+                "--initialize-at-run-time=" +
+                    "com.jakewharton.mosaic.tty.Jni," +
+                    "com.jakewharton.mosaic.tty.NativeLibrary",
+            )
             buildArgs.add("-H:+AddAllCharsets")
             buildArgs.add("-H:+AllowJRTFileSystem")
             buildArgs.add("--add-modules=java.logging,java.management,java.xml,jdk.unsupported")

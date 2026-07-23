@@ -99,6 +99,7 @@ jobs:
             --extension-flag example=true \
             | grep -F "$extension_path"
           test ! -e "$clean_home/.agent47"
+          python3 scripts/smoke-interactive.py "$PWD/agent47-${{ matrix.target }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
