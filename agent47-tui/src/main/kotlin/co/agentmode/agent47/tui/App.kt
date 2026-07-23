@@ -22,12 +22,13 @@ import co.agentmode.agent47.tui.input.KeyContext
 import co.agentmode.agent47.tui.input.KeyboardEvent
 import co.agentmode.agent47.tui.input.SubmitDispatcher
 import co.agentmode.agent47.tui.input.TuiIntent
-import co.agentmode.agent47.tui.input.parseSubmission
+import co.agentmode.agent47.tui.input.resetsCtrlCArm
 import co.agentmode.agent47.tui.input.toKeyboardEvent
 import co.agentmode.agent47.tui.layout.LayoutInputs
 import co.agentmode.agent47.tui.layout.computeTuiLayout
 import co.agentmode.agent47.tui.runtime.AgentEventCollector
 import co.agentmode.agent47.tui.runtime.AgentTranscriptMirror
+import co.agentmode.agent47.tui.runtime.InitialAgentSetup
 import co.agentmode.agent47.tui.runtime.PushNotificationPump
 import co.agentmode.agent47.tui.runtime.ResumeHintTracker
 import co.agentmode.agent47.tui.runtime.SpinnerTicker
@@ -228,7 +229,6 @@ private fun Agent47AppContent(
     val taskBarState = state.taskBar
     val usageHolder = state.usage
     val toolArgumentsById = state.toolArgumentsById
-    val promptHistory = state.promptHistory
     // Thread-safe hand-off for opt-in push notifications: PushNotifier (background thread) enqueues,
     // the background ticker below drains on the UI coroutine and delivers to the orchestrator.
     val pushQueue = state.pushQueue
@@ -255,7 +255,6 @@ private fun Agent47AppContent(
     var thinkingLevel by state::thinkingLevel
     var selectedModelIndex by state::selectedModelIndex
     var activeSessionManager by state::activeSessionManager
-    var currentPromptJob by state::currentPromptJob
 
     val feed = remember { TranscriptFeed(chatHistoryState, client) { state.currentModel } }
     val modelController = remember {
@@ -295,8 +294,6 @@ private fun Agent47AppContent(
     val agentPanelController = remember {
         AgentPanelController(state, feed, backgroundAgents, persistSubagentsSettings)
     }
-
-    // --- Slash command definitions ---
 
     val fileSlashCommands = remember { fileCommands }
     val slashCommands = remember(builtinSlashCommands, fileSlashCommands, extensionCommands) {
@@ -359,8 +356,6 @@ private fun Agent47AppContent(
     }
     val diffRenderer = remember(baseTheme) { DiffRenderer(baseTheme) }
 
-    // --- Derived values ---
-
     val currentModel = state.currentModel
 
     LaunchedEffect(activeSessionManager) {
@@ -395,8 +390,6 @@ private fun Agent47AppContent(
         showUsage = showUsageFooter,
     )
 
-    // --- Layout calculations ---
-
     val runningAgents = backgroundAgents?.runningStatus().orEmpty()
     val editorContentWidth = (width - 2).coerceAtLeast(1)
     val visualLineCount = WordWrap.createMapping(editor.state.lines, editorContentWidth).visualLines.size
@@ -415,11 +408,7 @@ private fun Agent47AppContent(
         ),
     )
 
-    // --- Helper lambdas (closures over state) ---
-
     fun appendSystemMessage(text: String) = feed.appendSystemMessage(text)
-
-    fun showCommandInput(text: String) = feed.showCommandInput(text)
 
     fun appendCommandResult(text: String) = feed.appendCommandResult(text)
 
@@ -470,34 +459,14 @@ private fun Agent47AppContent(
             client = client,
             cwd = cwd,
             scope = promptScope,
+            editor = editor,
+            fileSlashCommands = fileSlashCommands,
             reloadExtensions = reloadExtensions,
             processInput = processInput,
         )
     }
 
-    // --- Configure agent on first composition ---
-
-    LaunchedEffect(Unit) {
-        client.setThinkingLevel(initialThinkingLevel)
-        initialModel?.let(client::setModel)
-        initialUserMessage?.let { message ->
-            chatHistoryState.appendMessage(message)
-            activeSessionManager?.appendMessage(message)
-            val job = launch {
-                try {
-                    client.prompt(listOf(message))
-                } catch (_: CancellationException) {
-                } catch (error: Throwable) {
-                    appendSystemMessage("Failed to submit message: ${error.message ?: error::class.simpleName}")
-                } finally {
-                    currentPromptJob = null
-                }
-            }
-            currentPromptJob = job
-        }
-    }
-
-    // --- Bind task bar to TodoState ---
+    InitialAgentSetup(state, client, feed, initialThinkingLevel, initialModel, initialUserMessage)
 
     LaunchedEffect(todoState) {
         if (todoState != null) {
@@ -511,46 +480,16 @@ private fun Agent47AppContent(
     PushNotificationPump(state, backgroundAgents, conversationController)
     ResumeHintTracker(state)
 
-    // --- Render the editor ---
-
     // Read editorVersion to trigger recomposition when the editor state changes.
     @Suppress("UNUSED_EXPRESSION")
     editorVersion
     val editorResult = editor.render(width = editorContentWidth, height = layout.baseInputHeight)
 
-    // --- Key event handler ---
-
-    // Apply the current slash-command popup selection (when submitting after a popup), then submit
-    // the editor contents through the parser and dispatcher.
-    fun submitInput(applyPopupFirst: Boolean, event: KeyboardEvent) {
-        if (applyPopupFirst) {
-            editor.handle(event)
-            editorVersion++
-        }
-        val text = editor.text().trimEnd()
-        if (text.isBlank()) {
-            editor.setText("")
-            editorVersion++
-            return
-        }
-        // Record the submission so Up-arrow / Ctrl+P recall previous prompts.
-        promptHistory.add(text)
-        editor.setHistory(promptHistory.toList())
-        editor.setText("")
-        editorVersion++
-        submitDispatcher.dispatch(
-            parseSubmission(text, extensionCommands, fileSlashCommands),
-            activeTheme,
-            themeAppearance,
-            setActiveTheme,
-            setThemeAppearance,
-        )
-    }
+    fun submitInput(applyPopupFirst: Boolean, event: KeyboardEvent) =
+        submitDispatcher.submitEditor(applyPopupFirst, event, activeTheme, themeAppearance, setActiveTheme, setThemeAppearance)
 
     fun applyIntent(intent: TuiIntent?, event: KeyboardEvent): Boolean {
-        // Every key that reaches the keymap clears the Ctrl+C armed state, except the arming key
-        // itself and the submit path (which never resets it in the interactive flow).
-        if (intent !is TuiIntent.Submit && intent !is TuiIntent.SubmitAfterPopup && intent !is TuiIntent.ArmCtrlC) {
+        if (intent.resetsCtrlCArm()) {
             ctrlCArmed = false
         }
         when (intent) {
@@ -607,8 +546,6 @@ private fun Agent47AppContent(
         }
         return true
     }
-
-    // --- Rendering ---
 
     val backgroundModifier = if (baseTheme.background.isSpecifiedColor) {
         Modifier.background(baseTheme.background)

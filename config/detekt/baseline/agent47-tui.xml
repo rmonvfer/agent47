@@ -2,14 +2,9 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>ComplexCondition:App.kt:event is AgentEndEvent &amp;&amp; compactionSettings.auto &amp;&amp; compactionSettings.enabled &amp;&amp; compactContext != null</ID>
     <ID>ComplexCondition:MarkdownRenderer.kt:BlockRenderer$node is Paragraph &amp;&amp; node.parent is ListItem &amp;&amp; (node.next is BulletList || node.next is OrderedList)</ID>
     <ID>ComplexCondition:MarkdownRenderer.kt:SyntaxHighlighter$i &lt; n &amp;&amp; (line[i].isLetterOrDigit() || line[i] == '.' || line[i] == '_')</ID>
     <ID>CyclomaticComplexMethod:App.kt:@Composable private fun Agent47AppContent( client: AgentClient, configuration: TuiLaunchConfiguration, providerServices: TuiProviderServices, conversationServices: TuiConversationServices, subagentServices: TuiSubagentServices, activeTheme: ThemeConfig, themeAppearance: ThemeAppearance, setActiveTheme: (ThemeConfig) -> Unit, setThemeAppearance: (ThemeAppearance) -> Unit, )</ID>
-    <ID>CyclomaticComplexMethod:App.kt:private fun handleAgentEvent( event: AgentEvent, client: AgentClient, chatHistoryState: ChatHistoryState, toolArgumentsById: MutableMap&lt;String, String>, activeSessionManager: SessionManager?, usageHolder: UsageHolder, setIsStreaming: (Boolean) -> Unit, setLiveActivityLabel: (String) -> Unit, setCurrentPromptJob: (Job?) -> Unit, bumpChatVersion: () -> Unit, )</ID>
-    <ID>CyclomaticComplexMethod:App.kt:private fun handleSubmit( rawInput: String, client: AgentClient, editor: Editor, chatHistoryState: ChatHistoryState, overlayHostState: OverlayHostState, slashCommands: List&lt;SlashCommandSpec>, fileSlashCommands: List&lt;SlashCommand>, cwd: Path, activeSessionManager: SessionManager?, promptScope: CoroutineScope, isStreaming: Boolean, currentPromptJob: Job?, setCurrentPromptJob: (Job?) -> Unit, appendSystemMessage: (String) -> Unit, showCommandInput: (String) -> Unit, appendCommandResult: (String) -> Unit, openModelOverlay: () -> Unit, openSessionOverlay: () -> Unit, openSettingsOverlay: () -> Unit, openCommandsOverlay: () -> Unit, openThemeOverlay: () -> Unit, openProviderOverlay: () -> Unit, openMemoryOverlay: () -> Unit, openAgentsOverlay: () -> Unit, setModelById: (String) -> Unit, startNewSession: () -> Unit, tryExpandFileCommand: (String) -> String?, setRunning: (Boolean) -> Unit, bumpChatVersion: () -> Unit, runCompaction: () -> Unit = {}, )</ID>
-    <ID>CyclomaticComplexMethod:App.kt:private fun showSubAgentResult( result: co.agentmode.agent47.coding.core.agents.SubAgentResult, overlayHostState: OverlayHostState, )</ID>
-    <ID>CyclomaticComplexMethod:ChatHistory.kt:@Composable public fun ChatHistory( state: ChatHistoryState, width: Int, height: Int, markdownRenderer: MarkdownRenderer, diffRenderer: DiffRenderer, version: Int = 0, spinnerFrame: Int = 0, cwd: String = "", )</ID>
     <ID>CyclomaticComplexMethod:ChatHistory.kt:private fun renderTaskToolLines( execution: ToolExecutionView, width: Int, theme: ThemeConfig, ): List&lt;AnnotatedString></ID>
     <ID>CyclomaticComplexMethod:DiffRenderer.kt:DiffRenderer$public fun render( original: String, revised: String, width: Int, contextLines: Int = 3, fromFile: String = "a/content", toFile: String = "b/content", ): List&lt;AnnotatedString></ID>
     <ID>CyclomaticComplexMethod:Editor.kt:Editor$public fun handle(event: KeyboardEvent): Boolean</ID>
@@ -24,12 +19,6 @@
     <ID>CyclomaticComplexMethod:TerminalAppearance.kt:TerminalAppearanceDetector$public fun parseOsc11BackgroundColor(data: String): TerminalRgb?</ID>
     <ID>CyclomaticComplexMethod:Theme.kt:internal fun parseThemeJson( json: String, appearance: ThemeAppearance = ThemeAppearance.DARK, ): ThemeConfig?</ID>
     <ID>LongMethod:App.kt:@Composable private fun Agent47AppContent( client: AgentClient, configuration: TuiLaunchConfiguration, providerServices: TuiProviderServices, conversationServices: TuiConversationServices, subagentServices: TuiSubagentServices, activeTheme: ThemeConfig, themeAppearance: ThemeAppearance, setActiveTheme: (ThemeConfig) -> Unit, setThemeAppearance: (ThemeAppearance) -> Unit, )</ID>
-    <ID>LongMethod:App.kt:fun handleKeyEvent(keyEvent: KeyboardEvent): Boolean</ID>
-    <ID>LongMethod:App.kt:fun openSessionOverlay()</ID>
-    <ID>LongMethod:App.kt:fun startAuthMethod(info: ProviderInfo, method: AuthMethod)</ID>
-    <ID>LongMethod:App.kt:private fun handleAgentEvent( event: AgentEvent, client: AgentClient, chatHistoryState: ChatHistoryState, toolArgumentsById: MutableMap&lt;String, String>, activeSessionManager: SessionManager?, usageHolder: UsageHolder, setIsStreaming: (Boolean) -> Unit, setLiveActivityLabel: (String) -> Unit, setCurrentPromptJob: (Job?) -> Unit, bumpChatVersion: () -> Unit, )</ID>
-    <ID>LongMethod:App.kt:private fun handleSubmit( rawInput: String, client: AgentClient, editor: Editor, chatHistoryState: ChatHistoryState, overlayHostState: OverlayHostState, slashCommands: List&lt;SlashCommandSpec>, fileSlashCommands: List&lt;SlashCommand>, cwd: Path, activeSessionManager: SessionManager?, promptScope: CoroutineScope, isStreaming: Boolean, currentPromptJob: Job?, setCurrentPromptJob: (Job?) -> Unit, appendSystemMessage: (String) -> Unit, showCommandInput: (String) -> Unit, appendCommandResult: (String) -> Unit, openModelOverlay: () -> Unit, openSessionOverlay: () -> Unit, openSettingsOverlay: () -> Unit, openCommandsOverlay: () -> Unit, openThemeOverlay: () -> Unit, openProviderOverlay: () -> Unit, openMemoryOverlay: () -> Unit, openAgentsOverlay: () -> Unit, setModelById: (String) -> Unit, startNewSession: () -> Unit, tryExpandFileCommand: (String) -> String?, setRunning: (Boolean) -> Unit, bumpChatVersion: () -> Unit, runCompaction: () -> Unit = {}, )</ID>
-    <ID>LongMethod:ChatHistory.kt:@Composable public fun ChatHistory( state: ChatHistoryState, width: Int, height: Int, markdownRenderer: MarkdownRenderer, diffRenderer: DiffRenderer, version: Int = 0, spinnerFrame: Int = 0, cwd: String = "", )</ID>
     <ID>LongMethod:ChatHistory.kt:private fun renderTaskToolLines( execution: ToolExecutionView, width: Int, theme: ThemeConfig, ): List&lt;AnnotatedString></ID>
     <ID>LongMethod:Editor.kt:Editor$public fun handle(event: KeyboardEvent): Boolean</ID>
     <ID>LongMethod:MarkdownRenderer.kt:BlockRenderer$private fun renderTable(table: TableBlock)</ID>
@@ -45,9 +34,6 @@
     <ID>NestedBlockDepth:MarkdownRenderer.kt:BlockRenderer$private fun renderTable(table: TableBlock)</ID>
     <ID>NestedBlockDepth:TerminalAppearance.kt:TerminalAppearanceDetector$private fun queryTerminal(timeoutMs: Long): TerminalAppearanceDetection?</ID>
     <ID>NewLineAtEndOfFile:KeyEventBridge.kt:co.agentmode.agent47.tui.input.KeyEventBridge.kt</ID>
-    <ID>ReturnCount:App.kt:fun handleKeyEvent(keyEvent: KeyboardEvent): Boolean</ID>
-    <ID>ReturnCount:App.kt:fun openSessionOverlay()</ID>
-    <ID>ReturnCount:App.kt:private fun printResumeHint(out: java.io.PrintStream)</ID>
     <ID>ReturnCount:ChatHistory.kt:private fun renderCustomMessageLines( message: CustomMessage, width: Int, theme: ThemeConfig, ): List&lt;AnnotatedString></ID>
     <ID>ReturnCount:ChatHistory.kt:private fun renderThinkingLines( block: ThinkingContent, width: Int, collapsed: Boolean, theme: ThemeConfig, ): List&lt;AnnotatedString></ID>
     <ID>ReturnCount:ChatHistory.kt:private fun renderToolExecutionLines( execution: ToolExecutionView, width: Int, theme: ThemeConfig, ): List&lt;AnnotatedString></ID>
@@ -68,9 +54,6 @@
     <ID>ReturnCount:TerminalAppearance.kt:TerminalAppearanceDetector$public fun parseOsc11BackgroundColor(data: String): TerminalRgb?</ID>
     <ID>ReturnCount:Theme.kt:fun color(key: String, default: RgbColor): RgbColor</ID>
     <ID>ReturnCount:Theme.kt:fun resolve(value: String): RgbColor</ID>
-    <ID>TooGenericExceptionCaught:App.kt:e: Exception</ID>
-    <ID>TooGenericExceptionCaught:App.kt:error: Throwable</ID>
-    <ID>TooManyFunctions:App.kt:co.agentmode.agent47.tui.App.kt</ID>
     <ID>TooManyFunctions:ChatHistory.kt:co.agentmode.agent47.tui.components.ChatHistory.kt</ID>
     <ID>TooManyFunctions:Editor.kt:Editor</ID>
     <ID>TooManyFunctions:MarkdownRenderer.kt:BlockRenderer : AbstractVisitor</ID>
@@ -78,11 +61,6 @@
     <ID>TooManyFunctions:Overlay.kt:co.agentmode.agent47.tui.components.Overlay.kt</ID>
     <ID>TooManyFunctions:TerminalAppearance.kt:TerminalAppearanceDetector</ID>
     <ID>TooManyFunctions:Theme.kt:co.agentmode.agent47.tui.theme.Theme.kt</ID>
-    <ID>UnusedParameter:App.kt:client: AgentClient</ID>
-    <ID>UnusedParameter:App.kt:currentPromptJob: Job?</ID>
-    <ID>UnusedParameter:App.kt:editor: Editor</ID>
-    <ID>UnusedParameter:App.kt:fileSlashCommands: List&lt;SlashCommand></ID>
-    <ID>UnusedParameter:App.kt:overlayHostState: OverlayHostState</ID>
     <ID>UnusedParameter:ChatHistory.kt:cwd: String = ""</ID>
     <ID>UnusedParameter:ChatHistory.kt:diffRenderer: DiffRenderer</ID>
     <ID>UnusedParameter:ChatHistory.kt:spinnerFrame: Int = 0</ID>

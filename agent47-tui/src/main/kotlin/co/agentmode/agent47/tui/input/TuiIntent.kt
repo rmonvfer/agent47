@@ -55,3 +55,11 @@ internal sealed interface TuiIntent {
     /** Apply the visible slash-command popup selection, then submit. */
     data object SubmitAfterPopup : TuiIntent
 }
+
+/**
+ * True when applying this intent should clear the armed Ctrl+C exit state. Every key that reaches
+ * the keymap clears the armed state, except the arming intent itself and the submit path (which
+ * never resets it in the interactive flow).
+ */
+internal fun TuiIntent?.resetsCtrlCArm(): Boolean =
+    this !is TuiIntent.Submit && this !is TuiIntent.SubmitAfterPopup && this !is TuiIntent.ArmCtrlC

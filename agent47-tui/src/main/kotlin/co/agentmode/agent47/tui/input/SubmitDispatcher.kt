@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.UserMessage
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.ext.core.ExtensionCommandContext
 import co.agentmode.agent47.ext.core.ExtensionResources
 import co.agentmode.agent47.ext.core.InputEvent
@@ -15,6 +16,7 @@ import co.agentmode.agent47.tui.controller.CompactionController
 import co.agentmode.agent47.tui.controller.ConversationController
 import co.agentmode.agent47.tui.controller.ModelController
 import co.agentmode.agent47.tui.controller.SessionController
+import co.agentmode.agent47.tui.editor.Editor
 import co.agentmode.agent47.tui.overlays.OverlayNavigator
 import co.agentmode.agent47.tui.overlays.openAgentsOverlay
 import co.agentmode.agent47.tui.overlays.openCommandsOverlay
@@ -50,9 +52,47 @@ internal class SubmitDispatcher(
     private val client: AgentClient,
     private val cwd: Path,
     private val scope: CoroutineScope,
+    private val editor: Editor,
+    private val fileSlashCommands: List<SlashCommand>,
     private val reloadExtensions: suspend () -> ExtensionResources,
     private val processInput: suspend (InputEvent) -> InputHookResult,
 ) {
+    /**
+     * Applies the current slash-command popup selection (when submitting after a popup), then
+     * drains the editor and submits its contents through the parser.
+     */
+    fun submitEditor(
+        applyPopupFirst: Boolean,
+        event: KeyboardEvent,
+        activeTheme: ThemeConfig,
+        themeAppearance: ThemeAppearance,
+        setActiveTheme: (ThemeConfig) -> Unit,
+        setThemeAppearance: (ThemeAppearance) -> Unit,
+    ) {
+        if (applyPopupFirst) {
+            editor.handle(event)
+            state.editorVersion++
+        }
+        val text = editor.text().trimEnd()
+        if (text.isBlank()) {
+            editor.setText("")
+            state.editorVersion++
+            return
+        }
+        // Record the submission so Up-arrow / Ctrl+P recall previous prompts.
+        state.promptHistory.add(text)
+        editor.setHistory(state.promptHistory.toList())
+        editor.setText("")
+        state.editorVersion++
+        dispatch(
+            parseSubmission(text, state.extensionCommands, fileSlashCommands),
+            activeTheme,
+            themeAppearance,
+            setActiveTheme,
+            setThemeAppearance,
+        )
+    }
+
     fun dispatch(
         submission: Submission,
         activeTheme: ThemeConfig,
