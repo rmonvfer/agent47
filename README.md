@@ -28,7 +28,7 @@ the published SHA-256 checksums before replacing an existing installation. To in
 the latest one:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.5 bash
+curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.6 bash
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
 

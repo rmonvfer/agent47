@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-07-23
+
+### Added
+
+- Git and local extension repositories with global or project registries, managed checkouts, manifest-based resource discovery, pinned revisions, and atomic updates.
+- Interactive startup help showing the version, shortcuts, context files, skills, and extensions, with Ctrl+O expansion and double-Escape input clearing.
+- A complete extension repository example containing Kotlin extensions, a skill, a prompt command, a theme, and an authoring build.
+
+### Changed
+
+- Application bootstrap and terminal UI responsibilities are organized into focused runtime, controller, input, overlay, layout, and rendering components with expanded test coverage.
+- The terminal layout uses consistent horizontal padding, prioritizes active work in the compact task bar, and renders code blocks without literal fence lines.
+- Extension updates support executable-only, repository-only, combined, and single-repository flows.
+
+### Fixed
+
+- Dialog scrims dim plain chat, user-message, editor, focus-banner, and extension text consistently.
+- Startup details remain visible when toggled after a conversation, and clearing the conversation resets stale transcript scrolling.
+
 ## [0.1.5] - 2026-07-23
 
 ### Fixed
@@ -72,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.1.6]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.6
 [0.1.5]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.5
 [0.1.4]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.4
 [0.1.3]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.3
