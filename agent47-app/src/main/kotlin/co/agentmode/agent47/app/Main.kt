@@ -12,10 +12,20 @@ import co.agentmode.agent47.ai.core.AiRuntime
 import co.agentmode.agent47.ai.types.SimpleStreamOptions
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.app.cli.CliOptions
+import co.agentmode.agent47.app.cli.escapePromptFileArguments
+import co.agentmode.agent47.app.cli.listModels
 import co.agentmode.agent47.app.cli.mergeThemes
+import co.agentmode.agent47.app.cli.parseModelSpec
 import co.agentmode.agent47.app.cli.printError
 import co.agentmode.agent47.app.cli.printWarning
+import co.agentmode.agent47.app.cli.processPrompt
+import co.agentmode.agent47.app.cli.resolveModel
+import co.agentmode.agent47.app.cli.resolveSession
+import co.agentmode.agent47.app.cli.resolveThinkingLevel
 import co.agentmode.agent47.app.cli.runSmokeTool
+import co.agentmode.agent47.app.cli.scopedModels
+import co.agentmode.agent47.app.cli.sessionsBaseDir
 import co.agentmode.agent47.app.update.UpdateCommand
 import co.agentmode.agent47.app.update.installAutomaticUpdate
 import co.agentmode.agent47.app.update.shouldCheckForUpdates
@@ -33,7 +43,6 @@ import co.agentmode.agent47.coding.core.extensions.ExtensionPackageManager
 import co.agentmode.agent47.coding.core.instructions.InstructionFile
 import co.agentmode.agent47.coding.core.instructions.InstructionLoader
 import co.agentmode.agent47.coding.core.models.ModelRegistry
-import co.agentmode.agent47.coding.core.models.ModelResolver
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.session.CustomEntry
 import co.agentmode.agent47.coding.core.session.CustomMessageEntry
@@ -104,7 +113,6 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple as multipleOptions
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
-import com.github.ajalt.mordant.table.table
 import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -114,19 +122,9 @@ import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
-import javax.imageio.ImageIO
 import kotlin.io.path.*
 
 private val VALID_ENV_HINT = "ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY"
-
-private val VALID_THINKING_LEVELS = listOf(
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh"
-)
 
 suspend fun main(args: Array<String>) {
     if (args.firstOrNull() == "extension") {
@@ -145,32 +143,6 @@ suspend fun main(args: Array<String>) {
     if (shouldCheckForUpdates(args) && installAutomaticUpdate(args)) return
     Agent47Command().main(escapePromptFileArguments(args))
 }
-
-internal fun escapePromptFileArguments(args: Array<String>): Array<String> =
-    args.map { argument ->
-        if (argument.startsWith("@") && !argument.startsWith("@@")) "@$argument" else argument
-    }.toTypedArray()
-
-internal fun findLatestProjectSession(sessionDir: Path, projectCwd: Path): Path? {
-    if (!sessionDir.exists()) return null
-
-    val canonicalProject = projectCwd.canonicalPath()
-    return Files.list(sessionDir).use { stream ->
-        stream
-            .filter { Files.isRegularFile(it) && it.toString().endsWith(".jsonl") }
-            .filter { file ->
-                runCatching {
-                    Path.of(SessionManager(file).getHeader().cwd).canonicalPath() == canonicalProject
-                }.getOrDefault(false)
-            }
-            .sorted { a, b -> b.fileName.compareTo(a.fileName) }
-            .findFirst()
-            .orElse(null)
-    }
-}
-
-private fun Path.canonicalPath(): Path =
-    runCatching { toRealPath() }.getOrElse { toAbsolutePath().normalize() }
 
 class Agent47Command :
     SuspendingCliktCommand(name = "agent47") {
@@ -275,8 +247,34 @@ class Agent47Command :
         }
         if (handleSpecialCommands()) return
 
+        val options = CliOptions(
+            provider = provider,
+            model = model,
+            apiKey = apiKey,
+            systemPrompt = systemPrompt,
+            appendSystemPrompt = appendSystemPrompt,
+            thinking = thinking,
+            printMode = printMode,
+            continueSession = continueSession,
+            resume = resume,
+            session = session,
+            sessionDir = sessionDir,
+            noSession = noSession,
+            models = models,
+            tools = tools,
+            noTools = noTools,
+            extensionPaths = extensionPaths,
+            noExtensions = noExtensions,
+            extensionFlags = extensionFlagOptions,
+            listExtensions = listExtensions,
+            listModels = listModels,
+            listModelsSearch = listModelsSearch,
+            showVersion = showVersion,
+            promptArgs = promptArgs,
+        )
+
         val config = AgentConfig(cwd = Path.of(System.getProperty("user.dir")))
-        val extensionFlagValues = extensionFlagOptions.fold(linkedMapOf<String, String>()) { values, raw ->
+        val extensionFlagValues = options.extensionFlags.fold(linkedMapOf<String, String>()) { values, raw ->
             val name = raw.substringBefore('=')
             val value = raw.substringAfter('=', "true")
             require(name.matches(Regex("[a-z][a-z0-9-]*"))) { "Invalid extension flag name: $name" }
@@ -366,7 +364,7 @@ class Agent47Command :
         modelRegistry.refreshAsync()
 
         if (listModels) {
-            listModels(modelRegistry, listModelsSearch)
+            listModels(modelRegistry, options.listModelsSearch, terminal)
             return
         }
 
@@ -376,23 +374,23 @@ class Agent47Command :
         // An explicit --api-key must reach the registry before model resolution so first-time setup
         // (with no stored credentials) can find and use the requested provider's models.
         apiKey?.let { key ->
-            val targetProvider = parseModelSpec().first ?: provider ?: settings.get().defaultProvider
+            val targetProvider = parseModelSpec(options.model).provider ?: options.provider ?: settings.get().defaultProvider
             if (targetProvider != null) {
                 modelRegistry.storeApiKey(targetProvider, key)
             }
         }
 
-        val resolvedModel = resolveModel(modelRegistry, settings)
+        val resolvedModel = resolveModel(options, modelRegistry, settings)
         if (resolvedModel == null) {
             terminal.printError("No API key found. Set one of: $VALID_ENV_HINT")
             throw Abort()
         }
 
-        val thinkingLevel = resolveThinkingLevel(settings)
-        val sessionManager = resolveSession(config)
+        val thinkingLevel = resolveThinkingLevel(options, settings)
+        val sessionManager = resolveSession(options, config, terminal)
         var activeExtensionSessionManager = sessionManager
 
-        val (promptContent, images) = processPrompt(promptArgs)
+        val (promptContent, images) = processPrompt(options.promptArgs, terminal)
 
         val agentRegistry = AgentRegistry(
             config.projectAgentsDir,
@@ -482,7 +480,7 @@ class Agent47Command :
                                 memoryProjectDir = config.projectDir,
                                 memoryGlobalDir = config.globalDir,
                                 skillContentProvider = { name -> skillRegistry.readSkillFile(name) },
-                                sessionsDir = sessionsBaseDir(config),
+                                sessionsDir = sessionsBaseDir(options, config),
                                 parentSessionId = sessionId,
                             ),
                         )
@@ -511,7 +509,7 @@ class Agent47Command :
                 currentDepth = 0,
                 maxDepth = settings.get().taskMaxRecursionDepth,
                 getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
-                sessionsDir = sessionsBaseDir(config),
+                sessionsDir = sessionsBaseDir(options, config),
                 parentSessionId = sessionManager?.getHeader()?.id,
                 memoryProjectDir = config.projectDir,
                 memoryGlobalDir = config.globalDir,
@@ -586,7 +584,7 @@ class Agent47Command :
                     null
                 } else {
                     SessionManager(
-                        sessionsBaseDir(config).resolve("session-${System.currentTimeMillis()}.jsonl"),
+                        sessionsBaseDir(options, config).resolve("session-${System.currentTimeMillis()}.jsonl"),
                         workingDir,
                     )
                 }
@@ -624,7 +622,7 @@ class Agent47Command :
                 val source = activeExtensionSessionManager ?: return newSession()
                 val context = source.buildContext(entryId ?: source.getLeafId())
                 val target = SessionManager(
-                    sessionsBaseDir(config).resolve("session-${System.currentTimeMillis()}.jsonl"),
+                    sessionsBaseDir(options, config).resolve("session-${System.currentTimeMillis()}.jsonl"),
                     workingDir,
                 )
                 context.messages.forEach(target::appendMessage)
@@ -1042,9 +1040,9 @@ class Agent47Command :
                 userMessage = userMessage,
                 model = resolvedModel,
                 thinkingLevel = thinkingLevel,
-                availableModels = scopedModels(modelRegistry.getAvailable()),
+                availableModels = scopedModels(modelRegistry.getAvailable(), options.models),
                 sessionManager = sessionManager,
-                sessionsDir = sessionsBaseDir(config),
+                sessionsDir = sessionsBaseDir(options, config),
                 fileCommands = fileCommands,
                 extensionCommands = extensionRuntime.runner.commands(),
                 extensionShortcuts = extensionRuntime.runner.shortcuts(),
@@ -1143,275 +1141,8 @@ class Agent47Command :
         registerGoogleProviders(registry)
     }
 
-    private fun listModels(registry: ModelRegistry, search: String?) {
-        val available = registry.getAvailable()
-
-        val filtered = if (search != null) {
-            available.filter {
-                it.id.contains(search, ignoreCase = true) ||
-                        it.name.contains(search, ignoreCase = true) ||
-                        it.provider.value.contains(search, ignoreCase = true)
-            }
-        } else {
-            available
-        }
-
-        if (filtered.isEmpty()) {
-            terminal.printWarning("No models found${search?.let { " matching '$it'" } ?: ""}")
-            return
-        }
-
-        val table = table {
-            header { row("Provider", "Model ID", "Name", "Context", "Max Tokens") }
-            body {
-                filtered.sortedWith(compareBy({ it.provider.value }, { it.id })).forEach { model ->
-                    row(
-                        model.provider.value,
-                        model.id,
-                        model.name,
-                        formatNumber(model.contextWindow),
-                        formatNumber(model.maxTokens),
-                    )
-                }
-            }
-        }
-        terminal.println(table)
-    }
-
-    private fun resolveModel(
-        registry: ModelRegistry,
-        settings: SettingsManager,
-    ): Model? {
-        val available = registry.getAvailable()
-        if (available.isEmpty()) return null
-
-        val (requestedProvider, requestedModelId, _) = parseModelSpec()
-
-        return ModelResolver.resolveInitialModel(
-            cliProvider = requestedProvider ?: provider,
-            cliModel = requestedModelId ?: model,
-            settings = settings.get(),
-            available = available,
-        )
-    }
-
-    private fun parseModelSpec(): Triple<String?, String?, String?> {
-        val modelSpec = model ?: return Triple(null, null, null)
-
-        val thinkingSuffix = VALID_THINKING_LEVELS.find { level ->
-            modelSpec.endsWith(":$level")
-        }
-
-        val modelPart = thinkingSuffix?.let {
-            modelSpec.removeSuffix(":$it")
-        } ?: modelSpec
-
-        val providerPrefix = modelPart.substringBefore("/", "").ifEmpty { null }
-        val modelId = if (providerPrefix != null) {
-            modelPart.substringAfter("/")
-        } else {
-            modelPart
-        }
-
-        return Triple(providerPrefix, modelId.ifBlank { null }, thinkingSuffix)
-    }
-
-    private fun resolveThinkingLevel(settings: SettingsManager): AgentThinkingLevel {
-        // A `--model sonnet:high` suffix sets the thinking level when --thinking is not given.
-        val suffix = parseModelSpec().third
-        val level = thinking ?: suffix ?: settings.get().defaultThinkingLevel ?: "off"
-        return when (level.lowercase()) {
-            "minimal" -> AgentThinkingLevel.MINIMAL
-            "low" -> AgentThinkingLevel.LOW
-            "medium" -> AgentThinkingLevel.MEDIUM
-            "high" -> AgentThinkingLevel.HIGH
-            "xhigh" -> AgentThinkingLevel.XHIGH
-            else -> AgentThinkingLevel.OFF
-        }
-    }
-
-    private fun resolveSession(config: AgentConfig): SessionManager? {
-        if (noSession) return null
-
-        val sessionPath = when {
-            session != null -> session!!
-            continueSession -> findLatestProjectSession(
-                sessionsBaseDir(config),
-                Path.of(System.getProperty("user.dir")),
-            ) ?: createNewSession(config)
-            resume != null -> findSessionById(config, resume!!) ?: run {
-                terminal.printWarning("No session found matching '$resume' — starting a new session")
-                createNewSession(config)
-            }
-
-            else -> createNewSession(config)
-        }
-
-        return SessionManager(sessionPath, projectCwd = Path.of(System.getProperty("user.dir")))
-    }
-
-    private fun sessionsBaseDir(config: AgentConfig): Path =
-        sessionDir ?: config.sessionsDir
-
-    private fun createNewSession(config: AgentConfig): Path {
-        val dir = sessionsBaseDir(config)
-        Files.createDirectories(dir)
-        return dir.resolve("session-${System.currentTimeMillis()}.jsonl")
-    }
-
-    /** Finds the session file whose header id equals [id], or a unique prefix of it. */
-    private fun findSessionById(config: AgentConfig, id: String): Path? {
-        val dir = sessionsBaseDir(config)
-        if (!dir.exists()) return null
-        val files = Files.list(dir).use { stream ->
-            stream.filter { it.toString().endsWith(".jsonl") }.toList()
-        }
-        var prefixMatch: Path? = null
-        var prefixCount = 0
-        for (file in files) {
-            val sid = runCatching { SessionManager(file).getHeader().id }.getOrNull() ?: continue
-            if (sid == id) return file
-            if (sid.startsWith(id)) {
-                prefixMatch = file
-                prefixCount++
-            }
-        }
-        return if (prefixCount == 1) prefixMatch else null
-    }
-
     private fun resolveTools(): List<String> {
         return tools?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: DEFAULT_TOOLS
-    }
-
-    /**
-     * Restrict the models offered for cycling (Ctrl+P/N) to those matching the `--models` glob
-     * patterns. Falls back to all models when the flag is absent or matches nothing.
-     */
-    private fun scopedModels(all: List<Model>): List<Model> {
-        val patterns = models?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
-        if (patterns.isNullOrEmpty()) return all
-
-        val regexes = patterns.map { globToRegex(it) }
-        val scoped = all.filter { model ->
-            val full = "${model.provider.value}/${model.id}"
-            regexes.any { it.matches(full) || it.matches(model.id) }
-        }
-        return scoped.ifEmpty { all }
-    }
-
-    private fun globToRegex(pattern: String): Regex {
-        val specials = "\\.[]{}()+-^$|"
-        val sb = StringBuilder("^")
-        for (c in pattern) {
-            when {
-                c == '*' -> sb.append(".*")
-                c == '?' -> sb.append('.')
-                specials.contains(c) -> sb.append('\\').append(c)
-                else -> sb.append(c)
-            }
-        }
-        sb.append('$')
-        return Regex(sb.toString(), RegexOption.IGNORE_CASE)
-    }
-
-    private fun processPrompt(args: List<String>): Pair<String, List<ImageContent>> {
-        val textParts = mutableListOf<String>()
-        val images = mutableListOf<ImageContent>()
-
-        for (arg in args) {
-            if (arg.startsWith("@")) {
-                val filePath = Path.of(arg.substring(1))
-                if (!filePath.exists()) {
-                    terminal.printError("File not found: ${filePath.toAbsolutePath()}")
-                    throw Abort()
-                }
-
-                val mimeType = detectImageMimeType(filePath)
-                if (mimeType != null) {
-                    val bytes = filePath.readBytes()
-                    val resized = try {
-                        resizeImage(bytes, mimeType)
-                    } catch (_: LinkageError) {
-                        ImageResizeResult(bytes, mimeType)
-                    }
-                    images.add(
-                        ImageContent(
-                            data = Base64.getEncoder().encodeToString(resized.data),
-                            mimeType = resized.mimeType,
-                        ),
-                    )
-                    textParts.add("<file name=\"${filePath.name}\"></file>")
-                } else {
-                    val content = filePath.readText()
-                    textParts.add("<file name=\"${filePath.name}\">\n$content\n</file>")
-                }
-            } else {
-                textParts.add(arg)
-            }
-        }
-
-        return Pair(textParts.joinToString("\n\n"), images)
-    }
-
-    private fun detectImageMimeType(path: Path): String? {
-        return when (path.extension.lowercase()) {
-            "png" -> "image/png"
-            "jpg", "jpeg" -> "image/jpeg"
-            "gif" -> "image/gif"
-            "webp" -> "image/webp"
-            else -> null
-        }
-    }
-
-    private fun resizeImage(bytes: ByteArray, mimeType: String): ImageResizeResult {
-        val image = ImageIO.read(bytes.inputStream()) ?: return ImageResizeResult(bytes, mimeType)
-        val (width, height) = image.width to image.height
-        val maxDim = 2000
-
-        if (width <= maxDim && height <= maxDim) {
-            return ImageResizeResult(bytes, mimeType)
-        }
-
-        val scale = maxDim.toDouble() / maxOf(width, height)
-        val newWidth = (width * scale).toInt()
-        val newHeight = (height * scale).toInt()
-
-        val resized = java.awt.image.BufferedImage(newWidth, newHeight, java.awt.image.BufferedImage.TYPE_INT_RGB)
-        val graphics = resized.createGraphics()
-        graphics.drawImage(image.getScaledInstance(newWidth, newHeight, java.awt.Image.SCALE_SMOOTH), 0, 0, null)
-        graphics.dispose()
-
-        val outputStream = java.io.ByteArrayOutputStream()
-        val format = when (mimeType) {
-            "image/png" -> "PNG"
-            "image/jpeg" -> "JPEG"
-            "image/gif" -> "GIF"
-            "image/webp" -> "PNG"
-            else -> "PNG"
-        }
-        ImageIO.write(resized, format, outputStream)
-
-        return ImageResizeResult(outputStream.toByteArray(), if (format == "JPEG") "image/jpeg" else mimeType)
-    }
-
-    private data class ImageResizeResult(val data: ByteArray, val mimeType: String) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (javaClass != other?.javaClass) return false
-
-            other as ImageResizeResult
-
-            if (!data.contentEquals(other.data)) return false
-            if (mimeType != other.mimeType) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = data.contentHashCode()
-            result = 31 * result + mimeType.hashCode()
-            return result
-        }
     }
 
     private suspend fun runPrintMode(
@@ -1565,15 +1296,5 @@ class Agent47Command :
         } ?: availableThemes.firstOrNull { it.name == "default" }?.forAppearance(resolvedAppearance)
             ?: ThemeConfig.DEFAULT
         return resolvedAppearance to resolvedTheme
-    }
-
-    private fun formatNumber(n: Int): String {
-        return if (n >= 1_000_000) {
-            String.format("%.1fM", n / 1_000_000.0)
-        } else if (n >= 1_000) {
-            String.format("%.0fK", n / 1_000.0)
-        } else {
-            n.toString()
-        }
     }
 }
