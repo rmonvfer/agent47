@@ -40,6 +40,10 @@ detect_platform() {
         *)             die "unsupported architecture: $(uname -m)" ;;
     esac
 
+    if [ "$os" = "darwin" ] && [ "$arch" = "x86_64" ]; then
+        die "Intel macOS is not supported"
+    fi
+
     echo "${os}-${arch}"
 }
 

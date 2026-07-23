@@ -23,8 +23,9 @@ it can work on your codebase autonomously. It ships as a single native binary wi
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
 
-The installer supports macOS and Linux on ARM64 and x86-64. It verifies the release binary against the published
-SHA-256 checksums before replacing an existing installation. To install a specific release or update to the latest one:
+The installer supports macOS on Apple Silicon and Linux on ARM64 and x86-64. It verifies the release binary against
+the published SHA-256 checksums before replacing an existing installation. To install a specific release or update to
+the latest one:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.3 bash
@@ -41,7 +42,7 @@ agent47 update
 Automatic checks can be configured under `updates` in `~/.agent47/settings.json` or disabled for a single launch with
 `AGENT47_NO_AUTO_UPDATE=1`.
 
-**Build from source** (requires GraalVM Community 25; use 25.1.3 where available):
+**Build from source** (requires GraalVM Community 25.1.3):
 
 ```bash
 git clone https://github.com/rmonvfer/agent47.git

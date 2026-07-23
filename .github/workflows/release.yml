@@ -44,25 +44,19 @@ jobs:
         include:
           - os: macos-latest
             target: darwin-arm64
-            graalvm-version: "25.1.3"
-          - os: macos-15-intel
-            target: darwin-x86_64
-            graalvm-version: "25.0.1"
           - os: ubuntu-22.04
             target: linux-x86_64
-            graalvm-version: "25.1.3"
           - os: ubuntu-22.04-arm
             target: linux-arm64
-            graalvm-version: "25.1.3"
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Set up GraalVM ${{ matrix.graalvm-version }}
+      - name: Set up GraalVM 25.1.3
         uses: graalvm/setup-graalvm@0def53c0fd8534bc13416c9469f5be45265824fd # v1
         with:
-          version: ${{ matrix.graalvm-version }}
+          version: "25.1.3"
           distribution: graalvm-community
           github-token: ${{ secrets.GITHUB_TOKEN }}
 

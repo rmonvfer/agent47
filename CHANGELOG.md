@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Application and sub-agent runtimes now share the same injected provider registry and model resolution.
 - Instruction, skill, agent, and prompt discovery consistently applies project and user precedence.
-- Release builds use pinned GraalVM Community 25 releases available for each supported platform.
+- Release builds use GraalVM Community 25.1.3 on macOS Apple Silicon and Linux ARM64/x86-64.
 
 ### Fixed
 
