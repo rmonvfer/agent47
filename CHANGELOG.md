@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-23
+
+### Added
+
+- Kotlin `.kts` extensions compiled in process by the standalone native executable.
+- Extension hooks for agent, tool, input, session, compaction, rendering, UI, flags, shortcuts, and providers.
+- Git and local extension package installation, updates, removal, discovery, skills, prompts, and themes.
+- Expanded sub-agent configuration, scheduling, structured results, transcript inspection, steering, and worktree isolation.
+- Native release smoke tests that compile and load the complete extension API surface.
+
+### Changed
+
+- Application and sub-agent runtimes now share the same injected provider registry and model resolution.
+- Instruction, skill, agent, and prompt discovery consistently applies project and user precedence.
+- Release builds use GraalVM Community 25.1.3 across every supported platform.
+
+### Fixed
+
+- Prompt file arguments beginning with `@` are escaped before CLI parsing.
+- Native image prompts gracefully fall back when AWT image resizing is unavailable.
+- Event-stream cancellation, background-agent completion, provider resolution, and model matching edge cases.
+
 ## [0.1.2] - 2026-07-22
 
 ### Added
@@ -38,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.1.3]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.2
 [0.1.1]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.1
 [0.1.0]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.0

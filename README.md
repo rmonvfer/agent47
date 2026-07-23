@@ -27,7 +27,7 @@ The installer supports macOS and Linux on ARM64 and x86-64. It verifies the rele
 SHA-256 checksums before replacing an existing installation. To install a specific release or update to the latest one:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.2 bash
+curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.3 bash
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
 
