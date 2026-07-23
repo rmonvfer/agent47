@@ -24,6 +24,8 @@ import co.agentmode.agent47.tui.input.SubmitDispatcher
 import co.agentmode.agent47.tui.input.TuiIntent
 import co.agentmode.agent47.tui.input.parseSubmission
 import co.agentmode.agent47.tui.input.toKeyboardEvent
+import co.agentmode.agent47.tui.layout.LayoutInputs
+import co.agentmode.agent47.tui.layout.computeTuiLayout
 import co.agentmode.agent47.tui.commands.SlashCommandSpec
 import co.agentmode.agent47.tui.commands.builtinSlashCommands
 import co.agentmode.agent47.tui.commands.helpText
@@ -407,28 +409,23 @@ private fun Agent47AppContent(
 
     // --- Layout calculations ---
 
-    val statusHeight = 2 // ohm-style two-line footer
-    val editorPromptWidth = 2 // "❯ " or "! "
-    val editorContentWidth = (width - editorPromptWidth).coerceAtLeast(1)
-    val visualLineCount = WordWrap.createMapping(editor.state.lines, editorContentWidth).visualLines.size
-    val baseInputHeight = min(8, max(1, visualLineCount))
-    val popupItemCount = editor.slashCommandPopupItemCount()
-    val popupRowCount = min(8, popupItemCount)
-    val popupHeight = if (popupRowCount > 0) popupRowCount + (if (popupItemCount > 8) 1 else 0) + 1 else 0
-    val taskBarHeight = if (taskBarState.visible) taskBarState.lineCount else 0
-    val activityHeight = if (isStreaming && !taskBarState.visible) 2 else 0
-    val marginHeight = 1
-    val borderHeight = 2
     val runningAgents = backgroundAgents?.runningStatus().orEmpty()
-    val backgroundPanelHeight = if (runningAgents.isEmpty()) {
-        0
-    } else {
-        val runningCount = runningAgents.count { it.status == RunningAgent.Status.RUNNING }
-        val queuedCount = runningAgents.count { it.status == RunningAgent.Status.QUEUED }
-        // Leading blank line + header + running rows + optional queued line (matches the panel).
-        2 + runningCount + if (queuedCount > 0) 1 else 0
-    }
-    val historyHeight = max(1, height - statusHeight - borderHeight - popupHeight - baseInputHeight - activityHeight - taskBarHeight - marginHeight - backgroundPanelHeight)
+    val editorContentWidth = (width - 2).coerceAtLeast(1)
+    val visualLineCount = WordWrap.createMapping(editor.state.lines, editorContentWidth).visualLines.size
+    val layout = computeTuiLayout(
+        width = width,
+        height = height,
+        inputs = LayoutInputs(
+            visualLineCount = visualLineCount,
+            popupItemCount = editor.slashCommandPopupItemCount(),
+            taskBarVisible = taskBarState.visible,
+            taskBarLineCount = taskBarState.lineCount,
+            isStreaming = isStreaming,
+            hasBackgroundAgents = runningAgents.isNotEmpty(),
+            runningAgentCount = runningAgents.count { it.status == RunningAgent.Status.RUNNING },
+            queuedAgentCount = runningAgents.count { it.status == RunningAgent.Status.QUEUED },
+        ),
+    )
 
     // --- Helper lambdas (closures over state) ---
 
@@ -577,7 +574,7 @@ private fun Agent47AppContent(
     // Read editorVersion to trigger recomposition when the editor state changes.
     @Suppress("UNUSED_EXPRESSION")
     editorVersion
-    val editorResult = editor.render(width = editorContentWidth, height = baseInputHeight)
+    val editorResult = editor.render(width = editorContentWidth, height = layout.baseInputHeight)
 
     // --- Key event handler ---
 
@@ -702,111 +699,19 @@ private fun Agent47AppContent(
             },
     ) {
         CompositionLocalProvider(LocalThemeConfig provides baseTheme) {
-            Column {
-                // Chat history viewport — the conversation, or a background agent's transcript in focus mode.
-                val viewing = viewingAgentId
-                if (viewing != null) {
-                    Text("▶ Viewing agent $viewing  ·  Esc to return")
-                    ChatHistory(
-                        state = viewingChatState,
-                        width = width,
-                        height = (historyHeight - 1).coerceAtLeast(1),
-                        markdownRenderer = markdownRenderer,
-                        diffRenderer = diffRenderer,
-                        version = viewingChatState.version,
-                        spinnerFrame = spinnerFrame,
-                        cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
-                        toolRenderers = extensionToolRenderers,
-                        messageRenderers = extensionMessageRenderers,
-                    )
-                } else {
-                    ChatHistory(
-                        state = chatHistoryState,
-                        width = width,
-                        height = historyHeight,
-                        markdownRenderer = markdownRenderer,
-                        diffRenderer = diffRenderer,
-                        version = chatHistoryState.version,
-                        spinnerFrame = spinnerFrame,
-                        cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
-                        toolRenderers = extensionToolRenderers,
-                        messageRenderers = extensionMessageRenderers,
-                    )
-                }
-
-                // Activity line (spinner while streaming, only when no task bar)
-                if (isStreaming && !taskBarState.visible) {
-                    Text("")
-                    ActivityLine(
-                        spinnerFrame = spinnerFrame,
-                        label = liveActivityLabel,
-                        width = width,
-                    )
-                }
-
-                // Task bar (absorbs the activity spinner into its header)
-                TaskBar(
-                    state = taskBarState,
-                    width = width,
-                    isStreaming = isStreaming,
-                    spinnerFrame = spinnerFrame,
-                    activityLabel = liveActivityLabel,
-                )
-
-                // Live background sub-agents launched via the task tool
-                BackgroundAgentsPanel(
-                    agents = runningAgents,
-                    width = width,
-                    spinnerFrame = spinnerFrame,
-                    mode = subagentsSettingsState.widgetMode,
-                )
-
-                extensionWidgets.values.flatten().forEach { line ->
-                    Text(line.take(width))
-                }
-                val extensionStatus = buildList {
-                    extensionTitle?.let(::add)
-                    addAll(extensionStatuses.values)
-                }.joinToString("  ")
-                if (extensionStatus.isNotBlank()) {
-                    Text(extensionStatus.take(width))
-                }
-
-                // Margin between chat area and editor border
-                Text("")
-
-                val bashMode = editor.text().trimStart().startsWith("!")
-
-                // Editor top border
-                EditorBorder(width, bashMode, thinkingLevel)
-
-                // Slash command popup (between border and input)
-                val autocompleteModel = editorResult.autocomplete
-                if (autocompleteModel != null && autocompleteModel.items.isNotEmpty()) {
-                    AutocompletePopup(
-                        model = autocompleteModel,
-                        maxWidth = width,
-                        theme = baseTheme,
-                    )
-                    Text("")
-                }
-
-                // Editor view
-                EditorView(
-                    result = editorResult,
-                    width = width,
-                    height = baseInputHeight,
-                )
-
-                // Editor bottom border
-                EditorBorder(width, bashMode, thinkingLevel)
-
-                // Status bar
-                StatusBar(
-                    state = statusBarState,
-                    width = width,
-                )
-            }
+            Agent47Screen(
+                state = state,
+                layout = layout,
+                width = width,
+                runningAgents = runningAgents,
+                cwd = cwd,
+                editor = editor,
+                editorResult = editorResult,
+                markdownRenderer = markdownRenderer,
+                diffRenderer = diffRenderer,
+                statusBarState = statusBarState,
+                baseTheme = baseTheme,
+            )
         }
 
         // Overlay host (renders on top of everything)
