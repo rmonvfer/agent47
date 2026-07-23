@@ -47,32 +47,35 @@ public fun EditorView(
             val displayText = lineText.take(contentWidth).padEnd(contentWidth)
             val hasCursor = rowIndex == result.cursorRow
 
-            Text(buildAnnotatedString {
-                append(pad)
-                if (hasCursor) {
-                    val adjustedCursorCol = result.cursorColumn.coerceIn(0, displayText.length)
-                    val before = displayText.substring(0, adjustedCursorCol)
-                    val cursorChar = if (adjustedCursorCol < displayText.length) {
-                        displayText[adjustedCursorCol].toString()
-                    } else {
-                        " "
-                    }
-                    val after = if (adjustedCursorCol + 1 < displayText.length) {
-                        displayText.substring(adjustedCursorCol + 1)
-                    } else {
-                        ""
-                    }
+            Text(
+                buildAnnotatedString {
+                    append(pad)
+                    if (hasCursor) {
+                        val adjustedCursorCol = result.cursorColumn.coerceIn(0, displayText.length)
+                        val before = displayText.substring(0, adjustedCursorCol)
+                        val cursorChar = if (adjustedCursorCol < displayText.length) {
+                            displayText[adjustedCursorCol].toString()
+                        } else {
+                            " "
+                        }
+                        val after = if (adjustedCursorCol + 1 < displayText.length) {
+                            displayText.substring(adjustedCursorCol + 1)
+                        } else {
+                            ""
+                        }
 
-                    withStyle(textStyle) { append(before) }
-                    withStyle(SpanStyle(textStyle = TextStyle.Invert)) {
-                        append(cursorChar)
+                        withStyle(textStyle) { append(before) }
+                        withStyle(SpanStyle(textStyle = TextStyle.Invert)) {
+                            append(cursorChar)
+                        }
+                        withStyle(textStyle) { append(after) }
+                    } else {
+                        withStyle(textStyle) { append(displayText) }
                     }
-                    withStyle(textStyle) { append(after) }
-                } else {
-                    withStyle(textStyle) { append(displayText) }
-                }
-                append(pad)
-            })
+                    append(pad)
+                },
+                color = theme.markdownText,
+            )
         }
     }
 }

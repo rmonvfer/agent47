@@ -149,6 +149,7 @@ public fun ChatHistory(
                 if (index < visibleLines.lastIndex) append('\n')
             }
         },
+        color = theme.markdownText,
         // Constrain to the terminal width so a stray over-wide line can never stretch
         // the transcript column past the screen and break the layout.
         modifier = Modifier.width(width).height(viewportHeight),
@@ -162,12 +163,14 @@ public fun ChatHistory(
 /**
  * Lays out a single line as a full-width block of [bg]: [paddingX] columns of
  * tinted margin on each side, the styled content, and tinted fill to [width].
- * The content's own foreground spans merge over the block background.
+ * [foreground] supplies the default text color; the content's explicit foreground
+ * spans override it.
  */
 private fun bgLine(
     content: AnnotatedString,
     width: Int,
     bg: Color,
+    foreground: Color = Color.Unspecified,
     paddingX: Int = 1,
 ): AnnotatedString {
     val avail = (width - 2 * paddingX).coerceAtLeast(0)
@@ -176,7 +179,7 @@ private fun bgLine(
     val fitted = clampToWidth(content, avail)
     val padRight = (avail - fitted.text.length).coerceAtLeast(0)
     return buildAnnotatedString {
-        withStyle(SpanStyle(background = bg)) {
+        withStyle(SpanStyle(color = foreground, background = bg)) {
             append(" ".repeat(paddingX))
             append(fitted)
             append(" ".repeat(padRight + paddingX))
@@ -206,10 +209,11 @@ private fun bgBlock(
     width: Int,
     bg: Color,
     content: List<AnnotatedString>,
+    foreground: Color = Color.Unspecified,
 ): List<AnnotatedString> = buildList {
-    add(bgLine(annotated(""), width, bg))
-    content.forEach { add(bgLine(it, width, bg)) }
-    add(bgLine(annotated(""), width, bg))
+    add(bgLine(annotated(""), width, bg, foreground))
+    content.forEach { add(bgLine(it, width, bg, foreground)) }
+    add(bgLine(annotated(""), width, bg, foreground))
 }
 
 /**
@@ -300,7 +304,12 @@ private fun renderUserMessageLines(
             }
         }
     }
-    return bgBlock(width, theme.userMessageBg, content)
+    return bgBlock(
+        width = width,
+        bg = theme.userMessageBg,
+        content = content,
+        foreground = theme.userMessageText,
+    )
 }
 
 private fun renderAssistantMessageLines(

@@ -17,6 +17,7 @@ import co.agentmode.agent47.tui.layout.TuiLayout
 import co.agentmode.agent47.tui.rendering.DiffRenderer
 import co.agentmode.agent47.tui.rendering.MarkdownRenderer
 import co.agentmode.agent47.tui.state.TuiAppState
+import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Text
@@ -56,11 +57,12 @@ private fun ChatPane(
     diffRenderer: DiffRenderer,
     cwd: Path,
 ) {
+    val theme = LocalThemeConfig.current
     val cwdDisplay = cwd.toString().replace(System.getProperty("user.home"), "~")
     // Chat history viewport - the conversation, or a background agent's transcript in focus mode.
     val viewing = state.viewingAgentId
     if (viewing != null) {
-        Text("▶ Viewing agent $viewing  ·  Esc to return")
+        Text("▶ Viewing agent $viewing  ·  Esc to return", color = theme.markdownText)
         ChatHistory(
             state = state.viewingChat,
             width = width,
@@ -95,6 +97,7 @@ private fun FooterPane(
     width: Int,
     runningAgents: List<RunningAgent>,
 ) {
+    val theme = LocalThemeConfig.current
     // Activity line (spinner while streaming, only when no task bar)
     if (state.isStreaming && !state.taskBar.visible) {
         Text("")
@@ -123,14 +126,14 @@ private fun FooterPane(
     )
 
     state.extensionWidgets.values.flatten().forEach { line ->
-        Text(line.take(width))
+        Text(line.take(width), color = theme.markdownText)
     }
     val extensionStatus = buildList {
         state.extensionTitle?.let(::add)
         addAll(state.extensionStatuses.values)
     }.joinToString("  ")
     if (extensionStatus.isNotBlank()) {
-        Text(extensionStatus.take(width))
+        Text(extensionStatus.take(width), color = theme.markdownText)
     }
 }
 

@@ -20,6 +20,7 @@ dependencies {
     implementation("org.commonmark:commonmark-ext-autolink:0.24.0")
 
     testImplementation(kotlin("test"))
+    testImplementation("com.jakewharton.mosaic:mosaic-testing:0.18.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.0")
 }
