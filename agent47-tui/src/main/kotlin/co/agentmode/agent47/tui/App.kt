@@ -296,7 +296,6 @@ private fun Agent47AppContent(
     // the normal ChatHistory renderer) instead of the conversation. Esc returns to the conversation.
     var viewingAgentId by remember { mutableStateOf<String?>(null) }
     val viewingChatState = rememberChatHistoryState()
-    var viewingVersion by remember { mutableIntStateOf(0) }
     fun activeChat(): ChatHistoryState = if (viewingAgentId != null) viewingChatState else chatHistoryState
     val editor = remember {
         Editor(
@@ -347,7 +346,6 @@ private fun Agent47AppContent(
     var activeSessionManager by remember { mutableStateOf(sessionManager) }
     var currentPromptJob by remember { mutableStateOf<Job?>(null) }
     val toolArgumentsById = remember { mutableMapOf<String, String>() }
-    var chatVersion by remember { mutableIntStateOf(0) }
 
     // --- Derived values ---
 
@@ -425,7 +423,6 @@ private fun Agent47AppContent(
             timestamp = System.currentTimeMillis(),
         )
         chatHistoryState.appendMessage(assistant)
-        chatVersion++
     }
 
     fun showCommandInput(text: String) {
@@ -435,7 +432,6 @@ private fun Agent47AppContent(
                 timestamp = System.currentTimeMillis(),
             ),
         )
-        chatVersion++
     }
 
     fun appendCommandResult(text: String) {
@@ -447,7 +443,6 @@ private fun Agent47AppContent(
                 timestamp = System.currentTimeMillis(),
             ),
         )
-        chatVersion++
     }
 
     DisposableEffect(extensionContext) {
@@ -566,7 +561,6 @@ private fun Agent47AppContent(
         client.clearMessages()
         chatHistoryState.entries.clear()
         toolArgumentsById.clear()
-        chatVersion++
         if (sessionsDir != null) {
             val newPath = sessionsDir.resolve("session-${System.currentTimeMillis()}.jsonl")
             val newManager = runCatching { SessionManager(newPath) }.getOrNull()
@@ -1176,7 +1170,6 @@ private fun Agent47AppContent(
                         },
                         appendSystemMessage = ::appendCommandResult,
                     )
-                    chatVersion++
                     result.complete(true)
                 }
                 return result.await()
@@ -1205,7 +1198,6 @@ private fun Agent47AppContent(
                     client.replaceMessages(context.messages)
                     chatHistoryState.entries.clear()
                     context.messages.forEach(chatHistoryState::appendMessage)
-                    chatVersion++
                     result.complete(target.getSessionFile().toString())
                 }
                 return result.await()
@@ -1402,7 +1394,6 @@ private fun Agent47AppContent(
         initialModel?.let(client::setModel)
         initialUserMessage?.let { message ->
             chatHistoryState.appendMessage(message)
-            chatVersion++
             activeSessionManager?.appendMessage(message)
             val job = launch {
                 try {
@@ -1441,7 +1432,6 @@ private fun Agent47AppContent(
                 setIsStreaming = { isStreaming = it },
                 setLiveActivityLabel = { liveActivityLabel = it },
                 setCurrentPromptJob = { currentPromptJob = it },
-                bumpChatVersion = { chatVersion++ },
             )
             if (event is AgentEndEvent &&
                 compactionSettings.auto && compactionSettings.enabled &&
@@ -1476,7 +1466,6 @@ private fun Agent47AppContent(
             if (ref != null) {
                 viewingChatState.entries.clear()
                 ref.state.messages.forEach { viewingChatState.appendMessage(it) }
-                viewingVersion++
             } else {
                 break
             }
@@ -1500,7 +1489,6 @@ private fun Agent47AppContent(
                         runCatching { client.followUp(msg) }
                     } else {
                         chatHistoryState.appendMessage(msg)
-                        chatVersion++
                         activeSessionManager?.appendMessage(msg)
                         promptScope.launch(Dispatchers.IO) { runCatching { client.prompt(listOf(msg)) } }
                     }
@@ -1806,7 +1794,6 @@ private fun Agent47AppContent(
                                 kotlin.system.exitProcess(0)
                             }
                         },
-                        bumpChatVersion = { chatVersion++ },
                         runCompaction = ::runCompaction,
                         reloadExtensions = {
                             val resources = reloadExtensions()
@@ -1837,7 +1824,7 @@ private fun Agent47AppContent(
                         height = (historyHeight - 1).coerceAtLeast(1),
                         markdownRenderer = markdownRenderer,
                         diffRenderer = diffRenderer,
-                        version = viewingVersion,
+                        version = viewingChatState.version,
                         spinnerFrame = spinnerFrame,
                         cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
                         toolRenderers = extensionToolRenderers,
@@ -1850,7 +1837,7 @@ private fun Agent47AppContent(
                         height = historyHeight,
                         markdownRenderer = markdownRenderer,
                         diffRenderer = diffRenderer,
-                        version = chatVersion,
+                        version = chatHistoryState.version,
                         spinnerFrame = spinnerFrame,
                         cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
                         toolRenderers = extensionToolRenderers,
@@ -1960,7 +1947,6 @@ private fun handleAgentEvent(
     setIsStreaming: (Boolean) -> Unit,
     setLiveActivityLabel: (String) -> Unit,
     setCurrentPromptJob: (Job?) -> Unit,
-    bumpChatVersion: () -> Unit,
 ) {
     when (event) {
         is AgentStartEvent -> {
@@ -1988,7 +1974,6 @@ private fun handleAgentEvent(
             } else if (message !is ToolResultMessage) {
                 chatHistoryState.appendMessage(message)
             }
-            bumpChatVersion()
         }
 
         is MessageUpdateEvent -> {
@@ -1998,7 +1983,6 @@ private fun handleAgentEvent(
             } else if (message !is ToolResultMessage) {
                 chatHistoryState.updateMessage(message)
             }
-            bumpChatVersion()
         }
 
         is MessageEndEvent -> {
@@ -2116,7 +2100,6 @@ private fun handleSubmit(
     startNewSession: () -> Unit,
     tryExpandFileCommand: (String) -> String?,
     setRunning: (Boolean) -> Unit,
-    bumpChatVersion: () -> Unit,
     runCompaction: () -> Unit = {},
     reloadExtensions: suspend () -> String,
     processInput: suspend (InputEvent) -> InputHookResult,
@@ -2142,7 +2125,6 @@ private fun handleSubmit(
                 }
                 "/clear" -> {
                     chatHistoryState.entries.clear()
-                    bumpChatVersion()
                 }
                 "/exit" -> setRunning(false)
                 "/model" -> {
@@ -2225,7 +2207,6 @@ private fun handleSubmit(
                                             timestamp = System.currentTimeMillis(),
                                         )
                                         chatHistoryState.appendMessage(userMessage)
-                                        bumpChatVersion()
                                         activeSessionManager?.appendMessage(userMessage)
                                         client.prompt(listOf(userMessage))
                                         client.waitForIdle()
@@ -2254,7 +2235,6 @@ private fun handleSubmit(
                             currentPromptJob = currentPromptJob,
                             setCurrentPromptJob = setCurrentPromptJob,
                             appendSystemMessage = appendSystemMessage,
-                            bumpChatVersion = bumpChatVersion,
                         )
                     } else {
                         showCommandInput(rawInput)
@@ -2275,7 +2255,6 @@ private fun handleSubmit(
                 timestamp = System.currentTimeMillis(),
             )
             chatHistoryState.appendMessage(start)
-            bumpChatVersion()
             activeSessionManager?.appendMessage(start)
 
             val output = executeShell(command, cwd)
@@ -2310,7 +2289,6 @@ private fun handleSubmit(
                         currentPromptJob = currentPromptJob,
                         setCurrentPromptJob = setCurrentPromptJob,
                         appendSystemMessage = appendSystemMessage,
-                        bumpChatVersion = bumpChatVersion,
                     )
                     is InputHookResult.Transform -> submitMessage(
                         message = UserMessage(
@@ -2325,7 +2303,6 @@ private fun handleSubmit(
                         currentPromptJob = currentPromptJob,
                         setCurrentPromptJob = setCurrentPromptJob,
                         appendSystemMessage = appendSystemMessage,
-                        bumpChatVersion = bumpChatVersion,
                     )
                 }
             }
@@ -2343,10 +2320,8 @@ private fun submitMessage(
     currentPromptJob: Job?,
     setCurrentPromptJob: (Job?) -> Unit,
     appendSystemMessage: (String) -> Unit,
-    bumpChatVersion: () -> Unit,
 ) {
     chatHistoryState.appendMessage(message)
-    bumpChatVersion()
     activeSessionManager?.appendMessage(message)
 
     if (isStreaming) {
