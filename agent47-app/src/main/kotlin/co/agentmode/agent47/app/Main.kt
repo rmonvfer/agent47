@@ -12,6 +12,13 @@ import co.agentmode.agent47.ai.core.AiRuntime
 import co.agentmode.agent47.ai.types.SimpleStreamOptions
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.app.cli.mergeThemes
+import co.agentmode.agent47.app.cli.printError
+import co.agentmode.agent47.app.cli.printWarning
+import co.agentmode.agent47.app.cli.runSmokeTool
+import co.agentmode.agent47.app.update.UpdateCommand
+import co.agentmode.agent47.app.update.installAutomaticUpdate
+import co.agentmode.agent47.app.update.shouldCheckForUpdates
 import co.agentmode.agent47.coding.core.auth.AuthStorage
 import co.agentmode.agent47.coding.core.auth.CopilotAuthPlugin
 import co.agentmode.agent47.coding.core.auth.OAuthResult
@@ -97,17 +104,13 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple as multipleOptions
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
-import com.github.ajalt.mordant.rendering.Theme
 import com.github.ajalt.mordant.table.table
 import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
@@ -147,66 +150,6 @@ internal fun escapePromptFileArguments(args: Array<String>): Array<String> =
     args.map { argument ->
         if (argument.startsWith("@") && !argument.startsWith("@@")) "@$argument" else argument
     }.toTypedArray()
-
-private class UpdateCommand : SuspendingCliktCommand(name = "update") {
-    override suspend fun run() {
-        val config = AgentConfig(cwd = Path.of(System.getProperty("user.dir")))
-        when (val result = createUpdateService(config).checkAndInstall(force = true)) {
-            is UpdateResult.Current -> echo("agent47 ${result.version} is already the latest version.")
-            is UpdateResult.Installed -> echo("Updated agent47 ${result.previousVersion} to ${result.version}.")
-            is UpdateResult.Skipped -> {
-                echo("Cannot update agent47: ${result.reason}", err = true)
-                throw Abort()
-            }
-            is UpdateResult.Failed -> {
-                echo("Failed to update agent47: ${result.message}", err = true)
-                throw Abort()
-            }
-        }
-    }
-}
-
-private fun shouldCheckForUpdates(args: Array<String>): Boolean {
-    if (System.console() == null) return false
-    if (System.getenv("AGENT47_NO_AUTO_UPDATE")?.lowercase() in setOf("1", "true", "yes")) return false
-    return args.none { argument ->
-        argument in setOf("-p", "--print", "-h", "--help", "--version", "--list-models")
-    }
-}
-
-private fun installAutomaticUpdate(args: Array<String>): Boolean {
-    val config = AgentConfig(cwd = Path.of(System.getProperty("user.dir")))
-    val settings = SettingsManager.create(config.globalSettingsPath, config.projectSettingsPath).getGlobal()
-    if (!settings.updates.automatic) return false
-
-    val result = createUpdateService(config, settings.updates.checkIntervalHours).checkAndInstall(force = false)
-    if (result is UpdateResult.Failed) {
-        System.err.println("Warning: agent47 could not check for updates: ${result.message}")
-        return false
-    }
-    if (result !is UpdateResult.Installed) return false
-
-    println("Updated agent47 ${result.previousVersion} to ${result.version}. Restarting...")
-    val process = runCatching {
-        ProcessBuilder(listOf(result.executable.toString()) + args)
-            .inheritIO()
-            .start()
-    }.getOrNull()
-    if (process == null) {
-        System.err.println("agent47 was updated, but could not restart automatically. Run it again to use ${result.version}.")
-        return false
-    }
-    process.waitFor()
-    return true
-}
-
-private fun createUpdateService(config: AgentConfig, checkIntervalHours: Int = 24): UpdateService = UpdateService(
-    currentVersion = BuildInfo.version,
-    statePath = config.updateStatePath,
-    repository = System.getenv("AGENT47_REPOSITORY") ?: "rmonvfer/agent47",
-    checkIntervalMillis = checkIntervalHours * 60L * 60L * 1_000L,
-    progress = ::println,
-)
 
 internal fun findLatestProjectSession(sessionDir: Path, projectCwd: Path): Path? {
     if (!sessionDir.exists()) return null
@@ -1188,7 +1131,7 @@ class Agent47Command :
 
     private fun handleSpecialCommands(): Boolean {
         if (promptArgs.firstOrNull() == "--smoke-tool") {
-            runSmokeTool(promptArgs.drop(1))
+            runSmokeTool(promptArgs.drop(1), terminal)
             return true
         }
         return false
@@ -1624,22 +1567,6 @@ class Agent47Command :
         return resolvedAppearance to resolvedTheme
     }
 
-    private fun runSmokeTool(args: List<String>) {
-        val command = args.joinToString(" ").ifBlank { "echo native-tool-smoke" }
-        val tool = co.agentmode.agent47.coding.core.tools.BashTool(Path.of("."))
-        val result = runBlocking {
-            tool.execute(
-                toolCallId = "smoke-tool",
-                parameters = buildJsonObject {
-                    put("command", command)
-                    put("timeout", 10)
-                },
-            )
-        }
-        val output = result.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
-        terminal.println(output.ifBlank { "(no output)" })
-    }
-
     private fun formatNumber(n: Int): String {
         return if (n >= 1_000_000) {
             String.format("%.1fM", n / 1_000_000.0)
@@ -1649,27 +1576,4 @@ class Agent47Command :
             n.toString()
         }
     }
-}
-
-private fun Terminal.printError(message: String) {
-    println(Theme.Default.danger(message))
-}
-
-private fun Terminal.printWarning(message: String) {
-    println(Theme.Default.warning(message))
-}
-
-private fun Terminal.printInfo(message: String) {
-    println(Theme.Default.info(message))
-}
-
-private fun mergeThemes(packageThemes: List<NamedTheme>): List<NamedTheme> {
-    val duplicateNames = packageThemes.groupingBy { it.name }.eachCount().filterValues { it > 1 }.keys
-    require(duplicateNames.isEmpty()) {
-        "Duplicate package theme names: ${duplicateNames.sorted().joinToString()}"
-    }
-    return (AVAILABLE_THEMES + packageThemes)
-        .associateBy { it.name }
-        .values
-        .sortedBy { it.name }
 }
