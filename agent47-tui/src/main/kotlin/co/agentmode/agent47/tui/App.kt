@@ -29,10 +29,8 @@ import co.agentmode.agent47.coding.core.instructions.InstructionSource
 import co.agentmode.agent47.coding.core.models.ProviderInfo
 import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.coding.core.tools.ToolDetails
-import co.agentmode.agent47.coding.core.session.ModelChangeEntry
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.session.SessionMessageEntry
-import co.agentmode.agent47.coding.core.session.ThinkingLevelChangeEntry
 import co.agentmode.agent47.tui.components.*
 import co.agentmode.agent47.tui.editor.Editor
 import co.agentmode.agent47.ui.core.editor.WordWrap
@@ -46,10 +44,12 @@ import co.agentmode.agent47.tui.commands.builtinSlashCommands
 import co.agentmode.agent47.tui.commands.helpText
 import co.agentmode.agent47.tui.session.SESSION_DATE_FORMAT
 import co.agentmode.agent47.tui.session.firstUserText
-import co.agentmode.agent47.tui.session.loadSession
 import co.agentmode.agent47.tui.session.randomEntryId
 import co.agentmode.agent47.tui.state.UsageState
-import co.agentmode.agent47.tui.state.emptyUsage
+import co.agentmode.agent47.tui.state.TranscriptFeed
+import co.agentmode.agent47.tui.state.rememberTuiAppState
+import co.agentmode.agent47.tui.controller.ModelController
+import co.agentmode.agent47.tui.controller.SessionController
 import co.agentmode.agent47.tui.util.detectBranchName
 import co.agentmode.agent47.tui.util.executeShell
 import co.agentmode.agent47.tui.rendering.DiffRenderer
@@ -242,19 +242,76 @@ private fun Agent47AppContent(
     val height = (terminalState.size.rows - 1).coerceAtLeast(4)
     val promptScope = rememberCoroutineScope()
 
+    val state = rememberTuiAppState(
+        initialModels = availableModels,
+        initialModel = initialModel,
+        initialThinkingLevel = initialThinkingLevel,
+        initialShowUsageFooter = initialShowUsageFooter,
+        initialSessionManager = sessionManager,
+        initialSubagentsSettings = subagentsSettings,
+        initialExtensionCommands = initialExtensionCommands,
+        initialExtensionShortcuts = initialExtensionShortcuts,
+        initialExtensionToolRenderers = initialExtensionToolRenderers,
+        initialExtensionMessageRenderers = initialExtensionMessageRenderers,
+    )
+
+    // Stable holder aliases keep the rest of the composable referencing familiar names.
+    val chatHistoryState = state.chatHistory
+    val viewingChatState = state.viewingChat
+    val overlayHostState = state.overlays
+    val taskBarState = state.taskBar
+    val usageHolder = state.usage
+    val toolArgumentsById = state.toolArgumentsById
+    val promptHistory = state.promptHistory
+    // Thread-safe hand-off for opt-in push notifications: PushNotifier (background thread) enqueues,
+    // the background ticker below drains on the UI coroutine and delivers to the orchestrator.
+    val pushQueue = state.pushQueue
+
+    // Snapshot-state delegations forward reads and writes to the state holder.
     // Mutable model list that updates when providers are connected
-    var currentModels by remember { mutableStateOf(availableModels) }
+    var currentModels by state::currentModels
+    var extensionCommands by state::extensionCommands
+    var extensionShortcuts by state::extensionShortcuts
+    var extensionToolRenderers by state::extensionToolRenderers
+    var extensionMessageRenderers by state::extensionMessageRenderers
+    var extensionStatuses by state::extensionStatuses
+    var extensionWidgets by state::extensionWidgets
+    var extensionTitle by state::extensionTitle
+    // Live copy of subagent settings, editable via /agents -> Settings and persisted through the callback.
+    var subagentsSettingsState by state::subagentsSettings
+    var showUsageFooter by state::showUsageFooter
+    var running by state::running
+    var isStreaming by state::isStreaming
+    var ctrlCArmed by state::ctrlCArmed
+    var spinnerFrame by state::spinnerFrame
+    var editorVersion by state::editorVersion
+    var liveActivityLabel by state::liveActivityLabel
+    var thinkingLevel by state::thinkingLevel
+    var selectedModelIndex by state::selectedModelIndex
+    var activeSessionManager by state::activeSessionManager
+    var currentPromptJob by state::currentPromptJob
+
+    val feed = remember { TranscriptFeed(chatHistoryState, client) { state.currentModel } }
+    val modelController = remember {
+        ModelController(state, client, feed, onSettingsChanged, refreshModels)
+    }
+    val sessionController = remember {
+        SessionController(
+            state = state,
+            client = client,
+            feed = feed,
+            models = modelController,
+            sessionsDir = sessionsDir,
+            scope = promptScope,
+            backgroundAgents = backgroundAgents,
+            onSessionChanged = onSessionChanged,
+            onSessionTransition = onSessionTransition,
+        )
+    }
 
     // --- Slash command definitions ---
 
     val fileSlashCommands = remember { fileCommands }
-    var extensionCommands by remember { mutableStateOf(initialExtensionCommands) }
-    var extensionShortcuts by remember { mutableStateOf(initialExtensionShortcuts) }
-    var extensionToolRenderers by remember { mutableStateOf(initialExtensionToolRenderers) }
-    var extensionMessageRenderers by remember { mutableStateOf(initialExtensionMessageRenderers) }
-    var extensionStatuses by remember { mutableStateOf(emptyMap<String, String>()) }
-    var extensionWidgets by remember { mutableStateOf(emptyMap<String, List<String>>()) }
-    var extensionTitle by remember { mutableStateOf<String?>(null) }
     val slashCommands = remember(builtinSlashCommands, fileSlashCommands, extensionCommands) {
         builtinSlashCommands + extensionCommands.map {
             SlashCommandSpec("/${it.name}", it.description)
@@ -263,15 +320,6 @@ private fun Agent47AppContent(
         }
     }
 
-    // --- State ---
-
-    val chatHistoryState = remember { ChatHistoryState() }
-    val overlayHostState = remember { OverlayHostState() }
-    // Live copy of subagent settings, editable via /agents → Settings and persisted through the callback.
-    var subagentsSettingsState by remember { mutableStateOf(subagentsSettings) }
-    // Thread-safe hand-off for opt-in push notifications: PushNotifier (background thread) enqueues,
-    // the background ticker below drains on the UI coroutine and delivers to the orchestrator.
-    val pushQueue = remember { java.util.concurrent.ConcurrentLinkedQueue<String>() }
     val pushNotifier = remember(
         subagentsSettingsState.pushNotifications,
         subagentsSettingsState.defaultJoinMode,
@@ -294,8 +342,7 @@ private fun Agent47AppContent(
     }
     // Focus mode: when set, the main chat area renders a background agent's live transcript (through
     // the normal ChatHistory renderer) instead of the conversation. Esc returns to the conversation.
-    var viewingAgentId by remember { mutableStateOf<String?>(null) }
-    val viewingChatState = rememberChatHistoryState()
+    var viewingAgentId by state::viewingAgentId
     fun activeChat(): ChatHistoryState = if (viewingAgentId != null) viewingChatState else chatHistoryState
     val editor = remember {
         Editor(
@@ -325,33 +372,10 @@ private fun Agent47AppContent(
     }
     val diffRenderer = remember(baseTheme) { DiffRenderer(baseTheme) }
 
-    var showUsageFooter by remember { mutableStateOf(initialShowUsageFooter) }
-    var running by remember { mutableStateOf(true) }
-    var isStreaming by remember { mutableStateOf(false) }
-    var ctrlCArmed by remember { mutableStateOf(false) }
-    var spinnerFrame by remember { mutableIntStateOf(0) }
-    var editorVersion by remember { mutableIntStateOf(0) }
-    val promptHistory = remember { mutableListOf<String>() }
-    var liveActivityLabel by remember { mutableStateOf("Thinking") }
-    val taskBarState = remember { TaskBarState() }
-    var thinkingLevel by remember { mutableStateOf(initialThinkingLevel) }
-    var selectedModelIndex by remember {
-        mutableIntStateOf(
-            initialModel?.let { model ->
-                currentModels.indexOfFirst { it.id == model.id && it.provider == model.provider }
-                    .takeIf { it >= 0 }
-            } ?: if (currentModels.isNotEmpty()) 0 else -1,
-        )
-    }
-    var activeSessionManager by remember { mutableStateOf(sessionManager) }
-    var currentPromptJob by remember { mutableStateOf<Job?>(null) }
-    val toolArgumentsById = remember { mutableMapOf<String, String>() }
-
     // --- Derived values ---
 
-    val currentModel = currentModels.getOrNull(selectedModelIndex) ?: initialModel
+    val currentModel = state.currentModel
 
-    val usageHolder = remember { UsageState() }
     LaunchedEffect(activeSessionManager) {
         usageHolder.reset(
             activeSessionManager?.getEntries()
@@ -411,39 +435,11 @@ private fun Agent47AppContent(
 
     // --- Helper lambdas (closures over state) ---
 
-    fun appendSystemMessage(text: String) {
-        val agentState = client.state
-        val assistant = AssistantMessage(
-            content = listOf(TextContent(text = text)),
-            api = currentModel?.api ?: agentState.model.api,
-            provider = currentModel?.provider ?: agentState.model.provider,
-            model = currentModel?.id ?: agentState.model.id,
-            usage = emptyUsage(),
-            stopReason = StopReason.STOP,
-            timestamp = System.currentTimeMillis(),
-        )
-        chatHistoryState.appendMessage(assistant)
-    }
+    fun appendSystemMessage(text: String) = feed.appendSystemMessage(text)
 
-    fun showCommandInput(text: String) {
-        chatHistoryState.appendMessage(
-            UserMessage(
-                content = listOf(TextContent(text = text)),
-                timestamp = System.currentTimeMillis(),
-            ),
-        )
-    }
+    fun showCommandInput(text: String) = feed.showCommandInput(text)
 
-    fun appendCommandResult(text: String) {
-        chatHistoryState.appendMessage(
-            CustomMessage(
-                customType = "command_result",
-                content = listOf(TextContent(text = text)),
-                display = true,
-                timestamp = System.currentTimeMillis(),
-            ),
-        )
-    }
+    fun appendCommandResult(text: String) = feed.appendCommandResult(text)
 
     DisposableEffect(extensionContext) {
         val controller = extensionContext?.ui as? MutableExtensionUi
@@ -545,84 +541,6 @@ private fun Agent47AppContent(
         onDispose { controller?.reset() }
     }
 
-    fun transitionSession(next: SessionManager?, reason: SessionStartReason) {
-        val previous = activeSessionManager
-        activeSessionManager = next
-        onSessionChanged(next)
-        promptScope.launch {
-            onSessionTransition(previous, next, reason)
-        }
-    }
-
-    fun startNewSession() {
-        currentPromptJob?.cancel(CancellationException("Starting new session"))
-        currentPromptJob = null
-        backgroundAgents?.cancelAll()
-        client.clearMessages()
-        chatHistoryState.entries.clear()
-        toolArgumentsById.clear()
-        if (sessionsDir != null) {
-            val newPath = sessionsDir.resolve("session-${System.currentTimeMillis()}.jsonl")
-            val newManager = runCatching { SessionManager(newPath) }.getOrNull()
-            transitionSession(newManager, SessionStartReason.NEW)
-            appendCommandResult("Started new session")
-        } else {
-            transitionSession(null, SessionStartReason.NEW)
-            appendCommandResult("Started new session (no persistence)")
-        }
-    }
-
-    fun applyModel(
-        model: Model,
-        recordSessionEntry: Boolean = true,
-        announce: Boolean = true,
-    ) {
-        client.setModel(model)
-        selectedModelIndex = currentModels
-            .indexOfFirst { it.id == model.id && it.provider == model.provider }
-            .takeIf { it >= 0 }
-            ?: selectedModelIndex
-
-        if (recordSessionEntry) {
-            activeSessionManager?.append(
-                ModelChangeEntry(
-                    id = randomEntryId(),
-                    parentId = activeSessionManager?.getLeafId(),
-                    timestamp = Instant.now().toString(),
-                    provider = model.provider.value,
-                    modelId = model.id,
-                ),
-            )
-        }
-        if (announce) {
-            appendCommandResult("Model set to ${model.provider.value}/${model.id}")
-        }
-        onSettingsChanged { it.copy(defaultModel = model.id, defaultProvider = model.provider.value) }
-    }
-
-    fun setThinkingLevel(
-        level: AgentThinkingLevel,
-        recordSessionEntry: Boolean = true,
-        announce: Boolean = true,
-    ) {
-        thinkingLevel = level
-        client.setThinkingLevel(level)
-        if (recordSessionEntry) {
-            activeSessionManager?.append(
-                ThinkingLevelChangeEntry(
-                    id = randomEntryId(),
-                    parentId = activeSessionManager?.getLeafId(),
-                    timestamp = Instant.now().toString(),
-                    thinkingLevel = level.name.lowercase(),
-                ),
-            )
-        }
-        if (announce) {
-            appendCommandResult("Thinking set to ${level.name.lowercase()}")
-        }
-        onSettingsChanged { it.copy(defaultThinkingLevel = level.name.lowercase()) }
-    }
-
     fun tryExpandFileCommand(text: String): String? {
         return SlashCommandExpander.expand(text, fileSlashCommands)
     }
@@ -645,19 +563,8 @@ private fun Agent47AppContent(
             title = "Model",
             items = options,
             selectedIndex = selIndex,
-            onSubmit = { model -> applyModel(model) },
+            onSubmit = { model -> modelController.applyModel(model) },
         )
-    }
-
-    fun onProviderConnected(info: ProviderInfo) {
-        currentModels = refreshModels()
-        val newIndex = currentModels.indexOfFirst {
-            it.provider.value == info.id
-        }.takeIf { it >= 0 }
-        if (newIndex != null && (selectedModelIndex < 0 || currentModel == null)) {
-            applyModel(currentModels[newIndex])
-        }
-        appendCommandResult("Connected ${info.name} — ${currentModels.count { it.provider.value == info.id }} models available")
     }
 
     fun startAuthMethod(info: ProviderInfo, method: AuthMethod) {
@@ -672,7 +579,7 @@ private fun Agent47AppContent(
                             appendSystemMessage("No API key provided")
                         } else {
                             storeApiKey(info.id, apiKey)
-                            onProviderConnected(info)
+                            modelController.onProviderConnected(info)
                         }
                     },
                 )
@@ -720,7 +627,7 @@ private fun Agent47AppContent(
                     when (result) {
                         is OAuthResult.Success -> {
                             storeOAuthCredential(info.id, result.credential)
-                            onProviderConnected(info)
+                            modelController.onProviderConnected(info)
                         }
 
                         is OAuthResult.Failed -> {
@@ -790,7 +697,7 @@ private fun Agent47AppContent(
             title = "Thinking",
             items = options,
             selectedIndex = selIndex,
-            onSubmit = { level -> setThinkingLevel(level) },
+            onSubmit = { level -> modelController.setThinkingLevel(level) },
         )
     }
 
@@ -1113,25 +1020,7 @@ private fun Agent47AppContent(
             items = options,
             selectedIndex = 0,
             onSubmit = { path ->
-                loadSession(
-                    path = path,
-                    sessionsDir = sessionsDir,
-                    availableModels = currentModels,
-                    client = client,
-                    chatHistoryState = chatHistoryState,
-                    activeSessionManagerSetter = {
-                        transitionSession(it, SessionStartReason.RESUME)
-                    },
-                    applyModel = { model -> applyModel(model, recordSessionEntry = false, announce = false) },
-                    setThinkingLevel = { level ->
-                        setThinkingLevel(
-                            level,
-                            recordSessionEntry = false,
-                            announce = false
-                        )
-                    },
-                    appendSystemMessage = ::appendCommandResult,
-                )
+                sessionController.load(path)
             },
         )
     }
@@ -1142,7 +1031,7 @@ private fun Agent47AppContent(
             override suspend fun newSession(): String? {
                 val result = CompletableDeferred<String?>()
                 promptScope.launch {
-                    startNewSession()
+                    sessionController.startNewSession()
                     result.complete(activeSessionManager?.getSessionFile()?.toString())
                 }
                 return result.await()
@@ -1155,21 +1044,7 @@ private fun Agent47AppContent(
                         result.complete(false)
                         return@launch
                     }
-                    loadSession(
-                        path = path,
-                        sessionsDir = sessionsDir,
-                        availableModels = currentModels,
-                        client = client,
-                        chatHistoryState = chatHistoryState,
-                        activeSessionManagerSetter = {
-                            transitionSession(it, SessionStartReason.RESUME)
-                        },
-                        applyModel = { model -> applyModel(model, recordSessionEntry = false, announce = false) },
-                        setThinkingLevel = { level ->
-                            setThinkingLevel(level, recordSessionEntry = false, announce = false)
-                        },
-                        appendSystemMessage = ::appendCommandResult,
-                    )
+                    sessionController.load(path)
                     result.complete(true)
                 }
                 return result.await()
@@ -1194,7 +1069,7 @@ private fun Agent47AppContent(
                         cwd,
                     )
                     context.messages.forEach(target::appendMessage)
-                    transitionSession(target, SessionStartReason.FORK)
+                    sessionController.transitionSession(target, SessionStartReason.FORK)
                     client.replaceMessages(context.messages)
                     chatHistoryState.entries.clear()
                     context.messages.forEach(chatHistoryState::appendMessage)
@@ -1565,31 +1440,17 @@ private fun Agent47AppContent(
                     } else {
                         AgentThinkingLevel.OFF
                     }
-                    setThinkingLevel(next)
+                    modelController.setThinkingLevel(next)
                     return true
                 }
 
                 'p' -> {
-                    cycleModel(
-                        direction = -1,
-                        availableModels = currentModels,
-                        currentIndex = selectedModelIndex,
-                        setIndex = { selectedModelIndex = it },
-                        applyModel = ::applyModel,
-                        appendSystemMessage = ::appendSystemMessage,
-                    )
+                    modelController.cycleModel(direction = -1)
                     return true
                 }
 
                 'n' -> {
-                    cycleModel(
-                        direction = 1,
-                        availableModels = currentModels,
-                        currentIndex = selectedModelIndex,
-                        setIndex = { selectedModelIndex = it },
-                        applyModel = ::applyModel,
-                        appendSystemMessage = ::appendSystemMessage,
-                    )
+                    modelController.cycleModel(direction = 1)
                     return true
                 }
 
@@ -1781,10 +1642,10 @@ private fun Agent47AppContent(
                             if (match == null) {
                                 appendCommandResult("Model not found: $modelId")
                             } else {
-                                applyModel(match)
+                                modelController.applyModel(match)
                             }
                         },
-                        startNewSession = ::startNewSession,
+                        startNewSession = sessionController::startNewSession,
                         tryExpandFileCommand = ::tryExpandFileCommand,
                         setRunning = { value ->
                             if (!value) {
@@ -2348,25 +2209,6 @@ private fun submitMessage(
         }
     }
     setCurrentPromptJob(job)
-}
-
-private fun cycleModel(
-    direction: Int,
-    availableModels: List<Model>,
-    currentIndex: Int,
-    setIndex: (Int) -> Unit,
-    applyModel: (Model) -> Unit,
-    appendSystemMessage: (String) -> Unit,
-) {
-    if (availableModels.isEmpty()) {
-        appendSystemMessage("No models available")
-        return
-    }
-    val size = availableModels.size
-    val current = currentIndex.coerceIn(0, size - 1)
-    val newIndex = ((current + direction) % size + size) % size
-    setIndex(newIndex)
-    applyModel(availableModels[newIndex])
 }
 
 private fun defaultToolCollapsed(toolName: String): Boolean = when (toolName.lowercase()) {
