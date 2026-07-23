@@ -9,7 +9,6 @@ import co.agentmode.agent47.ai.providers.google.registerGoogleProviders
 import co.agentmode.agent47.ai.providers.openai.registerOpenAiProviders
 import co.agentmode.agent47.ai.core.ApiRegistry
 import co.agentmode.agent47.ai.core.AiRuntime
-import co.agentmode.agent47.ai.types.SimpleStreamOptions
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.app.cli.CliOptions
@@ -26,7 +25,9 @@ import co.agentmode.agent47.app.cli.resolveThinkingLevel
 import co.agentmode.agent47.app.cli.runSmokeTool
 import co.agentmode.agent47.app.cli.scopedModels
 import co.agentmode.agent47.app.cli.sessionsBaseDir
+import co.agentmode.agent47.app.bootstrap.ScheduledJobRunner
 import co.agentmode.agent47.app.bootstrap.SessionTracker
+import co.agentmode.agent47.app.compaction.CompactionService
 import co.agentmode.agent47.app.extensions.CliExtensionContext
 import co.agentmode.agent47.app.extensions.CliExtensionSessionControl
 import co.agentmode.agent47.app.extensions.ExtensionContextBinding
@@ -38,12 +39,7 @@ import co.agentmode.agent47.app.update.shouldCheckForUpdates
 import co.agentmode.agent47.coding.core.auth.AuthStorage
 import co.agentmode.agent47.coding.core.auth.CopilotAuthPlugin
 import co.agentmode.agent47.coding.core.auth.OAuthResult
-import co.agentmode.agent47.coding.core.compaction.CompactionResult
 import co.agentmode.agent47.coding.core.compaction.applyCompaction
-import co.agentmode.agent47.coding.core.compaction.buildCompactionMessages
-import co.agentmode.agent47.coding.core.compaction.estimateContextTokens
-import co.agentmode.agent47.coding.core.compaction.findCutPoint
-import co.agentmode.agent47.coding.core.compaction.pruneToolOutputs
 import co.agentmode.agent47.coding.core.config.AgentConfig
 import co.agentmode.agent47.coding.core.extensions.ExtensionPackageManager
 import co.agentmode.agent47.coding.core.instructions.InstructionFile
@@ -55,12 +51,8 @@ import co.agentmode.agent47.coding.core.settings.SubagentsSettings
 import co.agentmode.agent47.coding.core.settings.SubagentsSettingsManager
 import co.agentmode.agent47.coding.core.settings.SubagentsSettingsState
 import co.agentmode.agent47.coding.core.agents.AgentRegistry
-import co.agentmode.agent47.coding.core.agents.AgentInvocationParams
 import co.agentmode.agent47.coding.core.agents.BackgroundAgents
-import co.agentmode.agent47.coding.core.agents.IsolationMode
-import co.agentmode.agent47.coding.core.agents.SubAgentOptions
 import co.agentmode.agent47.coding.core.agents.Worktree
-import co.agentmode.agent47.coding.core.agents.runSubAgent
 import co.agentmode.agent47.coding.core.agents.schedule.ScheduleStore
 import co.agentmode.agent47.coding.core.agents.schedule.SubagentScheduler
 import co.agentmode.agent47.coding.core.commands.SlashCommand
@@ -78,7 +70,6 @@ import co.agentmode.agent47.ext.core.KotlinExtensionDiscovery
 import co.agentmode.agent47.ext.core.KotlinExtensionRuntime
 import co.agentmode.agent47.ext.core.ExtensionContext
 import co.agentmode.agent47.ext.core.AfterCompactionEvent
-import co.agentmode.agent47.ext.core.BeforeCompactionEvent
 import co.agentmode.agent47.ext.core.CompactionReason
 import co.agentmode.agent47.ext.core.PreparedCompaction
 import co.agentmode.agent47.ext.core.ExtensionResources
@@ -111,7 +102,6 @@ import com.github.ajalt.clikt.parameters.options.multiple as multipleOptions
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.mordant.terminal.Terminal
-import kotlinx.coroutines.CancellationException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
@@ -431,64 +421,21 @@ class Agent47Command :
         // Session-scoped scheduler: fires scheduled subagents while this session runs.
         val sessionId = sessionManager?.getHeader()?.id ?: "default"
         val store = ScheduleStore(config.projectDir.resolve("subagent-schedules").resolve("$sessionId.json"))
-        val scheduler = SubagentScheduler(store) { job ->
-                val def = agentRegistry.get(job.subagentType)
-                val parentModel = modelRegistry.getAvailable().firstOrNull()
-                if (def != null && parentModel != null) {
-                    val agentId = backgroundAgents.uniqueId(job.name)
-                    val running = backgroundAgents.launch(
-                        id = agentId,
-                        agentName = def.name,
-                        description = job.description,
-                        task = job.prompt,
-                    ) {
-                        runSubAgent(
-                            SubAgentOptions(
-                                streamFunction = aiRuntime::streamSimple,
-                                agentDefinition = def,
-                                task = job.prompt,
-                                taskId = agentId,
-                                description = job.description,
-                                context = null,
-                                cwd = workingDir,
-                                parentModel = parentModel,
-                                modelRegistry = modelRegistry,
-                                settings = settings.get(),
-                                currentDepth = 0,
-                                maxDepth = settings.get().taskMaxRecursionDepth,
-                                agentRegistry = agentRegistry,
-                                getApiKey = { provider -> modelRegistry.getApiKeyForProvider(provider) },
-                                subagentsSettings = subagentsSettings,
-                                invocation = AgentInvocationParams(
-                                    model = job.model,
-                                    thinking = job.thinking,
-                                    maxTurns = job.maxTurns,
-                                    isolation = if (job.isolation == "worktree") IsolationMode.WORKTREE else null,
-                                ),
-                                onProgress = { p -> backgroundAgents.updateProgress(agentId, p) },
-                                onEvent = null,
-                                onAgentReady = { a -> backgroundAgents.setAgentRef(agentId, a) },
-                                backgroundAgents = backgroundAgents,
-                                backgroundAgentId = agentId,
-                                memoryProjectDir = config.projectDir,
-                                memoryGlobalDir = config.globalDir,
-                                skillContentProvider = { name -> skillRegistry.readSkillFile(name) },
-                                sessionsDir = sessionsBaseDir(options, config),
-                                parentSessionId = sessionId,
-                            ),
-                        )
-                    }
-                    val result = try {
-                        running.awaitResult()
-                    } catch (e: CancellationException) {
-                        backgroundAgents.abort(agentId)
-                        throw e
-                    } ?: error("Scheduled agent '$agentId' did not complete")
-                    if (result.aborted || result.error != null || result.exitCode != 0) {
-                        error(result.error ?: "Scheduled agent '$agentId' exited with ${result.exitCode}")
-                    }
-                }
-            }
+        val scheduledJobRunner = ScheduledJobRunner(
+            aiRuntime = aiRuntime,
+            agentRegistry = agentRegistry,
+            modelRegistry = modelRegistry,
+            backgroundAgents = backgroundAgents,
+            settings = settings,
+            subagentsSettings = subagentsSettings,
+            skillRegistry = skillRegistry,
+            workingDir = workingDir,
+            sessionsDir = sessionsBaseDir(options, config),
+            memoryProjectDir = config.projectDir,
+            memoryGlobalDir = config.globalDir,
+            sessionId = sessionId,
+        )
+        val scheduler = SubagentScheduler(store, scheduledJobRunner::run)
         if (subagentsSettings.get().schedulingEnabled) scheduler.start()
         if (!noTools) {
             val taskTool = TaskTool(
@@ -620,50 +567,15 @@ class Agent47Command :
             )
         }
 
+        val compactionService = CompactionService(
+            extensionRuntime = extensionRuntime,
+            extensionContext = extensionContext,
+            settings = settings,
+            aiRuntime = aiRuntime,
+            modelRegistry = modelRegistry,
+        )
         val compactContext: suspend (List<Message>, Model, CompactionReason) -> PreparedCompaction? =
-            compact@{ messages, activeModel, reason ->
-            val hookResult = extensionRuntime.runner.prepareCompaction(
-                BeforeCompactionEvent(messages, activeModel, reason),
-                extensionContext,
-            )
-            if (hookResult?.cancel == true) return@compact null
-            hookResult?.compaction?.let { return@compact PreparedCompaction(it, fromExtension = true) }
-            val compactionSettings = settings.get().compaction
-            val pruned = if (compactionSettings.prune) {
-                pruneToolOutputs(messages, compactionSettings.keepRecentTokens)
-            } else {
-                messages
-            }
-            val compactionMessages = buildCompactionMessages(pruned)
-            val context = Context(
-                messages = compactionMessages,
-            )
-            val response = runCatching {
-                aiRuntime.completeSimple(
-                    activeModel,
-                    context,
-                    SimpleStreamOptions(apiKey = modelRegistry.getApiKeyForProvider(activeModel.provider.value)),
-                )
-            }.getOrNull()
-            val summaryText = response?.content
-                ?.filterIsInstance<TextContent>()
-                ?.joinToString("\n") { it.text }
-            if (summaryText.isNullOrBlank()) {
-                null
-            } else {
-                val estimate = estimateContextTokens(messages)
-                val cutPoint = findCutPoint(messages, compactionSettings.keepRecentTokens)
-                PreparedCompaction(
-                    compaction = CompactionResult(
-                        summary = summaryText,
-                        firstKeptEntryId = messages.getOrNull(cutPoint.firstKeptEntryIndex)
-                            ?.timestamp?.toString() ?: "",
-                        tokensBefore = estimate.tokens,
-                    ),
-                    fromExtension = false,
-                )
-            }
-        }
+            compactionService::compact
 
         extensionRuntime.runner.startSession(
             co.agentmode.agent47.ext.core.SessionStartEvent(
