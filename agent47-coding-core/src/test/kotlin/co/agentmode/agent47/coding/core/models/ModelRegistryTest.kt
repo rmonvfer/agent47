@@ -2,8 +2,15 @@ package co.agentmode.agent47.coding.core.models
 
 import co.agentmode.agent47.coding.core.auth.ApiKeyCredential
 import co.agentmode.agent47.coding.core.auth.AuthStorage
+import co.agentmode.agent47.ai.types.ApiId
+import co.agentmode.agent47.ai.types.Model
+import co.agentmode.agent47.ai.types.ModelCost
+import co.agentmode.agent47.ai.types.ModelInputKind
+import co.agentmode.agent47.ai.types.ProviderId
+import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
+import java.net.InetSocketAddress
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
 import kotlin.test.Test
@@ -12,6 +19,41 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ModelRegistryTest {
+    @Test
+    fun `async refresh discovers configured Ollama models`() = runTest {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/api/tags") { exchange ->
+            val body = """{"models":[{"name":"qwen3:8b"},{"name":"gemma3:4b"}]}""".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        server.start()
+
+        try {
+            val dir = createTempDirectory("agent47-ollama")
+            val auth = AuthStorage(dir.resolve("auth.json"), envResolver = { _ -> null })
+            val modelsYml = dir.resolve("models.yml")
+            modelsYml.writeText(
+                """
+                providers:
+                  ollama:
+                    baseUrl: "http://127.0.0.1:${server.address.port}"
+                    api: "openai-completions"
+                    discovery:
+                      type: "ollama"
+                """.trimIndent(),
+            )
+            val registry = ModelRegistry(authStorage = auth, modelsConfigPath = modelsYml)
+
+            registry.refreshAsync()
+
+            assertNotNull(registry.find("ollama", "qwen3:8b"))
+            assertNotNull(registry.find("ollama", "gemma3:4b"))
+        } finally {
+            server.stop(0)
+        }
+    }
+
     @Test
     fun `registry loads built-in models and filters available by auth`() = runTest {
         val dir = createTempDirectory("agent47-registry")
@@ -23,6 +65,36 @@ class ModelRegistryTest {
         auth.set("openai", ApiKeyCredential(key = "test"))
         val available = registry.getAvailable()
         assertTrue(available.any { it.provider.value == "openai" })
+    }
+
+    @Test
+    fun `extension models can opt out of authentication and unregister by source`() {
+        val dir = createTempDirectory("agent47-extension-models")
+        val auth = AuthStorage(dir.resolve("auth.json"), envResolver = { _ -> null })
+        val registry = ModelRegistry(authStorage = auth)
+        val model = Model(
+            id = "local",
+            name = "Local",
+            api = ApiId("local-api"),
+            provider = ProviderId("local-provider"),
+            baseUrl = "http://127.0.0.1:8080",
+            reasoning = false,
+            input = listOf(ModelInputKind.TEXT),
+            cost = ModelCost(0.0, 0.0, 0.0, 0.0),
+            contextWindow = 8_192,
+            maxTokens = 2_048,
+        )
+
+        registry.registerExtensionModels(
+            sourceId = "test-extension",
+            models = listOf(model),
+            noAuthProviders = setOf("local-provider"),
+        )
+
+        assertEquals(model, registry.find("local-provider", "local"))
+        assertTrue(model in registry.getAvailable())
+        registry.unregisterExtensionModels("test-extension")
+        assertEquals(null, registry.find("local-provider", "local"))
     }
 
     @Test

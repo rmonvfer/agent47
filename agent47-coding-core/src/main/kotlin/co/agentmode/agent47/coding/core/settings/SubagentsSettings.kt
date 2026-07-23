@@ -4,6 +4,7 @@ import co.agentmode.agent47.ai.types.Agent47Json
 import kotlinx.serialization.Serializable
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -40,6 +41,17 @@ public data class SubagentsSettings(
         public val JOIN_MODES: Set<String> = setOf("async", "group", "smart")
         public val WIDGET_MODES: Set<String> = setOf("all", "background", "off")
         public val TOOL_DESCRIPTION_MODES: Set<String> = setOf("full", "compact", "custom")
+    }
+}
+
+/** Thread-safe, session-scoped source of truth for live subagent settings. */
+public class SubagentsSettingsState(initial: SubagentsSettings) {
+    private val value: AtomicReference<SubagentsSettings> = AtomicReference(initial)
+
+    public fun get(): SubagentsSettings = value.get()
+
+    public fun set(settings: SubagentsSettings) {
+        value.set(settings)
     }
 }
 

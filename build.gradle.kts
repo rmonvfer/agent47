@@ -32,3 +32,17 @@ dependencies {
     kover(project(":agent47-tui"))
     kover(project(":agent47-app"))
 }
+
+kover {
+    reports {
+        verify {
+            rule("aggregate line coverage") {
+                minBound(40)
+            }
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn("koverVerify")
+}

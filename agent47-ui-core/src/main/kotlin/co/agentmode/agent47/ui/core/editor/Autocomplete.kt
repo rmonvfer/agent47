@@ -40,21 +40,31 @@ public data class AutocompletePopupModel(
 )
 
 /**
- * Slash command completion from a static command list.
+ * Slash command completion for the commands available in the current session.
  */
 public class SlashCommandCompletionProvider(
     commands: List<String>,
     descriptions: Map<String, String> = emptyMap(),
 ) : AutocompleteProvider {
 
-    private val uniqueCommands: List<String> = commands
-        .map { it.trim().removePrefix("/") }
-        .filter { it.isNotEmpty() }
-        .distinct()
-        .sorted()
+    @Volatile
+    private var uniqueCommands: List<String> = emptyList()
 
-    private val detailsByCommand: Map<String, String> = descriptions
-        .mapKeys { (key, _) -> key.trim().removePrefix("/") }
+    @Volatile
+    private var detailsByCommand: Map<String, String> = emptyMap()
+
+    init {
+        update(commands, descriptions)
+    }
+
+    public fun update(commands: List<String>, descriptions: Map<String, String> = emptyMap()) {
+        uniqueCommands = commands
+            .map { it.trim().removePrefix("/") }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+        detailsByCommand = descriptions.mapKeys { (key, _) -> key.trim().removePrefix("/") }
+    }
 
     override fun supports(trigger: Char): Boolean = trigger == '/'
 

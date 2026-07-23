@@ -2,13 +2,13 @@ package co.agentmode.agent47.ai.core
 
 import co.agentmode.agent47.ai.types.*
 
-public object AiRuntime {
+public class AiRuntime(private val registry: ApiRegistry) {
     public suspend fun stream(
         model: Model,
         context: Context,
         options: StreamOptions? = null,
     ): AssistantMessageEventStream {
-        val provider = ApiRegistry.get(model.api)
+        val provider = registry.get(model.api)
             ?: error("No API provider registered for api: ${model.api.value}")
         return provider.stream(model, context, options)
     }
@@ -27,7 +27,7 @@ public object AiRuntime {
         context: Context,
         options: SimpleStreamOptions? = null,
     ): AssistantMessageEventStream {
-        val provider = ApiRegistry.get(model.api)
+        val provider = registry.get(model.api)
             ?: error("No API provider registered for api: ${model.api.value}")
         return provider.streamSimple(model, context, options)
     }

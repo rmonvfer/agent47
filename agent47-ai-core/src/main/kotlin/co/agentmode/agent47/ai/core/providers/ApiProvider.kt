@@ -25,7 +25,7 @@ public fun interface StreamSimpleFunction {
 
 /**
  * Implements streaming LLM calls for a specific API format (e.g. OpenAI completions,
- * Anthropic messages, Google generative AI). Each provider registers itself in [ApiRegistry][co.agentmode.agent47.ai.core.ApiRegistry]
+ * Anthropic messages, Google generative AI). Each provider is registered in an [ApiRegistry][co.agentmode.agent47.ai.core.ApiRegistry]
  * keyed by its [api] identifier; the runtime selects the right provider based on
  * the model's declared API.
  *

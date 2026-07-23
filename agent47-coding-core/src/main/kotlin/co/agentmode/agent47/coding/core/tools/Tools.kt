@@ -64,6 +64,6 @@ public fun createCoreTools(
 }
 
 public val DEFAULT_TOOLS: List<String> = listOf(
-    "read", "bash", "edit", "write", "multiedit",
+    "read", "bash", "edit", "write", "multiedit", "grep", "find", "ls",
     "todowrite", "todoread", "todocreate", "todoupdate", "batch",
 )

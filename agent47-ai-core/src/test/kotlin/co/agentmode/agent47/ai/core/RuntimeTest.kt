@@ -21,23 +21,19 @@ import co.agentmode.agent47.ai.types.UsageCost
 import co.agentmode.agent47.ai.types.UserMessage
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
-import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 class RuntimeTest {
-    @AfterTest
-    fun teardown(): Unit {
-        ApiRegistry.clear()
-    }
-
     @Test
     fun `runtime resolves registered provider and returns completion`() = runTest {
+        val registry = ApiRegistry()
+        val runtime = AiRuntime(registry)
         val model = createModel()
         val response = createAssistant("hello")
 
-        ApiRegistry.register(
+        registry.register(
             object : ApiProvider {
                 override val api: ApiId = KnownApis.OpenAiResponses
 
@@ -62,7 +58,7 @@ class RuntimeTest {
             },
         )
 
-        val complete = AiRuntime.completeSimple(
+        val complete = runtime.completeSimple(
             model,
             Context(
                 messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L)),
@@ -77,6 +73,7 @@ class RuntimeTest {
 
     @Test
     fun `registry supports source unregistration`() {
+        val registry = ApiRegistry()
         val provider = object : ApiProvider {
             override val api: ApiId = ApiId("unit-test")
 
@@ -93,11 +90,37 @@ class RuntimeTest {
             }
         }
 
-        ApiRegistry.register(provider, sourceId = "ext-a")
-        assertNotNull(ApiRegistry.get(ApiId("unit-test")))
+        registry.register(provider, sourceId = "ext-a")
+        assertNotNull(registry.get(ApiId("unit-test")))
 
-        ApiRegistry.unregisterBySource("ext-a")
-        assertEquals(null, ApiRegistry.get(ApiId("unit-test")))
+        registry.unregisterBySource("ext-a")
+        assertEquals(null, registry.get(ApiId("unit-test")))
+    }
+
+    @Test
+    fun `registries isolate providers`() {
+        val first = ApiRegistry()
+        val second = ApiRegistry()
+        val provider = object : ApiProvider {
+            override val api: ApiId = ApiId("unit-test")
+
+            override suspend fun stream(
+                model: Model,
+                context: Context,
+                options: StreamOptions?,
+            ): AssistantMessageEventStream = AssistantMessageEventStream()
+
+            override suspend fun streamSimple(
+                model: Model,
+                context: Context,
+                options: SimpleStreamOptions?,
+            ): AssistantMessageEventStream = AssistantMessageEventStream()
+        }
+
+        first.register(provider)
+
+        assertNotNull(first.get(ApiId("unit-test")))
+        assertEquals(null, second.get(ApiId("unit-test")))
     }
 
     private fun createModel(): Model {

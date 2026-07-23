@@ -1,0 +1,26 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:AnthropicProvider.kt:AnthropicMessagesProvider$override suspend fun stream( model: Model, context: Context, options: StreamOptions?, ): AssistantMessageEventStream</ID>
+    <ID>CyclomaticComplexMethod:AnthropicProvider.kt:internal fun applyCacheBreakpoints(payload: JsonObject): JsonObject</ID>
+    <ID>CyclomaticComplexMethod:AnthropicProvider.kt:private fun buildPayload(model: Model, context: Context, options: StreamOptions?): JsonObject</ID>
+    <ID>CyclomaticComplexMethod:GoogleProviders.kt:GoogleFamilyProvider$override suspend fun stream( model: Model, context: Context, options: StreamOptions?, ): AssistantMessageEventStream</ID>
+    <ID>CyclomaticComplexMethod:GoogleProviders.kt:private fun buildPayload(context: Context, options: StreamOptions?): JsonObject</ID>
+    <ID>CyclomaticComplexMethod:OpenAiProviders.kt:OpenAiCompletionsProvider$override suspend fun stream( model: Model, context: Context, options: StreamOptions?, ): AssistantMessageEventStream</ID>
+    <ID>CyclomaticComplexMethod:OpenAiProviders.kt:OpenAiResponsesProvider$override suspend fun stream( model: Model, context: Context, options: StreamOptions?, ): AssistantMessageEventStream</ID>
+    <ID>CyclomaticComplexMethod:OpenAiProviders.kt:private fun buildResponsesPayload(model: Model, context: Context, options: StreamOptions?): JsonObject</ID>
+    <ID>LongMethod:AnthropicProvider.kt:AnthropicMessagesProvider$override suspend fun stream( model: Model, context: Context, options: StreamOptions?, ): AssistantMessageEventStream</ID>
+    <ID>LongMethod:AnthropicProvider.kt:internal fun applyCacheBreakpoints(payload: JsonObject): JsonObject</ID>
+    <ID>LongMethod:AnthropicProvider.kt:private fun buildPayload(model: Model, context: Context, options: StreamOptions?): JsonObject</ID>
+    <ID>LongMethod:GoogleProviders.kt:GoogleFamilyProvider$override suspend fun stream( model: Model, context: Context, options: StreamOptions?, ): AssistantMessageEventStream</ID>
+    <ID>LongMethod:GoogleProviders.kt:private fun buildPayload(context: Context, options: StreamOptions?): JsonObject</ID>
+    <ID>LongMethod:OpenAiProviders.kt:OpenAiCompletionsProvider$override suspend fun stream( model: Model, context: Context, options: StreamOptions?, ): AssistantMessageEventStream</ID>
+    <ID>LongMethod:OpenAiProviders.kt:OpenAiResponsesProvider$override suspend fun stream( model: Model, context: Context, options: StreamOptions?, ): AssistantMessageEventStream</ID>
+    <ID>LongMethod:OpenAiProviders.kt:private fun buildResponsesPayload(model: Model, context: Context, options: StreamOptions?): JsonObject</ID>
+    <ID>ReturnCount:AnthropicProvider.kt:private fun addCacheControlToLastContentBlock(message: JsonObject): JsonObject</ID>
+    <ID>ReturnCount:OpenAiJson.kt:private fun contentToOpenAi(content: List&lt;ContentBlock>, compat: OpenAiCompat): JsonElement</ID>
+    <ID>WildcardImport:GoogleProviders.kt:import co.agentmode.agent47.ai.types.*</ID>
+    <ID>WildcardImport:OpenAiProviders.kt:import co.agentmode.agent47.ai.types.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

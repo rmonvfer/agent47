@@ -23,6 +23,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 
@@ -130,6 +131,9 @@ public class ModelRegistry(
 ) {
     private val customProviderApiKeys: MutableMap<String, String> = linkedMapOf()
     private val providerHooks: MutableMap<String, ProviderHook> = linkedMapOf()
+    private val extensionModels: MutableMap<String, List<Model>> = linkedMapOf()
+    private val extensionApiKeys: MutableMap<String, Map<String, String>> = linkedMapOf()
+    private val extensionNoAuthProviders: MutableMap<String, Set<String>> = linkedMapOf()
     private val authPlugins: MutableMap<String, ProviderAuthPlugin> = linkedMapOf()
     private val models: MutableList<Model> = mutableListOf()
     private var loadError: String? = null
@@ -137,6 +141,9 @@ public class ModelRegistry(
     init {
         authStorage.setFallbackResolver { provider ->
             customProviderApiKeys[provider]?.let { ConfigValueResolver.resolveSync(it) }
+                ?: extensionApiKeys.values.firstNotNullOfOrNull { keys ->
+                    keys[provider]?.let { ConfigValueResolver.resolveSync(it) }
+                }
         }
         refresh()
     }
@@ -154,6 +161,7 @@ public class ModelRegistry(
 
         models.clear()
         models += mergeCustomModels(baseModels, custom.models)
+        mergeExtensionModels()
 
         if (custom.error != null) {
             loadError = custom.error
@@ -188,6 +196,7 @@ public class ModelRegistry(
 
         models.clear()
         models += mergeCustomModels(baseModels, custom.models + discoveredModels)
+        mergeExtensionModels()
 
         if (custom.error != null) {
             loadError = custom.error
@@ -205,13 +214,15 @@ public class ModelRegistry(
     public fun getAll(): List<Model> = models.toList()
 
     public fun getAvailable(): List<Model> {
-        return models.filter { authStorage.hasAuth(it.provider.value) }
+        val noAuthProviders = extensionNoAuthProviders.values.flatten().toSet()
+        return models.filter { it.provider.value in noAuthProviders || authStorage.hasAuth(it.provider.value) }
     }
 
     public fun getConnectedProviders(): Set<String> {
+        val noAuthProviders = extensionNoAuthProviders.values.flatten().toSet()
         return models
             .map { it.provider.value }
-            .filter { authStorage.hasAuth(it) }
+            .filter { it in noAuthProviders || authStorage.hasAuth(it) }
             .toSet()
     }
 
@@ -265,6 +276,34 @@ public class ModelRegistry(
     public fun registerProviderHook(hook: ProviderHook): Unit {
         providerHooks[hook.name] = hook
         refresh()
+    }
+
+    public fun registerExtensionModels(
+        sourceId: String,
+        models: List<Model>,
+        apiKeys: Map<String, String> = emptyMap(),
+        noAuthProviders: Set<String> = emptySet(),
+    ) {
+        extensionModels[sourceId] = models.toList()
+        extensionApiKeys[sourceId] = apiKeys.toMap()
+        extensionNoAuthProviders[sourceId] = noAuthProviders.toSet()
+        refresh()
+    }
+
+    public fun unregisterExtensionModels(sourceId: String) {
+        extensionModels.remove(sourceId)
+        extensionApiKeys.remove(sourceId)
+        extensionNoAuthProviders.remove(sourceId)
+        refresh()
+    }
+
+    private fun mergeExtensionModels() {
+        extensionModels.values.flatten().forEach { extensionModel ->
+            models.removeAll {
+                it.provider == extensionModel.provider && it.id == extensionModel.id
+            }
+            models += extensionModel
+        }
     }
 
     private fun loadBuiltInModels(): List<Model> {
@@ -386,9 +425,12 @@ public class ModelRegistry(
         val baseUrl = config.baseUrl ?: return emptyList()
         return try {
             val response = withContext(Dispatchers.IO) {
-                val client = HttpClient.newBuilder().build()
+                val client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(2))
+                    .build()
                 val request = HttpRequest.newBuilder()
                     .uri(URI.create("${baseUrl.trimEnd('/')}/api/tags"))
+                    .timeout(Duration.ofSeconds(3))
                     .GET()
                     .build()
                 client.send(request, HttpResponse.BodyHandlers.ofString())

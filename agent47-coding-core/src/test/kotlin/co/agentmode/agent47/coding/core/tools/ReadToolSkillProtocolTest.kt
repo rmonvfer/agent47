@@ -82,4 +82,28 @@ class ReadToolSkillProtocolTest {
         val text = result.content.filterIsInstance<TextContent>().joinToString { it.text }
         assertTrue(text.contains("beyond"))
     }
+
+    @Test
+    fun `includes file-scoped skill instructions when reading a matching file`() = runTest {
+        val root = createTempDirectory("read-test")
+        root.resolve("App.kt").toFile().writeText("fun main() = Unit")
+        val reader = object : SkillReader {
+            override fun readSkillFile(name: String, relativePath: String?): String? = null
+
+            override fun readApplicableSkills(path: String): List<ApplicableSkill> =
+                if (path.endsWith(".kt")) {
+                    listOf(ApplicableSkill("kotlin-style", "Use explicit visibility."))
+                } else {
+                    emptyList()
+                }
+        }
+        val tool = ReadTool(root, reader)
+
+        val result = tool.execute("r1", buildJsonObject { put("path", "App.kt") })
+        val text = result.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
+
+        assertTrue(text.contains("Applicable skill instructions (kotlin-style)"))
+        assertTrue(text.contains("Use explicit visibility."))
+        assertTrue(text.contains("fun main() = Unit"))
+    }
 }

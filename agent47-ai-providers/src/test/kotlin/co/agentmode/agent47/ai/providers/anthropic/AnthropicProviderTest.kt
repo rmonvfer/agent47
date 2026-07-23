@@ -22,11 +22,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class AnthropicProviderTest {
+    private val registry = ApiRegistry()
+    private val runtime = AiRuntime(registry)
+
     private var server: HttpServer? = null
 
     @AfterTest
     fun tearDown() {
-        ApiRegistry.clear()
+        registry.clear()
         server?.stop(0)
     }
 
@@ -58,7 +61,7 @@ data: {"type":"message_stop"}""",
         }
         server!!.start()
 
-        registerAnthropicProviders()
+        registerAnthropicProviders(registry)
 
         val model = Model(
             id = "claude-sonnet-4-5",
@@ -74,7 +77,7 @@ data: {"type":"message_stop"}""",
             headers = mapOf("x-api-key" to "test"),
         )
 
-        val result = AiRuntime.completeSimple(
+        val result = runtime.completeSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -94,7 +97,7 @@ data: {"type":"message_stop"}""",
         }
         server!!.start()
 
-        registerAnthropicProviders()
+        registerAnthropicProviders(registry)
 
         val model = Model(
             id = "claude-sonnet-4-5",
@@ -110,7 +113,7 @@ data: {"type":"message_stop"}""",
             headers = mapOf("x-api-key" to "invalid"),
         )
 
-        val stream = AiRuntime.streamSimple(
+        val stream = runtime.streamSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -133,7 +136,7 @@ data: {"type":"message_stop"}""",
         }
         server!!.start()
 
-        registerAnthropicProviders()
+        registerAnthropicProviders(registry)
 
         val model = Model(
             id = "claude-sonnet-4-5",
@@ -149,7 +152,7 @@ data: {"type":"message_stop"}""",
             headers = mapOf("x-api-key" to "test"),
         )
 
-        val stream = AiRuntime.streamSimple(
+        val stream = runtime.streamSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -172,7 +175,7 @@ data: {"type":"message_stop"}""",
         }
         server!!.start()
 
-        registerAnthropicProviders()
+        registerAnthropicProviders(registry)
 
         val model = Model(
             id = "claude-sonnet-4-5",
@@ -188,7 +191,7 @@ data: {"type":"message_stop"}""",
             headers = mapOf("x-api-key" to "test"),
         )
 
-        val stream = AiRuntime.streamSimple(
+        val stream = runtime.streamSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -229,7 +232,7 @@ data: {"type":"message_stop"}""",
         }
         server!!.start()
 
-        registerAnthropicProviders()
+        registerAnthropicProviders(registry)
 
         val model = Model(
             id = "claude-sonnet-4-5",
@@ -245,7 +248,7 @@ data: {"type":"message_stop"}""",
             headers = mapOf("x-api-key" to "test"),
         )
 
-        val result = AiRuntime.completeSimple(
+        val result = runtime.completeSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "read file")), timestamp = 1L))),
         )

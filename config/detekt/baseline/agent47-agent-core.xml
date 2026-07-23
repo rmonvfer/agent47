@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:AgentLoop.kt:!addedPartial &amp;&amp; final.stopReason == StopReason.ERROR &amp;&amp; attempt &lt; MAX_RETRY_ATTEMPTS &amp;&amp; isRetryableError(final.errorMessage)</ID>
+    <ID>CyclomaticComplexMethod:Agent.kt:Agent$private suspend fun runLoop(messages: List&lt;Message>? = null, skipInitialSteeringPoll: Boolean = false)</ID>
+    <ID>CyclomaticComplexMethod:AgentLoop.kt:private suspend fun runLoop( currentContext: AgentContext, newMessages: MutableList&lt;Message>, config: AgentLoopConfig, stream: EventStream&lt;AgentEvent, List&lt;Message>>, streamFunction: AgentStreamFunction, )</ID>
+    <ID>CyclomaticComplexMethod:AgentLoop.kt:private suspend fun streamAssistantResponse( context: AgentContext, config: AgentLoopConfig, stream: EventStream&lt;AgentEvent, List&lt;Message>>, streamFunction: AgentStreamFunction, ): AssistantMessage</ID>
+    <ID>CyclomaticComplexMethod:Types.kt:public fun defaultConvertToLlm(messages: List&lt;Message>): List&lt;Message></ID>
+    <ID>LongMethod:Agent.kt:Agent$private suspend fun runLoop(messages: List&lt;Message>? = null, skipInitialSteeringPoll: Boolean = false)</ID>
+    <ID>LongMethod:AgentLoop.kt:private suspend fun executeToolCalls( tools: List&lt;AgentTool&lt;*>>, assistantMessage: AssistantMessage, stream: EventStream&lt;AgentEvent, List&lt;Message>>, getSteeringMessages: (suspend () -> List&lt;Message>)?, ): ToolExecutionResult</ID>
+    <ID>LongMethod:AgentLoop.kt:private suspend fun runLoop( currentContext: AgentContext, newMessages: MutableList&lt;Message>, config: AgentLoopConfig, stream: EventStream&lt;AgentEvent, List&lt;Message>>, streamFunction: AgentStreamFunction, )</ID>
+    <ID>LongMethod:AgentLoop.kt:private suspend fun streamAssistantResponse( context: AgentContext, config: AgentLoopConfig, stream: EventStream&lt;AgentEvent, List&lt;Message>>, streamFunction: AgentStreamFunction, ): AssistantMessage</ID>
+    <ID>LoopWithTooManyJumpStatements:AgentLoop.kt:while</ID>
+    <ID>LoopWithTooManyJumpStatements:Types.kt:for</ID>
+    <ID>LoopWithTooManyJumpStatements:Types.kt:while</ID>
+    <ID>TooGenericExceptionCaught:Agent.kt:Agent$error: Throwable</ID>
+    <ID>TooGenericExceptionCaught:AgentLoop.kt:error: Throwable</ID>
+    <ID>TooManyFunctions:Agent.kt:Agent</ID>
+    <ID>WildcardImport:Agent.kt:import co.agentmode.agent47.ai.types.*</ID>
+    <ID>WildcardImport:AgentLoop.kt:import co.agentmode.agent47.ai.types.*</ID>
+    <ID>WildcardImport:Types.kt:import co.agentmode.agent47.ai.types.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

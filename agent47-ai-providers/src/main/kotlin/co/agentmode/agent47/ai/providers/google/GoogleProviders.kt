@@ -35,29 +35,29 @@ import kotlin.text.trimEnd
 import kotlin.text.uppercase
 import co.agentmode.agent47.ai.types.AssistantMessage as AgentAssistantMessage
 
-public fun registerGoogleProviders(transport: HttpTransport = HttpTransport()): Unit {
-    ApiRegistry.register(
+public fun registerGoogleProviders(registry: ApiRegistry, transport: HttpTransport = HttpTransport()): Unit {
+    registry.register(
         GoogleFamilyProvider(
             KnownApis.GoogleGenerativeAi,
             "/models/{model}:streamGenerateContent",
             transport
         )
     )
-    ApiRegistry.register(
+    registry.register(
         GoogleFamilyProvider(
             KnownApis.GoogleGeminiCli,
             "/models/{model}:streamGenerateContent",
             transport
         )
     )
-    ApiRegistry.register(
+    registry.register(
         GoogleFamilyProvider(
             KnownApis.GoogleAntigravity,
             "/models/{model}:streamGenerateContent",
             transport
         )
     )
-    ApiRegistry.register(
+    registry.register(
         GoogleFamilyProvider(
             KnownApis.GoogleVertex,
             "/models/{model}:streamGenerateContent",

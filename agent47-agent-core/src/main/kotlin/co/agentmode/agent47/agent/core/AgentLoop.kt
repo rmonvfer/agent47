@@ -1,6 +1,5 @@
 package co.agentmode.agent47.agent.core
 
-import co.agentmode.agent47.ai.core.AiRuntime
 import co.agentmode.agent47.ai.core.ToolValidation
 import co.agentmode.agent47.ai.core.utils.MessageTransforms
 import co.agentmode.agent47.ai.types.*
@@ -15,7 +14,7 @@ public fun agentLoop(
     prompts: List<Message>,
     context: AgentContext,
     config: AgentLoopConfig,
-    streamFunction: AgentStreamFunction? = null,
+    streamFunction: AgentStreamFunction,
     onLoopThread: ((Thread) -> Unit)? = null,
 ): EventStream<AgentEvent, List<Message>> {
     val stream = createAgentStream()
@@ -62,7 +61,7 @@ public fun agentLoop(
 public fun agentLoopContinue(
     context: AgentContext,
     config: AgentLoopConfig,
-    streamFunction: AgentStreamFunction? = null,
+    streamFunction: AgentStreamFunction,
     onLoopThread: ((Thread) -> Unit)? = null,
 ): EventStream<AgentEvent, List<Message>> {
     require(context.messages.isNotEmpty()) { "Cannot continue: no messages in context" }
@@ -121,7 +120,7 @@ private suspend fun runLoop(
     newMessages: MutableList<Message>,
     config: AgentLoopConfig,
     stream: EventStream<AgentEvent, List<Message>>,
-    streamFunction: AgentStreamFunction?,
+    streamFunction: AgentStreamFunction,
 ) {
     var firstTurn = true
     var pendingMessages = config.getSteeringMessages?.invoke()?.toMutableList() ?: mutableListOf()
@@ -215,19 +214,22 @@ private suspend fun streamAssistantResponse(
     context: AgentContext,
     config: AgentLoopConfig,
     stream: EventStream<AgentEvent, List<Message>>,
-    streamFunction: AgentStreamFunction?,
+    streamFunction: AgentStreamFunction,
 ): AssistantMessage {
-    val transformed = config.transformContext?.invoke(context.messages.toList()) ?: context.messages.toList()
-    val converted = config.convertToLlm(transformed)
+    val converted = config.convertToLlm(context.messages.toList())
+    val requestContext = Context(
+        systemPrompt = context.systemPrompt,
+        messages = converted,
+        tools = context.tools.map { it.definition },
+    )
+    val transformed = config.transformContext?.invoke(requestContext) ?: requestContext
     val llmMessages = MessageTransforms.convertCrossProviderThinking(
-        converted,
+        transformed.messages,
         targetApi = config.model.api,
         targetProvider = config.model.provider,
     )
-    val llmContext = Context(
-        systemPrompt = context.systemPrompt,
+    val llmContext = transformed.copy(
         messages = llmMessages,
-        tools = context.tools.map { it.definition },
     )
 
     var attempt = 0
@@ -241,7 +243,7 @@ private suspend fun streamAssistantResponse(
             maxRetryDelayMs = config.maxRetryDelayMs,
         )
 
-        val response = streamFunction?.invoke(config.model, llmContext, options) ?: AiRuntime.streamSimple(
+        val response = streamFunction.invoke(
             config.model,
             llmContext,
             options,

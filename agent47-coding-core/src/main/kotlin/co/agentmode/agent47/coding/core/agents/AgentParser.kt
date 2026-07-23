@@ -6,7 +6,12 @@ import com.charleskorn.kaml.YamlMap
 import com.charleskorn.kaml.YamlNode
 import com.charleskorn.kaml.YamlNull
 import com.charleskorn.kaml.YamlScalar
+import com.charleskorn.kaml.YamlTaggedNode
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Parses an agent markdown file into an [AgentDefinition]: a YAML frontmatter block followed by a
@@ -47,7 +52,7 @@ public object AgentParser {
                 raw.split(",").map { it.trim() }.filter { it.isNotBlank() }.ifEmpty { null }
             },
             thinkingLevel = fm.scalar("thinking-level") ?: fm.scalar("thinking"),
-            output = parseOutputSchema(yamlBlock),
+            output = parseOutputSchema(fm),
             source = source,
             filePath = filePath,
             skills = fm.stringList("skills"),
@@ -93,12 +98,30 @@ public object AgentParser {
         }
     }
 
-    private fun parseOutputSchema(yamlBlock: String): JsonObject? {
-        val regex = Regex("""output:\s*(\{.*})""", RegexOption.DOT_MATCHES_ALL)
-        val raw = regex.find(yamlBlock)?.groupValues?.get(1) ?: return null
-        return runCatching {
-            co.agentmode.agent47.ai.types.Agent47Json.decodeFromString(JsonObject.serializer(), raw)
-        }.getOrNull()
+    private fun parseOutputSchema(frontMatter: YamlMap?): JsonObject? =
+        (frontMatter.child("output") as? YamlMap)?.toJsonObject()
+
+    private fun YamlMap.toJsonObject(): JsonObject = JsonObject(
+        entries.map { (key, value) -> key.content to value.toJsonElement() }.toMap(),
+    )
+
+    private fun YamlNode.toJsonElement(): JsonElement = when (this) {
+        is YamlMap -> toJsonObject()
+        is YamlList -> JsonArray(items.map { it.toJsonElement() })
+        is YamlNull -> JsonNull
+        is YamlScalar -> toJsonPrimitive()
+        is YamlTaggedNode -> innerNode.toJsonElement()
+    }
+
+    private fun YamlScalar.toJsonPrimitive(): JsonPrimitive {
+        val value = content.trim()
+        return when {
+            value.equals("true", ignoreCase = true) -> JsonPrimitive(true)
+            value.equals("false", ignoreCase = true) -> JsonPrimitive(false)
+            INTEGER_PATTERN.matches(value) -> value.toLongOrNull()?.let(::JsonPrimitive) ?: JsonPrimitive(value)
+            DECIMAL_PATTERN.matches(value) -> value.toDoubleOrNull()?.let(::JsonPrimitive) ?: JsonPrimitive(value)
+            else -> JsonPrimitive(content)
+        }
     }
 
     // ---- YamlNode field readers. All tolerate a null map (no frontmatter) and absent keys. ----
@@ -138,4 +161,7 @@ public object AgentParser {
         }
         else -> null
     }
+
+    private val INTEGER_PATTERN = Regex("""[-+]?(?:0|[1-9][0-9]*)""")
+    private val DECIMAL_PATTERN = Regex("""[-+]?(?:(?:0|[1-9][0-9]*)\.[0-9]+|(?:0|[1-9][0-9]*)(?:[eE][-+]?[0-9]+))""")
 }

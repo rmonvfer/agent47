@@ -54,4 +54,14 @@ class SubagentsSettingsTest {
         val settings = SubagentsSettingsManager.load(root.resolve("global.json"), project)
         assertEquals(SubagentsSettings(), settings)
     }
+
+    @Test
+    fun `session state exposes updated settings to existing consumers`() {
+        val state = SubagentsSettingsState(SubagentsSettings(maxConcurrent = 2, schedulingEnabled = false))
+
+        state.set(SubagentsSettings(maxConcurrent = 7, schedulingEnabled = true))
+
+        assertEquals(7, state.get().maxConcurrent)
+        assertEquals(true, state.get().schedulingEnabled)
+    }
 }

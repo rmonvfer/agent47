@@ -18,12 +18,19 @@ public object SlashCommandDiscovery {
 
     private val frontmatterRegex = Regex("""^---\s*\n(.*?)\n---\s*\n?(.*)$""", RegexOption.DOT_MATCHES_ALL)
 
-    public fun discover(projectDir: Path?, globalDir: Path?): List<SlashCommand> {
+    public fun discover(
+        projectDir: Path?,
+        globalDir: Path?,
+        additionalDirectories: List<Path> = emptyList(),
+    ): List<SlashCommand> {
         val seen = mutableSetOf<String>()
         val commands = mutableListOf<SlashCommand>()
 
         discoverFromDirectory(projectDir, SlashCommandSource.PROJECT, seen, commands)
         discoverFromDirectory(globalDir, SlashCommandSource.USER, seen, commands)
+        additionalDirectories.forEach { directory ->
+            discoverFromDirectory(directory, SlashCommandSource.USER, seen, commands)
+        }
         discoverFromClasspath(seen, commands)
 
         return commands

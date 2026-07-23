@@ -22,12 +22,19 @@ public object SkillDiscovery {
     private val frontmatterRegex = Regex("""^---\s*\n(.*?)\n---\s*\n?(.*)$""", RegexOption.DOT_MATCHES_ALL)
     private const val SKILL_FILE = "SKILL.md"
 
-    public fun discover(projectDir: Path?, globalDir: Path?): List<Skill> {
+    public fun discover(
+        projectDir: Path?,
+        globalDir: Path?,
+        additionalDirectories: List<Path> = emptyList(),
+    ): List<Skill> {
         val seen = mutableSetOf<String>()
         val skills = mutableListOf<Skill>()
 
         discoverFromDirectory(projectDir, SkillSource.PROJECT, seen, skills)
         discoverFromDirectory(globalDir, SkillSource.USER, seen, skills)
+        additionalDirectories.forEach { directory ->
+            discoverFromDirectory(directory, SkillSource.USER, seen, skills)
+        }
 
         return skills
     }

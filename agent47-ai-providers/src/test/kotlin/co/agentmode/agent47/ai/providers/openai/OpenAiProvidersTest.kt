@@ -22,11 +22,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class OpenAiProvidersTest {
+    private val registry = ApiRegistry()
+    private val runtime = AiRuntime(registry)
+
     private var server: HttpServer? = null
 
     @AfterTest
     fun tearDown() {
-        ApiRegistry.clear()
+        registry.clear()
         server?.stop(0)
     }
 
@@ -56,7 +59,7 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
         }
         server!!.start()
 
-        registerOpenAiProviders()
+        registerOpenAiProviders(registry)
 
         val model = Model(
             id = "gpt-4.1-mini",
@@ -72,7 +75,7 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
             headers = mapOf("authorization" to "Bearer test"),
         )
 
-        val result = AiRuntime.completeSimple(
+        val result = runtime.completeSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -92,7 +95,7 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
         }
         server!!.start()
 
-        registerOpenAiProviders()
+        registerOpenAiProviders(registry)
 
         val model = Model(
             id = "gpt-4.1-mini",
@@ -108,7 +111,7 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
             headers = mapOf("authorization" to "Bearer invalid"),
         )
 
-        val stream = AiRuntime.streamSimple(
+        val stream = runtime.streamSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -131,7 +134,7 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
         }
         server!!.start()
 
-        registerOpenAiProviders()
+        registerOpenAiProviders(registry)
 
         val model = Model(
             id = "gpt-4.1-mini",
@@ -147,7 +150,7 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
             headers = mapOf("authorization" to "Bearer test"),
         )
 
-        val stream = AiRuntime.streamSimple(
+        val stream = runtime.streamSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -178,7 +181,7 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
         }
         server!!.start()
 
-        registerOpenAiProviders()
+        registerOpenAiProviders(registry)
 
         val model = Model(
             id = "gpt-4.1-mini",
@@ -194,7 +197,7 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
             headers = mapOf("authorization" to "Bearer test"),
         )
 
-        val result = AiRuntime.completeSimple(
+        val result = runtime.completeSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )

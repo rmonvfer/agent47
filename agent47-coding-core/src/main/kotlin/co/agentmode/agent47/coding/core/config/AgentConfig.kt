@@ -34,6 +34,14 @@ public class AgentConfig(
         get() = projectDir.resolve("subagents.json")
     public val sessionsDir: Path
         get() = agentDir.resolve("sessions")
+    public val globalPackagesRegistryPath: Path
+        get() = agentDir.resolve("packages.json")
+    public val globalPackagesDir: Path
+        get() = agentDir.resolve("packages")
+    public val projectPackagesRegistryPath: Path
+        get() = projectDir.resolve("packages.json")
+    public val projectPackagesDir: Path
+        get() = projectDir.resolve("packages")
 
     public val projectAgentsDir: Path
         get() = projectDir.resolve("agents")
@@ -49,6 +57,11 @@ public class AgentConfig(
         get() = projectDir.resolve("commands")
     public val globalCommandsDir: Path
         get() = agentDir.resolve("commands")
+
+    public val projectExtensionsDir: Path
+        get() = projectDir.resolve("extensions")
+    public val globalExtensionsDir: Path
+        get() = agentDir.resolve("extensions")
 
     public val claudeDir: Path
         get() = Path(System.getProperty("user.home"), ".claude")

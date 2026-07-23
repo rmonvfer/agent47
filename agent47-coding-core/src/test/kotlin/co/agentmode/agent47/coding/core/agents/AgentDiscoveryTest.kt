@@ -124,6 +124,18 @@ class AgentDiscoveryTest {
     }
 
     @Test
+    fun `registry applies bundled-agent setting changes without restart`() {
+        val registry = AgentRegistry(projectDir = null, globalDir = null, disableDefaultAgents = false)
+        assertTrue(registry.getAvailable().any { it.source == AgentSource.BUNDLED })
+
+        registry.setDisableDefaultAgents(true)
+        assertTrue(registry.getAvailable().none { it.source == AgentSource.BUNDLED })
+
+        registry.setDisableDefaultAgents(false)
+        assertTrue(registry.getAvailable().any { it.source == AgentSource.BUNDLED })
+    }
+
+    @Test
     fun `handles missing directories gracefully`() {
         val root = createTempDirectory("agent-discovery")
         val nonexistent = root.resolve("does-not-exist/agents")

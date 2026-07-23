@@ -55,11 +55,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Set up GraalVM 25
+      - name: Set up GraalVM 25.1.3
         uses: graalvm/setup-graalvm@0def53c0fd8534bc13416c9469f5be45265824fd # v1
         with:
-          java-version: "25"
-          distribution: graalvm
+          version: "25.1.3"
+          distribution: graalvm-community
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@90ddb51e90a5fd9ba75f40cf85156b7b41bf76a3 # v6
@@ -92,6 +93,14 @@ jobs:
             echo "Expected '$expected_version', got '$actual_version'" >&2
             exit 1
           fi
+          extension_path="$PWD/examples/extensions/api-surface.kts"
+          clean_home="$RUNNER_TEMP/agent47-smoke-home"
+          mkdir -p "$clean_home"
+          env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
+            "$PWD/agent47-${{ matrix.target }}" --no-extensions -e "$extension_path" --list-extensions \
+            --extension-flag example=true \
+            | grep -F "$extension_path"
+          test ! -e "$clean_home/.agent47"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

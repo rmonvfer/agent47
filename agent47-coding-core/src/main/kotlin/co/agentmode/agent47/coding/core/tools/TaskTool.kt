@@ -4,6 +4,7 @@ import co.agentmode.agent47.agent.core.Agent
 import co.agentmode.agent47.agent.core.AgentTool
 import co.agentmode.agent47.agent.core.AgentToolResult
 import co.agentmode.agent47.agent.core.AgentToolUpdateCallback
+import co.agentmode.agent47.agent.core.AgentStreamFunction
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.ToolDefinition
 import co.agentmode.agent47.agent.core.MessageEndEvent
@@ -21,7 +22,7 @@ import co.agentmode.agent47.coding.core.agents.schedule.SubagentScheduler
 import co.agentmode.agent47.coding.core.models.ModelRegistry
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.settings.Settings
-import co.agentmode.agent47.coding.core.settings.SubagentsSettings
+import co.agentmode.agent47.coding.core.settings.SubagentsSettingsState
 import co.agentmode.agent47.ai.types.Message
 import co.agentmode.agent47.ai.types.Model
 import kotlinx.serialization.json.JsonObject
@@ -36,12 +37,13 @@ public data class TaskToolProgressState(
 )
 
 public class TaskTool(
+    private val streamFunction: AgentStreamFunction,
     private val agentRegistry: AgentRegistry,
     private val modelRegistry: ModelRegistry,
     private val settings: Settings,
     private val cwd: Path,
     private val backgroundAgents: BackgroundAgents,
-    private val subagentsSettings: SubagentsSettings = SubagentsSettings(),
+    private val subagentsSettings: SubagentsSettingsState,
     private val currentDepth: Int = 0,
     private val maxDepth: Int = 2,
     private val getApiKey: (suspend (provider: String) -> String?)? = null,
@@ -69,12 +71,10 @@ public class TaskTool(
         string("context") { description = "Shared context provided to all tasks in this batch" }
         obj("schema") { description = "JTD output schema that each task result must conform to" }
         boolean("parallel") { description = "Run tasks in parallel. Only for tasks that are fully independent." }
-        if (subagentsSettings.schedulingEnabled) {
-            string("schedule") {
-                description = "Opt-in: fire the tasks later instead of now. Formats: 6-field cron " +
-                    "(\"0 0 9 * * 1\" = 9am Mondays), interval (\"5m\"/\"1h\"), or one-shot (\"+10m\" or ISO). " +
-                    "Returns scheduled job ids."
-            }
+        string("schedule") {
+            description = "Opt-in when subagent scheduling is enabled: fire the tasks later instead of now. " +
+                "Formats: 6-field cron (\"0 0 9 * * 1\" = 9am Mondays), interval (\"5m\"/\"1h\"), " +
+                "or one-shot (\"+10m\" or ISO). Returns scheduled job ids."
         }
         array("tasks") {
             required = true
@@ -159,7 +159,10 @@ public class TaskTool(
         // Scheduled tasks: register jobs to fire later instead of launching now.
         val scheduleStr = parameters.string("schedule", required = false)
         val activeScheduler = scheduler
-        if (scheduleStr != null && activeScheduler != null && subagentsSettings.schedulingEnabled) {
+        if (scheduleStr != null && !subagentsSettings.get().schedulingEnabled) {
+            return errorResult("Subagent scheduling is disabled in subagents.json")
+        }
+        if (scheduleStr != null && activeScheduler != null) {
             val jobIds = mutableListOf<String>()
             for (task in parsedTasks) {
                 val job = runCatching {
@@ -267,6 +270,7 @@ public class TaskTool(
 
         val result = runSubAgent(
             SubAgentOptions(
+                streamFunction = streamFunction,
                 agentDefinition = definition,
                 task = task.assignment,
                 taskId = task.id,

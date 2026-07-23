@@ -54,8 +54,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-public fun registerAnthropicProviders(transport: HttpTransport = HttpTransport()) {
-    ApiRegistry.register(AnthropicMessagesProvider(transport))
+public fun registerAnthropicProviders(registry: ApiRegistry, transport: HttpTransport = HttpTransport()) {
+    registry.register(AnthropicMessagesProvider(transport))
 }
 
 public class AnthropicMessagesProvider(

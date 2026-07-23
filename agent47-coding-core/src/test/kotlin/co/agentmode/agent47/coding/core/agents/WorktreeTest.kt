@@ -115,6 +115,7 @@ class WorktreeTest {
 
         val result = runSubAgent(
             SubAgentOptions(
+                streamFunction = { _, _, _ -> error("Stream function must not be called") },
                 agentDefinition = definition,
                 task = "must not execute",
                 taskId = "isolation-test",

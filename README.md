@@ -41,7 +41,7 @@ agent47 update
 Automatic checks can be configured under `updates` in `~/.agent47/settings.json` or disabled for a single launch with
 `AGENT47_NO_AUTO_UPDATE=1`.
 
-**Build from source** (requires JDK 25):
+**Build from source** (requires GraalVM Community 25.1.3):
 
 ```bash
 git clone https://github.com/rmonvfer/agent47.git
@@ -68,8 +68,11 @@ agent47
 Run a one-shot command:
 
 ```bash
-agent47 "what files are in this project?"
+agent47 -p "what files are in this project?"
 ```
+
+Without `-p`/`--print`, a prompt argument becomes the first message in the interactive TUI. When no system console is
+available, agent47 automatically uses print mode.
 
 ## Features
 
@@ -77,9 +80,9 @@ agent47 "what files are in this project?"
 models at runtime. Configure custom model definitions, API keys, and provider overrides in `~/.agent47/models.yml`.
 Ollama models are discovered automatically.
 
-**Coding tools.** The model gets a set of tools for working with code: read files, make precise edits, write files, run
-shell commands, search with grep, find files by glob pattern, and list directories. It picks the right tool for each
-step and works through multi-step tasks on its own.
+**Coding tools.** The primary agent starts with the full core set: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`,
+`multiedit`, todo tools, and `batch`. Use `--tools` to replace that set. Subagent coordination adds `task`, `check_inbox`,
+and `send_message` unless tools are disabled.
 
 **Sub-agents and skills.** A top-level agent can spawn specialized sub-agents for exploration, planning, or isolated
 tasks. Each sub-agent gets its own conversation and tool set. Skills are domain-specific knowledge files the model loads
@@ -90,8 +93,9 @@ JSONL so you can pick up where you left off. Slash commands provide quick access
 and custom prompt templates.
 
 **Hackable and extensible.** Everything is file-based and overridable. Agents, skills, and commands are markdown files
-you can edit, version, and share. Project-level configuration takes precedence over user-level, which takes precedence
-over bundled defaults. The codebase is small enough that one person can understand all of it.
+you can edit, version, and share. Runtime extensions are ordinary Kotlin `.kts` source files loaded directly by the
+self-contained native executable; users do not install Java or distribute extension JARs. See
+[docs/extensions.md](docs/extensions.md).
 
 ## Configuration
 
@@ -102,13 +106,19 @@ Project settings override global settings.
 |--------------------------------|-------------------------------------------------------|
 | `~/.agent47/models.yml`        | Custom model definitions and provider config          |
 | `~/.agent47/settings.json`     | Global settings (default model, thinking level, etc.) |
+| `~/.agent47/subagents.json`    | Global subagent runtime settings                      |
 | `~/.agent47/agents/*.md`       | User-defined agent types                              |
 | `~/.agent47/skills/*/SKILL.md` | User-defined skills                                   |
 | `~/.agent47/commands/*.md`     | User-defined slash commands                           |
+| `~/.agent47/extensions/*.kts`  | User-defined Kotlin runtime extensions                |
+| `~/.agent47/packages.json`     | Installed global extension package registry           |
 | `.agent47/settings.json`       | Project-level setting overrides                       |
+| `.agent47/subagents.json`      | Project-level subagent runtime overrides              |
 | `.agent47/agents/*.md`         | Project-level agent overrides                         |
 | `.agent47/skills/*/SKILL.md`   | Project-level skills                                  |
 | `.agent47/commands/*.md`       | Project-level slash commands                          |
+| `.agent47/extensions/*.kts`    | Project-level Kotlin runtime extensions               |
+| `.agent47/packages.json`       | Installed project extension package registry          |
 
 See [docs/configuration.md](docs/configuration.md) for full details.
 
@@ -120,22 +130,21 @@ See [docs/configuration.md](docs/configuration.md) for full details.
 - [Tools](docs/tools.md) - implement custom tools via the `AgentTool<T>` interface
 - [Extensions](docs/extensions.md) - programmatic hooks for intercepting and modifying agent behavior
 - [Configuration](docs/configuration.md) - settings, model configuration, authentication, and discovery hierarchy
+- [CLI and TUI](docs/cli.md) - command-line modes, options, slash commands, and shortcuts
+- [Architecture](docs/architecture.md) - module boundaries and the request-to-tool runtime flow
+- [Instructions](docs/instructions.md) - project, global, compatibility, and configured instruction discovery
 
 ## Why Kotlin?
 
-Every agentic coding tool in this space is written in TypeScript or Go. agent47 is the first built end-to-end in Kotlin,
-and that's a deliberate choice. 
+agent47 uses Kotlin across its AI types, provider integrations, agent loop, coding tools, and terminal UI.
 
 Kotlin on the JVM gives you real concurrency via coroutines backed by a thread pool, not a single-threaded event loop.
-When an agent spawns three subagents that each run shell commands and stream LLM responses, those actually run in
-parallel. TypeScript's `async/await` looks similar but fundamentally serializes CPU-bound work on one thread. For an
-agentic harness that orchestrates tools, subagents, and streaming simultaneously, this matters.
+Coroutines let independent subagents run concurrently while provider responses and tool events stream through the same
+typed event model.
 
-The type system catches entire categories of bugs at compile time that TypeScript's structural typing lets slip through:
-sealed hierarchies for message types, non-nullable types by default, and exhaustive `when` expressions over tool
-results. The codebase has zero `Any` casts and zero runtime type checks. GraalVM native image compiles it all to a
-single binary with fast startup and no JVM overhead, so you get the development-time safety of a statically typed
-language with the deployment simplicity of a Go binary.
+The type system catches entire categories of bugs at compile time through sealed hierarchies, non-nullable types by
+default, and exhaustive `when` expressions. GraalVM native image compiles the application to a single binary with fast
+startup, combining Kotlin's static types with straightforward deployment.
 
 ## How Is This Different?
 

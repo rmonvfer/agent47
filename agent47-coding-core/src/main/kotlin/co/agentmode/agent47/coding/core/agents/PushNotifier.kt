@@ -51,6 +51,14 @@ public class PushNotifier(
         }
     }
 
+    /** Cancels pending grouped deliveries when notification settings change or the UI closes. */
+    public fun close() {
+        synchronized(lock) {
+            batches.values.forEach { it.timer?.cancel() }
+            batches.clear()
+        }
+    }
+
     private fun startTimer(groupId: String, batch: Batch) {
         batch.timer = scope.launch {
             delay(groupTimeoutMs)

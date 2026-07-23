@@ -66,6 +66,18 @@ import com.jakewharton.mosaic.ui.Filler
 import com.jakewharton.mosaic.ui.Text
 import com.jakewharton.mosaic.ui.isSpecifiedColor
 import co.agentmode.agent47.coding.core.tools.TodoState
+import co.agentmode.agent47.ext.core.ExtensionCommandContext
+import co.agentmode.agent47.ext.core.ExtensionNotificationLevel
+import co.agentmode.agent47.ext.core.ExtensionUi
+import co.agentmode.agent47.ext.core.MutableExtensionUi
+import co.agentmode.agent47.ext.core.ExtensionSessionControl
+import co.agentmode.agent47.ext.core.MutableExtensionSessionControl
+import co.agentmode.agent47.ext.core.InputEvent
+import co.agentmode.agent47.ext.core.InputHookResult
+import co.agentmode.agent47.ext.core.InputSource
+import co.agentmode.agent47.ext.core.InputStreamingBehavior
+import co.agentmode.agent47.ext.core.RegisteredCommand
+import co.agentmode.agent47.ext.core.SessionStartReason
 import kotlinx.coroutines.*
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -158,70 +170,24 @@ private enum class SettingsAction {
 @Composable
 internal fun Agent47App(
     client: AgentClient,
-    initialUserMessage: UserMessage? = null,
-    availableModels: List<Model> = emptyList(),
-    sessionManager: SessionManager? = null,
-    sessionsDir: Path? = null,
-    cwd: Path = Path.of(System.getProperty("user.dir")),
-    initialThinkingLevel: AgentThinkingLevel = AgentThinkingLevel.OFF,
-    initialModel: Model? = null,
-    theme: ThemeConfig = ThemeConfig.DEFAULT,
-    themeAppearance: ThemeAppearance = ThemeAppearance.DARK,
-    fileCommands: List<SlashCommand> = emptyList(),
-    getAllProviders: () -> List<ProviderInfo> = { emptyList() },
-    storeApiKey: (provider: String, apiKey: String) -> Unit = { _, _ -> },
-    storeOAuthCredential: (provider: String, credential: OAuthCredential) -> Unit = { _, _ -> },
-    refreshModels: () -> List<Model> = { availableModels },
-    authorizeOAuth: suspend (provider: String) -> OAuthAuthorization? = { null },
-    pollOAuthToken: suspend (provider: String) -> OAuthResult? = { null },
-    isUsingOAuth: (Model) -> Boolean = { false },
-    onSettingsChanged: (transform: (Settings) -> Settings) -> Unit = {},
-    initialShowUsageFooter: Boolean = true,
-    todoState: TodoState? = null,
-    instructionFiles: List<InstructionFile> = emptyList(),
-    compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
-    compactionSettings: CompactionSettings = CompactionSettings(),
-    backgroundAgents: BackgroundAgents? = null,
-    subagentsSettings: SubagentsSettings = SubagentsSettings(),
-    agentRegistry: AgentRegistry? = null,
-    scheduler: SubagentScheduler? = null,
-    persistSubagentsSettings: (SubagentsSettings) -> Unit = {},
+    configuration: TuiLaunchConfiguration = TuiLaunchConfiguration(),
+    providerServices: TuiProviderServices = TuiProviderServices(),
+    conversationServices: TuiConversationServices = TuiConversationServices(),
+    subagentServices: TuiSubagentServices = TuiSubagentServices(),
 ) {
-    var activeTheme by remember { mutableStateOf(theme) }
-    var activeAppearance by remember { mutableStateOf(themeAppearance) }
+    var activeTheme by remember { mutableStateOf(configuration.theme) }
+    var activeAppearance by remember { mutableStateOf(configuration.themeAppearance) }
     CompositionLocalProvider(LocalThemeConfig provides activeTheme) {
         Agent47AppContent(
             client = client,
-            initialUserMessage = initialUserMessage,
-            availableModels = availableModels,
-            sessionManager = sessionManager,
-            sessionsDir = sessionsDir,
-            cwd = cwd,
-            initialThinkingLevel = initialThinkingLevel,
-            initialModel = initialModel,
-            fileCommands = fileCommands,
+            configuration = configuration,
+            providerServices = providerServices,
+            conversationServices = conversationServices,
+            subagentServices = subagentServices,
             activeTheme = activeTheme,
             themeAppearance = activeAppearance,
             setActiveTheme = { activeTheme = it },
             setThemeAppearance = { activeAppearance = it },
-            getAllProviders = getAllProviders,
-            storeApiKey = storeApiKey,
-            storeOAuthCredential = storeOAuthCredential,
-            refreshModels = refreshModels,
-            authorizeOAuth = authorizeOAuth,
-            pollOAuthToken = pollOAuthToken,
-            isUsingOAuth = isUsingOAuth,
-            onSettingsChanged = onSettingsChanged,
-            initialShowUsageFooter = initialShowUsageFooter,
-            todoState = todoState,
-            instructionFiles = instructionFiles,
-            compactContext = compactContext,
-            compactionSettings = compactionSettings,
-            backgroundAgents = backgroundAgents,
-            subagentsSettings = subagentsSettings,
-            agentRegistry = agentRegistry,
-            scheduler = scheduler,
-            persistSubagentsSettings = persistSubagentsSettings,
         )
     }
 }
@@ -229,38 +195,53 @@ internal fun Agent47App(
 @Composable
 private fun Agent47AppContent(
     client: AgentClient,
-    initialUserMessage: UserMessage?,
-    availableModels: List<Model>,
-    sessionManager: SessionManager?,
-    sessionsDir: Path?,
-    cwd: Path,
-    initialThinkingLevel: AgentThinkingLevel,
-    initialModel: Model?,
-    fileCommands: List<SlashCommand>,
+    configuration: TuiLaunchConfiguration,
+    providerServices: TuiProviderServices,
+    conversationServices: TuiConversationServices,
+    subagentServices: TuiSubagentServices,
     activeTheme: ThemeConfig,
     themeAppearance: ThemeAppearance,
     setActiveTheme: (ThemeConfig) -> Unit,
     setThemeAppearance: (ThemeAppearance) -> Unit,
-    getAllProviders: () -> List<ProviderInfo>,
-    storeApiKey: (provider: String, apiKey: String) -> Unit,
-    storeOAuthCredential: (provider: String, credential: OAuthCredential) -> Unit,
-    refreshModels: () -> List<Model>,
-    authorizeOAuth: suspend (provider: String) -> OAuthAuthorization?,
-    pollOAuthToken: suspend (provider: String) -> OAuthResult?,
-    isUsingOAuth: (Model) -> Boolean,
-    onSettingsChanged: (transform: (Settings) -> Settings) -> Unit,
-    initialShowUsageFooter: Boolean,
-    todoState: TodoState? = null,
-    instructionFiles: List<InstructionFile> = emptyList(),
-    compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
-    compactionSettings: CompactionSettings = CompactionSettings(),
-    backgroundAgents: BackgroundAgents? = null,
-    subagentsSettings: SubagentsSettings = SubagentsSettings(),
-    agentRegistry: AgentRegistry? = null,
-    scheduler: SubagentScheduler? = null,
-    persistSubagentsSettings: (SubagentsSettings) -> Unit = {},
 ) {
+    val initialUserMessage = configuration.initialUserMessage
+    val availableModels = configuration.availableModels
+    val sessionManager = configuration.sessionManager
+    val sessionsDir = configuration.sessionsDir
+    val cwd = configuration.cwd
+    val initialThinkingLevel = configuration.initialThinkingLevel
+    val initialModel = configuration.initialModel
+    val fileCommands = configuration.fileCommands
+    val initialExtensionCommands = configuration.extensionCommands
+    val initialExtensionShortcuts = configuration.extensionShortcuts
+    val initialExtensionToolRenderers = configuration.extensionToolRenderers
+    val initialExtensionMessageRenderers = configuration.extensionMessageRenderers
+    val extensionContext = configuration.extensionContext
+    val initialShowUsageFooter = configuration.initialShowUsageFooter
+    val todoState = configuration.todoState
+    val instructionFiles = configuration.instructionFiles
+    val compactionSettings = configuration.compactionSettings
+    val getAllProviders = providerServices.getAllProviders
+    val storeApiKey = providerServices.storeApiKey
+    val storeOAuthCredential = providerServices.storeOAuthCredential
+    val refreshModels = providerServices.refreshModels
+    val authorizeOAuth = providerServices.authorizeOAuth
+    val pollOAuthToken = providerServices.pollOAuthToken
+    val isUsingOAuth = providerServices.isUsingOAuth
+    val onSettingsChanged = conversationServices.onSettingsChanged
+    val compactContext = conversationServices.compactContext
+    val onCompacted = conversationServices.onCompacted
+    val onSessionChanged = conversationServices.onSessionChanged
+    val onSessionTransition = conversationServices.onSessionTransition
+    val processInput = conversationServices.processInput
+    val reloadExtensions = conversationServices.reloadExtensions
+    val backgroundAgents = subagentServices.backgroundAgents
+    val subagentsSettings = subagentServices.settings
+    val agentRegistry = subagentServices.agentRegistry
+    val scheduler = subagentServices.scheduler
+    val persistSubagentsSettings = subagentServices.persistSettings
     val mosaicTheme = LocalThemeConfig.current
+    val availableThemes = configuration.availableThemes.ifEmpty { AVAILABLE_THEMES }
     val terminalState = LocalTerminalState.current
     val width = terminalState.size.columns.coerceAtLeast(1)
     // Mosaic appends \r\n after every row including the last. When content fills
@@ -286,14 +267,24 @@ private fun Agent47AppContent(
             SlashCommandSpec("/theme", "Pick a color theme"),
             SlashCommandSpec("/session", "Load a saved session"),
             SlashCommandSpec("/compact", "Compact conversation context"),
+            SlashCommandSpec("/reload", "Reload extensions"),
             SlashCommandSpec("/memory", "Show loaded instruction files"),
             SlashCommandSpec("/agents", "View and steer background sub-agents"),
             SlashCommandSpec("/settings", "Open interactive settings"),
             SlashCommandSpec("/exit", "Exit interactive mode"),
         )
     }
-    val slashCommands = remember(builtinSlashCommands, fileSlashCommands) {
-        builtinSlashCommands + fileSlashCommands.map {
+    var extensionCommands by remember { mutableStateOf(initialExtensionCommands) }
+    var extensionShortcuts by remember { mutableStateOf(initialExtensionShortcuts) }
+    var extensionToolRenderers by remember { mutableStateOf(initialExtensionToolRenderers) }
+    var extensionMessageRenderers by remember { mutableStateOf(initialExtensionMessageRenderers) }
+    var extensionStatuses by remember { mutableStateOf(emptyMap<String, String>()) }
+    var extensionWidgets by remember { mutableStateOf(emptyMap<String, List<String>>()) }
+    var extensionTitle by remember { mutableStateOf<String?>(null) }
+    val slashCommands = remember(builtinSlashCommands, fileSlashCommands, extensionCommands) {
+        builtinSlashCommands + extensionCommands.map {
+            SlashCommandSpec("/${it.name}", it.description)
+        } + fileSlashCommands.map {
             SlashCommandSpec("/${it.name}", it.description)
         }
     }
@@ -307,11 +298,24 @@ private fun Agent47AppContent(
     // Thread-safe hand-off for opt-in push notifications: PushNotifier (background thread) enqueues,
     // the background ticker below drains on the UI coroutine and delivers to the orchestrator.
     val pushQueue = remember { java.util.concurrent.ConcurrentLinkedQueue<String>() }
-    val pushNotifier = remember {
-        if (subagentsSettings.pushNotifications && backgroundAgents != null) {
-            PushNotifier(promptScope, subagentsSettings.defaultJoinMode, deliver = { pushQueue.add(it) })
+    val pushNotifier = remember(
+        subagentsSettingsState.pushNotifications,
+        subagentsSettingsState.defaultJoinMode,
+        backgroundAgents,
+    ) {
+        if (subagentsSettingsState.pushNotifications && backgroundAgents != null) {
+            PushNotifier(promptScope, subagentsSettingsState.defaultJoinMode, deliver = { pushQueue.add(it) })
         } else {
             null
+        }
+    }
+    DisposableEffect(backgroundAgents, pushNotifier) {
+        backgroundAgents?.setCompletionListener(pushNotifier?.let { notifier ->
+            { agent -> notifier.onComplete(agent) }
+        })
+        onDispose {
+            backgroundAgents?.setCompletionListener(null)
+            pushNotifier?.close()
         }
     }
     // Focus mode: when set, the main chat area renders a background agent's live transcript (through
@@ -327,6 +331,12 @@ private fun Agent47AppContent(
                 spec.command.removePrefix("/") to spec.description
             },
             fileCompletionRoot = cwd,
+        )
+    }
+    LaunchedEffect(slashCommands) {
+        editor.setSlashCommands(
+            slashCommands.map { it.command },
+            slashCommands.associate { spec -> spec.command.removePrefix("/") to spec.description },
         )
     }
     // While a dialog is open, the whole base layer is rendered with a darkened copy of the
@@ -379,7 +389,7 @@ private fun Agent47AppContent(
                 .orEmpty(),
         )
     }
-    val contextEstimate = estimateContextTokens(client.rawAgent().state.messages)
+    val contextEstimate = estimateContextTokens(client.state.messages)
     val providerCount = getAllProviders().count { it.connected }
     val statusBarState = MosaicStatusBarState(
         cwdPath = cwd.toString().replace(System.getProperty("user.home"), "~"),
@@ -430,12 +440,12 @@ private fun Agent47AppContent(
     // --- Helper lambdas (closures over state) ---
 
     fun appendSystemMessage(text: String) {
-        val agent = client.rawAgent()
+        val agentState = client.state
         val assistant = AssistantMessage(
             content = listOf(TextContent(text = text)),
-            api = currentModel?.api ?: agent.state.model.api,
-            provider = currentModel?.provider ?: agent.state.model.provider,
-            model = currentModel?.id ?: agent.state.model.id,
+            api = currentModel?.api ?: agentState.model.api,
+            provider = currentModel?.provider ?: agentState.model.provider,
+            model = currentModel?.id ?: agentState.model.id,
             usage = emptyUsage(),
             stopReason = StopReason.STOP,
             timestamp = System.currentTimeMillis(),
@@ -466,21 +476,130 @@ private fun Agent47AppContent(
         chatVersion++
     }
 
+    DisposableEffect(extensionContext) {
+        val controller = extensionContext?.ui as? MutableExtensionUi
+        controller?.bind(object : ExtensionUi {
+            override fun notify(message: String, level: ExtensionNotificationLevel) {
+                promptScope.launch {
+                    val prefix = when (level) {
+                        ExtensionNotificationLevel.INFO -> ""
+                        ExtensionNotificationLevel.WARNING -> "Warning: "
+                        ExtensionNotificationLevel.ERROR -> "Error: "
+                    }
+                    appendCommandResult(prefix + message)
+                }
+            }
+
+            override suspend fun select(title: String, options: List<String>): String? {
+                if (options.isEmpty()) return null
+                val result = CompletableDeferred<String?>()
+                promptScope.launch {
+                    overlayHostState.push(
+                        title = title,
+                        items = options.map { SelectItem(label = it, value = it) },
+                        onSubmit = result::complete,
+                        onClose = { result.complete(null) },
+                    )
+                }
+                return result.await()
+            }
+
+            override suspend fun confirm(title: String, message: String): Boolean {
+                val result = CompletableDeferred<Boolean>()
+                promptScope.launch {
+                    overlayHostState.push(
+                        title = "$title — $message",
+                        items = listOf(
+                            SelectItem(label = "Yes", value = true),
+                            SelectItem(label = "No", value = false),
+                        ),
+                        onSubmit = result::complete,
+                        onClose = { result.complete(false) },
+                    )
+                }
+                return result.await()
+            }
+
+            override suspend fun input(title: String, placeholder: String): String? =
+                requestText(title, placeholder, "")
+
+            override suspend fun editor(title: String, initialText: String): String? =
+                requestText(title, "", initialText)
+
+            private suspend fun requestText(
+                title: String,
+                placeholder: String,
+                initialValue: String,
+            ): String? {
+                val result = CompletableDeferred<String?>()
+                promptScope.launch {
+                    overlayHostState.pushPrompt(
+                        title = title,
+                        placeholder = placeholder,
+                        initialValue = initialValue,
+                        onSubmit = result::complete,
+                        onClose = { result.complete(null) },
+                    )
+                }
+                return result.await()
+            }
+
+            override fun setStatus(key: String, text: String?) {
+                promptScope.launch {
+                    extensionStatuses = if (text == null) extensionStatuses - key else extensionStatuses + (key to text)
+                }
+            }
+
+            override fun setWidget(key: String, lines: List<String>?) {
+                promptScope.launch {
+                    extensionWidgets = if (lines == null) extensionWidgets - key else extensionWidgets + (key to lines)
+                }
+            }
+
+            override fun setTitle(title: String?) {
+                promptScope.launch { extensionTitle = title }
+            }
+
+            override fun setEditorText(text: String) {
+                promptScope.launch {
+                    editor.setText(text)
+                    editorVersion++
+                }
+            }
+
+            override suspend fun getEditorText(): String {
+                val result = CompletableDeferred<String>()
+                promptScope.launch { result.complete(editor.text()) }
+                return result.await()
+            }
+        })
+        onDispose { controller?.reset() }
+    }
+
+    fun transitionSession(next: SessionManager?, reason: SessionStartReason) {
+        val previous = activeSessionManager
+        activeSessionManager = next
+        onSessionChanged(next)
+        promptScope.launch {
+            onSessionTransition(previous, next, reason)
+        }
+    }
+
     fun startNewSession() {
         currentPromptJob?.cancel(CancellationException("Starting new session"))
         currentPromptJob = null
         backgroundAgents?.cancelAll()
-        client.rawAgent().clearMessages()
+        client.clearMessages()
         chatHistoryState.entries.clear()
         toolArgumentsById.clear()
         chatVersion++
         if (sessionsDir != null) {
             val newPath = sessionsDir.resolve("session-${System.currentTimeMillis()}.jsonl")
             val newManager = runCatching { SessionManager(newPath) }.getOrNull()
-            activeSessionManager = newManager
+            transitionSession(newManager, SessionStartReason.NEW)
             appendCommandResult("Started new session")
         } else {
-            activeSessionManager = null
+            transitionSession(null, SessionStartReason.NEW)
             appendCommandResult("Started new session (no persistence)")
         }
     }
@@ -490,7 +609,7 @@ private fun Agent47AppContent(
         recordSessionEntry: Boolean = true,
         announce: Boolean = true,
     ) {
-        client.rawAgent().setModel(model)
+        client.setModel(model)
         selectedModelIndex = currentModels
             .indexOfFirst { it.id == model.id && it.provider == model.provider }
             .takeIf { it >= 0 }
@@ -519,7 +638,7 @@ private fun Agent47AppContent(
         announce: Boolean = true,
     ) {
         thinkingLevel = level
-        client.rawAgent().setThinkingLevel(level)
+        client.setThinkingLevel(level)
         if (recordSessionEntry) {
             activeSessionManager?.append(
                 ThinkingLevelChangeEntry(
@@ -1032,7 +1151,9 @@ private fun Agent47AppContent(
                     availableModels = currentModels,
                     client = client,
                     chatHistoryState = chatHistoryState,
-                    activeSessionManagerSetter = { activeSessionManager = it },
+                    activeSessionManagerSetter = {
+                        transitionSession(it, SessionStartReason.RESUME)
+                    },
                     applyModel = { model -> applyModel(model, recordSessionEntry = false, announce = false) },
                     setThinkingLevel = { level ->
                         setThinkingLevel(
@@ -1047,11 +1168,83 @@ private fun Agent47AppContent(
         )
     }
 
+    DisposableEffect(extensionContext) {
+        val controller = extensionContext?.session as? MutableExtensionSessionControl
+        controller?.bind(object : ExtensionSessionControl {
+            override suspend fun newSession(): String? {
+                val result = CompletableDeferred<String?>()
+                promptScope.launch {
+                    startNewSession()
+                    result.complete(activeSessionManager?.getSessionFile()?.toString())
+                }
+                return result.await()
+            }
+
+            override suspend fun switchSession(path: Path): Boolean {
+                val result = CompletableDeferred<Boolean>()
+                promptScope.launch {
+                    if (!Files.exists(path)) {
+                        result.complete(false)
+                        return@launch
+                    }
+                    loadSession(
+                        path = path,
+                        sessionsDir = sessionsDir,
+                        availableModels = currentModels,
+                        client = client,
+                        chatHistoryState = chatHistoryState,
+                        activeSessionManagerSetter = {
+                            transitionSession(it, SessionStartReason.RESUME)
+                        },
+                        applyModel = { model -> applyModel(model, recordSessionEntry = false, announce = false) },
+                        setThinkingLevel = { level ->
+                            setThinkingLevel(level, recordSessionEntry = false, announce = false)
+                        },
+                        appendSystemMessage = ::appendCommandResult,
+                    )
+                    chatVersion++
+                    result.complete(true)
+                }
+                return result.await()
+            }
+
+            override suspend fun forkSession(entryId: String?): String? {
+                val result = CompletableDeferred<String?>()
+                promptScope.launch {
+                    val source = activeSessionManager
+                    val validEntryId = entryId?.takeIf { source?.getEntry(it) != null }
+                    if (entryId != null && validEntryId == null) {
+                        result.complete(null)
+                        return@launch
+                    }
+                    val context = source?.buildContext(validEntryId ?: source.getLeafId())
+                    if (context == null || sessionsDir == null) {
+                        result.complete(null)
+                        return@launch
+                    }
+                    val target = SessionManager(
+                        sessionsDir.resolve("session-${System.currentTimeMillis()}.jsonl"),
+                        cwd,
+                    )
+                    context.messages.forEach(target::appendMessage)
+                    transitionSession(target, SessionStartReason.FORK)
+                    client.replaceMessages(context.messages)
+                    chatHistoryState.entries.clear()
+                    context.messages.forEach(chatHistoryState::appendMessage)
+                    chatVersion++
+                    result.complete(target.getSessionFile().toString())
+                }
+                return result.await()
+            }
+        })
+        onDispose { controller?.reset() }
+    }
+
     fun openThemeOverlay() {
-        val options = AVAILABLE_THEMES.map { named ->
+        val options = availableThemes.map { named ->
             SelectItem(label = named.name, value = named)
         }
-        val currentIndex = AVAILABLE_THEMES.indexOfFirst {
+        val currentIndex = availableThemes.indexOfFirst {
             it.forAppearance(themeAppearance) == activeTheme
         }.coerceAtLeast(0)
 
@@ -1082,7 +1275,7 @@ private fun Agent47AppContent(
             onSubmit = { appearance ->
                 val resolved = if (appearance == ThemeAppearance.AUTO) themeAppearance else appearance
                 setThemeAppearance(resolved)
-                AVAILABLE_THEMES.firstOrNull { it.config == activeTheme || it.lightConfig == activeTheme }
+                availableThemes.firstOrNull { it.config == activeTheme || it.lightConfig == activeTheme }
                     ?.let { setActiveTheme(it.forAppearance(resolved)) }
                 onSettingsChanged { it.copy(themeAppearance = appearance.name.lowercase()) }
             },
@@ -1123,7 +1316,7 @@ private fun Agent47AppContent(
                     SettingsAction.Commands -> openCommandsOverlay()
                     SettingsAction.Help -> appendCommandResult(helpText(slashCommands))
                     SettingsAction.Exit -> {
-                        client.rawAgent().abort()
+                        client.abort()
                         currentPromptJob?.cancel(CancellationException("Exiting"))
                         currentPromptJob = null
                         kotlin.system.exitProcess(0)
@@ -1178,10 +1371,16 @@ private fun Agent47AppContent(
         isStreaming = true
         promptScope.launch(Dispatchers.IO) {
             try {
-                val messages = client.rawAgent().state.messages
+                val messages = client.state.messages
                 val estimate = estimateContextTokens(messages)
-                val result = compactContext.invoke(messages, currentModel)
-                if (result != null) {
+                val reason = if (auto) {
+                    co.agentmode.agent47.ext.core.CompactionReason.THRESHOLD
+                } else {
+                    co.agentmode.agent47.ext.core.CompactionReason.MANUAL
+                }
+                val prepared = compactContext.invoke(messages, currentModel, reason)
+                if (prepared != null) {
+                    val result = prepared.compaction
                     val cutPoint = findCutPoint(messages, compactionSettings.keepRecentTokens)
                     val compacted = applyCompaction(
                         messages = messages,
@@ -1189,7 +1388,7 @@ private fun Agent47AppContent(
                         cutPointIndex = cutPoint.firstKeptEntryIndex,
                         tokensBefore = estimate.tokens,
                     )
-                    client.rawAgent().replaceMessages(compacted)
+                    client.replaceMessages(compacted)
                     activeSessionManager?.append(
                         CompactionEntry(
                             id = randomEntryId(),
@@ -1198,6 +1397,13 @@ private fun Agent47AppContent(
                             summary = result.summary,
                             firstKeptEntryId = result.firstKeptEntryId,
                             tokensBefore = estimate.tokens,
+                        ),
+                    )
+                    onCompacted(
+                        co.agentmode.agent47.ext.core.AfterCompactionEvent(
+                            compaction = result,
+                            reason = reason,
+                            fromExtension = prepared.fromExtension,
                         ),
                     )
                     val after = estimateContextTokens(compacted)
@@ -1218,9 +1424,8 @@ private fun Agent47AppContent(
     // --- Configure agent on first composition ---
 
     LaunchedEffect(Unit) {
-        val agent = client.rawAgent()
-        agent.setThinkingLevel(initialThinkingLevel)
-        initialModel?.let(agent::setModel)
+        client.setThinkingLevel(initialThinkingLevel)
+        initialModel?.let(client::setModel)
         initialUserMessage?.let { message ->
             chatHistoryState.appendMessage(message)
             chatVersion++
@@ -1269,7 +1474,7 @@ private fun Agent47AppContent(
                 compactContext != null
             ) {
                 if (currentModel != null) {
-                    val messages = client.rawAgent().state.messages
+                    val messages = client.state.messages
                     val estimate = estimateContextTokens(messages)
                     if (shouldCompact(estimate.tokens, currentModel.contextWindow, compactionSettings)) {
                         runCompaction(auto = true)
@@ -1309,8 +1514,6 @@ private fun Agent47AppContent(
     // when the main loop is idle between turns.
     if (backgroundAgents != null) {
         LaunchedEffect(Unit) {
-            // Opt-in push: route completions through the notifier, which enqueues onto pushQueue.
-            pushNotifier?.let { notifier -> backgroundAgents.setCompletionListener { agent -> notifier.onComplete(agent) } }
             while (true) {
                 delay(100L)
                 if (backgroundAgents.hasRunning()) spinnerFrame++
@@ -1353,13 +1556,13 @@ private fun Agent47AppContent(
         // Ctrl+C handling
         if (keyEvent.ctrl && keyEvent.key is Key.Character && keyEvent.key.value == 'c') {
             if (isStreaming) {
-                client.rawAgent().abort()
+                client.abort()
                 appendSystemMessage("Interrupted current response.")
                 ctrlCArmed = false
                 return true
             }
             if (ctrlCArmed) {
-                client.rawAgent().abort()
+                client.abort()
                 currentPromptJob?.cancel(CancellationException("Exiting"))
                 currentPromptJob = null
                 kotlin.system.exitProcess(0)
@@ -1379,7 +1582,7 @@ private fun Agent47AppContent(
                 return true
             }
             if (isStreaming) {
-                client.rawAgent().abort()
+                client.abort()
                 appendSystemMessage("Interrupted current response.")
                 return true
             }
@@ -1465,6 +1668,17 @@ private fun Agent47AppContent(
                     return true
                 }
             }
+        }
+
+        val shortcut = keyboardShortcutName(keyEvent)?.let { pressed ->
+            extensionShortcuts.firstOrNull { it.key == pressed }
+        }
+        if (shortcut != null && extensionContext != null) {
+            promptScope.launch {
+                runCatching { shortcut.handler.run(extensionContext) }
+                    .onFailure { error -> appendCommandResult(error.message ?: error.toString()) }
+            }
+            return true
         }
 
         // Scroll shortcuts
@@ -1579,6 +1793,7 @@ private fun Agent47AppContent(
                         overlayHostState = overlayHostState,
                         slashCommands = slashCommands,
                         fileSlashCommands = fileSlashCommands,
+                        extensionCommands = extensionCommands,
                         cwd = cwd,
                         activeSessionManager = activeSessionManager,
                         promptScope = promptScope,
@@ -1611,7 +1826,7 @@ private fun Agent47AppContent(
                         tryExpandFileCommand = ::tryExpandFileCommand,
                         setRunning = { value ->
                             if (!value) {
-                                client.rawAgent().abort()
+                                client.abort()
                                 currentPromptJob?.cancel(CancellationException("Exiting"))
                                 currentPromptJob = null
                                 kotlin.system.exitProcess(0)
@@ -1619,6 +1834,16 @@ private fun Agent47AppContent(
                         },
                         bumpChatVersion = { chatVersion++ },
                         runCompaction = ::runCompaction,
+                        reloadExtensions = {
+                            val resources = reloadExtensions()
+                            extensionCommands = resources.commands
+                            extensionShortcuts = resources.shortcuts
+                            extensionToolRenderers = resources.toolRenderers
+                            extensionMessageRenderers = resources.messageRenderers
+                            "Reloaded ${resources.commands.size} extension command${if (resources.commands.size == 1) "" else "s"} " +
+                                "and ${resources.shortcuts.size} shortcut${if (resources.shortcuts.size == 1) "" else "s"}."
+                        },
+                        processInput = processInput,
                     )
                     return@onKeyEvent true
                 }
@@ -1641,6 +1866,8 @@ private fun Agent47AppContent(
                         version = viewingVersion,
                         spinnerFrame = spinnerFrame,
                         cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
+                        toolRenderers = extensionToolRenderers,
+                        messageRenderers = extensionMessageRenderers,
                     )
                 } else {
                     ChatHistory(
@@ -1652,6 +1879,8 @@ private fun Agent47AppContent(
                         version = chatVersion,
                         spinnerFrame = spinnerFrame,
                         cwd = cwd.toString().replace(System.getProperty("user.home"), "~"),
+                        toolRenderers = extensionToolRenderers,
+                        messageRenderers = extensionMessageRenderers,
                     )
                 }
 
@@ -1681,6 +1910,17 @@ private fun Agent47AppContent(
                     spinnerFrame = spinnerFrame,
                     mode = subagentsSettingsState.widgetMode,
                 )
+
+                extensionWidgets.values.flatten().forEach { line ->
+                    Text(line.take(width))
+                }
+                val extensionStatus = buildList {
+                    extensionTitle?.let(::add)
+                    addAll(extensionStatuses.values)
+                }.joinToString("  ")
+                if (extensionStatus.isNotBlank()) {
+                    Text(extensionStatus.take(width))
+                }
 
                 // Margin between chat area and editor border
                 Text("")
@@ -1926,6 +2166,7 @@ private fun handleAgentEvent(
 // Submit handling
 // ---------------------------------------------------------------------------
 
+@Suppress("CyclomaticComplexMethod", "LongMethod")
 private fun handleSubmit(
     rawInput: String,
     client: AgentClient,
@@ -1934,6 +2175,7 @@ private fun handleSubmit(
     overlayHostState: OverlayHostState,
     slashCommands: List<SlashCommandSpec>,
     fileSlashCommands: List<SlashCommand>,
+    extensionCommands: List<RegisteredCommand>,
     cwd: Path,
     activeSessionManager: SessionManager?,
     promptScope: CoroutineScope,
@@ -1957,6 +2199,8 @@ private fun handleSubmit(
     setRunning: (Boolean) -> Unit,
     bumpChatVersion: () -> Unit,
     runCompaction: () -> Unit = {},
+    reloadExtensions: suspend () -> String,
+    processInput: suspend (InputEvent) -> InputHookResult,
 ) {
     when {
         rawInput.startsWith("/") -> {
@@ -2003,6 +2247,18 @@ private fun handleSubmit(
                     showCommandInput(rawInput)
                     runCompaction()
                 }
+                "/reload" -> {
+                    showCommandInput(rawInput)
+                    if (isStreaming) {
+                        appendCommandResult("Wait for the current response before reloading extensions.")
+                    } else {
+                        promptScope.launch {
+                            runCatching { reloadExtensions() }
+                                .onSuccess(appendCommandResult)
+                                .onFailure { error -> appendCommandResult(error.message ?: error.toString()) }
+                        }
+                    }
+                }
                 "/memory" -> {
                     showCommandInput(rawInput)
                     openMemoryOverlay()
@@ -2025,8 +2281,46 @@ private fun handleSubmit(
                 }
 
                 else -> {
+                    val extensionCommand = extensionCommands.firstOrNull {
+                        "/${it.name}".equals(command, ignoreCase = true)
+                    }
                     val expanded = tryExpandFileCommand(rawInput)
-                    if (expanded != null) {
+                    if (extensionCommand != null) {
+                        showCommandInput(rawInput)
+                        if (isStreaming) {
+                            appendCommandResult("Wait for the current response before running extension commands.")
+                        } else {
+                            val rawArgs = rawInput.trim().removePrefix(command).trimStart()
+                            promptScope.launch {
+                                val context = object : ExtensionCommandContext {
+                                    override val cwd: Path = cwd
+                                    override val hasUi: Boolean = true
+
+                                    override fun notify(message: String) {
+                                        appendCommandResult(message)
+                                    }
+
+                                    override suspend fun sendUserMessage(message: String) {
+                                        val userMessage = UserMessage(
+                                            content = listOf(TextContent(text = message)),
+                                            timestamp = System.currentTimeMillis(),
+                                        )
+                                        chatHistoryState.appendMessage(userMessage)
+                                        bumpChatVersion()
+                                        activeSessionManager?.appendMessage(userMessage)
+                                        client.prompt(listOf(userMessage))
+                                        client.waitForIdle()
+                                    }
+
+                                    override suspend fun reload() {
+                                        notify(reloadExtensions())
+                                    }
+                                }
+                                runCatching { extensionCommand.handler.run(rawArgs, context) }
+                                    .onFailure { error -> appendCommandResult(error.message ?: error.toString()) }
+                            }
+                        }
+                    } else if (expanded != null) {
                         val message = UserMessage(
                             content = listOf(TextContent(text = expanded)),
                             timestamp = System.currentTimeMillis(),
@@ -2080,22 +2374,42 @@ private fun handleSubmit(
         }
 
         else -> {
-            val message = UserMessage(
-                content = listOf(TextContent(text = rawInput)),
-                timestamp = System.currentTimeMillis(),
-            )
-            submitMessage(
-                message = message,
-                client = client,
-                chatHistoryState = chatHistoryState,
-                activeSessionManager = activeSessionManager,
-                promptScope = promptScope,
-                isStreaming = isStreaming,
-                currentPromptJob = currentPromptJob,
-                setCurrentPromptJob = setCurrentPromptJob,
-                appendSystemMessage = appendSystemMessage,
-                bumpChatVersion = bumpChatVersion,
-            )
+            promptScope.launch {
+                val behavior = if (isStreaming) InputStreamingBehavior.FOLLOW_UP else null
+                when (val result = processInput(InputEvent(rawInput, InputSource.INTERACTIVE, behavior))) {
+                    InputHookResult.Handled -> Unit
+                    InputHookResult.Continue -> submitMessage(
+                        message = UserMessage(
+                            content = listOf(TextContent(text = rawInput)),
+                            timestamp = System.currentTimeMillis(),
+                        ),
+                        client = client,
+                        chatHistoryState = chatHistoryState,
+                        activeSessionManager = activeSessionManager,
+                        promptScope = promptScope,
+                        isStreaming = isStreaming,
+                        currentPromptJob = currentPromptJob,
+                        setCurrentPromptJob = setCurrentPromptJob,
+                        appendSystemMessage = appendSystemMessage,
+                        bumpChatVersion = bumpChatVersion,
+                    )
+                    is InputHookResult.Transform -> submitMessage(
+                        message = UserMessage(
+                            content = listOf(TextContent(text = result.text)),
+                            timestamp = System.currentTimeMillis(),
+                        ),
+                        client = client,
+                        chatHistoryState = chatHistoryState,
+                        activeSessionManager = activeSessionManager,
+                        promptScope = promptScope,
+                        isStreaming = isStreaming,
+                        currentPromptJob = currentPromptJob,
+                        setCurrentPromptJob = setCurrentPromptJob,
+                        appendSystemMessage = appendSystemMessage,
+                        bumpChatVersion = bumpChatVersion,
+                    )
+                }
+            }
         }
     }
 }
@@ -2176,7 +2490,7 @@ private fun loadSession(
     val context = loadedManager.buildContext()
 
     activeSessionManagerSetter(loadedManager)
-    client.rawAgent().replaceMessages(context.messages)
+    client.replaceMessages(context.messages)
     chatHistoryState.entries.clear()
     context.messages.forEach { chatHistoryState.appendMessage(it) }
 
@@ -2386,6 +2700,31 @@ private fun parseThinkingLevelOrNull(value: String?): AgentThinkingLevel? {
     }
 }
 
+@Suppress("CyclomaticComplexMethod")
+private fun keyboardShortcutName(event: KeyboardEvent): String? {
+    val key = when (val value = event.key) {
+        is Key.Character -> value.value.lowercaseChar().toString()
+        Key.Enter -> "enter"
+        Key.Tab -> "tab"
+        Key.Escape -> "escape"
+        Key.Backspace -> "backspace"
+        Key.Delete -> "delete"
+        Key.ArrowUp -> "up"
+        Key.ArrowDown -> "down"
+        Key.ArrowLeft -> "left"
+        Key.ArrowRight -> "right"
+        Key.PageUp -> "pageup"
+        Key.PageDown -> "pagedown"
+        else -> return null
+    }
+    return buildList {
+        if (event.ctrl) add("ctrl")
+        if (event.alt) add("alt")
+        if (event.shift) add("shift")
+        add(key)
+    }.joinToString("+")
+}
+
 private fun helpText(slashCommands: List<SlashCommandSpec>): String = buildString {
     appendLine("Commands:")
     slashCommands.forEach { spec ->
@@ -2456,34 +2795,10 @@ private class UsageHolder {
  */
 public fun runTui(
     client: AgentClient,
-    initialUserMessage: UserMessage? = null,
-    availableModels: List<Model> = emptyList(),
-    sessionManager: SessionManager? = null,
-    sessionsDir: Path? = null,
-    cwd: Path = Path.of(System.getProperty("user.dir")),
-    initialThinkingLevel: AgentThinkingLevel = AgentThinkingLevel.OFF,
-    initialModel: Model? = null,
-    theme: ThemeConfig = ThemeConfig.DEFAULT,
-    themeAppearance: ThemeAppearance = ThemeAppearance.DARK,
-    fileCommands: List<SlashCommand> = emptyList(),
-    getAllProviders: () -> List<ProviderInfo> = { emptyList() },
-    storeApiKey: (provider: String, apiKey: String) -> Unit = { _, _ -> },
-    storeOAuthCredential: (provider: String, credential: OAuthCredential) -> Unit = { _, _ -> },
-    refreshModels: () -> List<Model> = { availableModels },
-    authorizeOAuth: suspend (provider: String) -> OAuthAuthorization? = { null },
-    pollOAuthToken: suspend (provider: String) -> OAuthResult? = { null },
-    isUsingOAuth: (Model) -> Boolean = { false },
-    onSettingsChanged: (transform: (Settings) -> Settings) -> Unit = {},
-    initialShowUsageFooter: Boolean = true,
-    todoState: TodoState? = null,
-    instructionFiles: List<InstructionFile> = emptyList(),
-    compactContext: (suspend (List<Message>, Model) -> CompactionResult?)? = null,
-    compactionSettings: CompactionSettings = CompactionSettings(),
-    backgroundAgents: BackgroundAgents? = null,
-    subagentsSettings: SubagentsSettings = SubagentsSettings(),
-    agentRegistry: AgentRegistry? = null,
-    scheduler: SubagentScheduler? = null,
-    persistSubagentsSettings: (SubagentsSettings) -> Unit = {},
+    configuration: TuiLaunchConfiguration = TuiLaunchConfiguration(),
+    providerServices: TuiProviderServices = TuiProviderServices(),
+    conversationServices: TuiConversationServices = TuiConversationServices(),
+    subagentServices: TuiSubagentServices = TuiSubagentServices(),
 ) {
     val out = System.out
     val restoreTerminal = "\u001b[<u\u001b[?25h\u001b[?1049l"
@@ -2510,8 +2825,8 @@ public fun runTui(
     // rows-1 rows of content (to avoid a scroll caused by the trailing \r\n it
     // appends after every row). Pre-filling ensures the unused last terminal row
     // matches the app background instead of showing the terminal's native color.
-    if (theme.background.isSpecifiedColor) {
-        val (r, g, b) = theme.background
+    if (configuration.theme.background.isSpecifiedColor) {
+        val (r, g, b) = configuration.theme.background
         val red = (r * 255).toInt()
         val green = (g * 255).toInt()
         val blue = (b * 255).toInt()
@@ -2522,34 +2837,10 @@ public fun runTui(
         runMosaicMain {
             Agent47App(
                 client = client,
-                initialUserMessage = initialUserMessage,
-                availableModels = availableModels,
-                sessionManager = sessionManager,
-                sessionsDir = sessionsDir,
-                cwd = cwd,
-                initialThinkingLevel = initialThinkingLevel,
-                initialModel = initialModel,
-                theme = theme,
-                themeAppearance = themeAppearance,
-                fileCommands = fileCommands,
-                getAllProviders = getAllProviders,
-                storeApiKey = storeApiKey,
-                storeOAuthCredential = storeOAuthCredential,
-                refreshModels = refreshModels,
-                authorizeOAuth = authorizeOAuth,
-                pollOAuthToken = pollOAuthToken,
-                isUsingOAuth = isUsingOAuth,
-                onSettingsChanged = onSettingsChanged,
-                initialShowUsageFooter = initialShowUsageFooter,
-                todoState = todoState,
-                instructionFiles = instructionFiles,
-                compactContext = compactContext,
-                compactionSettings = compactionSettings,
-                backgroundAgents = backgroundAgents,
-                subagentsSettings = subagentsSettings,
-                agentRegistry = agentRegistry,
-                scheduler = scheduler,
-                persistSubagentsSettings = persistSubagentsSettings,
+                configuration = configuration,
+                providerServices = providerServices,
+                conversationServices = conversationServices,
+                subagentServices = subagentServices,
             )
         }
     } catch (e: UnsupportedOperationException) {

@@ -4,7 +4,8 @@ Contributions are welcome. This document covers the basics of getting set up, ma
 
 ## Prerequisites
 
-- **JDK 25** - any JDK 25 distribution works (Temurin recommended). Java 22+ is required so the terminal UI uses its FFM backend; the older JNI backend crashes on terminal resize.
+- **GraalVM Community 25.1.3** - the Gradle convention plugins select a JDK 25 toolchain, and GraalVM supplies
+  `native-image`. Kotlin and Java output target JVM 21.
 - **Git** - for cloning and version control.
 - The Gradle wrapper (`./gradlew`) handles everything else. You do not need to install Gradle separately.
 
@@ -36,6 +37,14 @@ Build a native binary (requires GraalVM):
 ./gradlew :agent47-app:nativeCompile
 ```
 
+Generate the multi-module HTML API reference with Dokka 2:
+
+```bash
+./gradlew dokkaGeneratePublicationHtml
+```
+
+The older `dokkaHtml` task is a disabled Dokka 1 compatibility task and must not be used.
+
 ## Project Structure
 
 agent47 is a multi-module Gradle project. The modules form a layered architecture where each layer depends only on the ones below it:
@@ -49,8 +58,10 @@ agent47 is a multi-module Gradle project. The modules form a layered architectur
 - **agent47-ui-core** - shared UI state
 - **agent47-tui** - terminal user interface
 - **agent47-app** - CLI entry point
+- **agent47-test-fixtures** - shared test utilities
+- **agent47-model-generator** - model catalog and prompt generation utility
 
-For detailed architecture information, see the [README](README.md).
+For dependency boundaries and runtime flow, see [docs/architecture.md](docs/architecture.md).
 
 ## Making Changes
 

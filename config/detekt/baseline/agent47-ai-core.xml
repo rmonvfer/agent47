@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:HttpTransport.kt:HttpTransport$public suspend fun streamSse( url: String, payload: String, headers: Map&lt;String, String>, timeout: Duration = Duration.ofSeconds(300), ): SseResponse</ID>
+    <ID>CyclomaticComplexMethod:ToolValidation.kt:ToolValidation$private fun coerceValue(value: JsonElement, schema: JsonObject?): JsonElement</ID>
+    <ID>LongMethod:HttpTransport.kt:HttpTransport$public suspend fun streamSse( url: String, payload: String, headers: Map&lt;String, String>, timeout: Duration = Duration.ofSeconds(300), ): SseResponse</ID>
+    <ID>MatchingDeclarationName:Runtime.kt:AiRuntime</ID>
+    <ID>ReturnCount:JsonUtils.kt:JsonUtils$public fun parsePartialJson(raw: String): JsonElement?</ID>
+    <ID>ReturnCount:OverflowUtils.kt:OverflowUtils$public fun isContextOverflow(message: String?): Boolean</ID>
+    <ID>ReturnCount:ToolValidation.kt:ToolValidation$private fun coerceValue(value: JsonElement, schema: JsonObject?): JsonElement</ID>
+    <ID>WildcardImport:Runtime.kt:import co.agentmode.agent47.ai.types.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

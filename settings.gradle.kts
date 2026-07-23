@@ -28,6 +28,7 @@ include(
     ":agent47-agent-core",
     ":agent47-coding-core",
     ":agent47-ext-core",
+    ":agent47-ext-kotlin-runtime",
     ":agent47-ui-core",
     ":agent47-tui",
     ":agent47-app",

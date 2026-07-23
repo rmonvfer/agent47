@@ -3,23 +3,26 @@ package co.agentmode.agent47.api
 import co.agentmode.agent47.agent.core.Agent
 import co.agentmode.agent47.agent.core.AgentEvent
 import co.agentmode.agent47.agent.core.AgentOptions
+import co.agentmode.agent47.agent.core.AgentState
+import co.agentmode.agent47.agent.core.AgentThinkingLevel
+import co.agentmode.agent47.agent.core.AgentTool
 import co.agentmode.agent47.ai.types.ImageContent
 import co.agentmode.agent47.ai.types.Message
+import co.agentmode.agent47.ai.types.Model
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 
 /**
  * A client implementation for interacting with an `Agent` instance. Provides high-level methods
- * to interact with the agent, including sending prompts, managing conversational flow, and accessing
- * the underlying agent for low-level operations.
+ * to interact with the agent, including sending prompts, managing conversational flow, and updating
+ * session state.
  *
  * The `AgentClient` serves as the primary interface for sending messages and controlling the agent’s
  * behavior. It facilitates managing conversational state and provides a `Flow` of agent events to
  * enable reactive handling of updates or state changes.
  *
  * @constructor Creates an instance of `AgentClient` configured with the provided `AgentOptions`.
- * If no options are specified, the default `AgentOptions` configuration is used.
  *
  * @param options The configuration options for the underlying agent. These options control
  * various behaviors, such as message processing, steering mode, follow-up mode, and API interaction.
@@ -27,7 +30,8 @@ import kotlinx.coroutines.flow.receiveAsFlow
  * @property events A `Flow` of `AgentEvent` instances emitted by the agent. This provides
  * a reactive stream of state changes and events related to the agent's operation.
  */
-public class AgentClient(options: AgentOptions = AgentOptions()) {
+@Suppress("TooManyFunctions")
+public class AgentClient(options: AgentOptions) {
     private val agent: Agent = Agent(options)
     private val _eventsChannel: Channel<AgentEvent> = Channel(Channel.UNLIMITED)
 
@@ -36,6 +40,9 @@ public class AgentClient(options: AgentOptions = AgentOptions()) {
     }
 
     public val events: Flow<AgentEvent> = _eventsChannel.receiveAsFlow()
+
+    public val state: AgentState
+        get() = agent.state
 
     public suspend fun prompt(text: String, images: List<ImageContent> = emptyList()) {
         agent.prompt(text, images)
@@ -121,14 +128,35 @@ public class AgentClient(options: AgentOptions = AgentOptions()) {
         agent.waitForIdle()
     }
 
-    /**
-     * Retrieves the raw agent associated with the `AgentClient`.
-     *
-     * This method provides direct access to the underlying `Agent` instance tied to the `AgentClient`.
-     * It is typically used for lower-level interactions or configurations that require direct manipulation
-     * of the agent, bypassing higher-level abstractions or functionality provided by the `AgentClient`.
-     *
-     * @return The `Agent` instance associated with the `AgentClient`.
-     */
-    public fun rawAgent(): Agent = agent
+    public fun abort() {
+        agent.abort()
+    }
+
+    public fun clearMessages() {
+        agent.clearMessages()
+    }
+
+    public fun replaceMessages(messages: List<Message>) {
+        agent.replaceMessages(messages)
+    }
+
+    public fun appendMessage(message: Message) {
+        agent.appendMessage(message)
+    }
+
+    public fun setModel(model: Model) {
+        agent.setModel(model)
+    }
+
+    public fun setThinkingLevel(level: AgentThinkingLevel) {
+        agent.setThinkingLevel(level)
+    }
+
+    public fun setTools(tools: List<AgentTool<*>>) {
+        agent.setTools(tools)
+    }
+
+    public fun setSystemPrompt(systemPrompt: String) {
+        agent.setSystemPrompt(systemPrompt)
+    }
 }

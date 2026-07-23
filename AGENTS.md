@@ -12,7 +12,8 @@ The project uses Gradle with convention plugins defined in `build-logic/`. Modul
 - `agent47-agent-core` — agentic loop, tool execution, state management
 - `agent47-coding-core` — coding tools (read, edit, bash, write), agents, skills, config
 - `agent47-ext-core` — extension handling
-- `agent47-tui` — terminal user interface (Mordant-based)
+- `agent47-ui-core` — reusable Compose UI state, editor behavior, and view models
+- `agent47-tui` — Mosaic terminal user interface
 - `agent47-app` — application entry point, CLI argument parsing (Clikt)
 - `agent47-test-fixtures` — shared test utilities
 - `agent47-model-generator` — model/prompt generation
@@ -49,11 +50,12 @@ Integration tests spin up embedded servers (e.g., `com.sun.net.httpserver.HttpSe
 
 ## Kotlin & JVM Configuration
 
-- **Kotlin**: 2.3.0
-- **JVM target**: 24
+- **Kotlin**: 2.2.20
+- **JDK toolchain**: 25
+- **JVM target**: 21
 - **Serialization**: kotlinx-serialization 1.9.0
 - **Coroutines**: kotlinx-coroutines 1.10.2
-- **CLI**: Clikt 5.0.3, Mordant 3.0.2
+- **CLI/TUI**: Clikt 5.0.3, Mordant 3.0.2, Mosaic 0.18.0
 - **Native**: GraalVM native-image via `org.graalvm.buildtools.native`
 - **Compiler flags**: `-Xjsr305=strict`; all warnings are errors in CI
 
@@ -100,11 +102,11 @@ Library modules (`agent47.kotlin-library-conventions`) enable `explicitApiWarnin
 
 ## Architecture Notes
 
-The agentic loop lives in `agent47-agent-core`. The main entry point (`Agent47Command` in `agent47-app`) wires together config, model resolution, tool registration, instruction loading, and the TUI. Tools are registered via `createCoreTools()` and can be filtered by CLI flags.
+The agentic loop lives in `agent47-agent-core`. `Agent47Command` in `agent47-app` wires together configuration, model resolution, instruction and skill loading, tool registration, sessions, subagents, print mode, and the TUI. The primary CLI and `createCoreTools()` share the full core default defined by `DEFAULT_TOOLS`.
 
-Instruction files (`AGENTS.md`, `AGENT47.md`, `CLAUDE.md`) are auto-discovered by walking up from the working directory to the git root. Agent definitions (markdown with YAML frontmatter) go in `.agent47/agents/` at project or user level.
+Instruction files (`AGENTS.md`, `AGENT47.md`, `CLAUDE.md`) are collected from every matching directory while walking from the working directory through the git root, with ancestors ordered before descendants. Agent definitions (markdown with YAML frontmatter) go in `.agent47/agents/` at project or user level.
 
-Provider implementations register themselves via `registerAnthropicProviders()`, `registerOpenAiProviders()`, etc., which populate a global `ApiRegistry`.
+Provider implementations register themselves via `registerAnthropicProviders()`, `registerOpenAiProviders()`, etc. The application owns an `ApiRegistry` instance and injects its `AiRuntime` into every root and subagent execution path.
 
 ## Important Conventions
 

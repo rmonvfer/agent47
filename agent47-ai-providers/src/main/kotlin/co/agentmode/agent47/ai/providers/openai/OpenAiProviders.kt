@@ -33,10 +33,10 @@ import kotlin.text.isNotEmpty
 import kotlin.text.trim
 import kotlin.text.trimEnd
 
-public fun registerOpenAiProviders(transport: HttpTransport = HttpTransport()): Unit {
-    ApiRegistry.register(OpenAiCompletionsProvider(transport))
-    ApiRegistry.register(OpenAiResponsesProvider(transport))
-    ApiRegistry.register(OpenAiCodexResponsesProvider(transport))
+public fun registerOpenAiProviders(registry: ApiRegistry, transport: HttpTransport = HttpTransport()): Unit {
+    registry.register(OpenAiCompletionsProvider(transport))
+    registry.register(OpenAiResponsesProvider(transport))
+    registry.register(OpenAiCodexResponsesProvider(transport))
 }
 
 public class OpenAiCompletionsProvider(

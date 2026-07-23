@@ -1,0 +1,553 @@
+[
+  {
+    "name": "java.util.stream.Stream",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.stream.Collectors",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.stream.Collector",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.stream.Collector$Characteristics",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "java.util.stream.IntStream",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.stream.LongStream",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.stream.DoubleStream",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.stream.StreamSupport",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.text.StringCharacterIterator",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.annotation.RetentionPolicy",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "java.lang.annotation.ElementType",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "kotlin.jvm.internal.Intrinsics",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Thread",
+    "methods": [
+      {
+        "name": "currentThread",
+        "parameterTypes": []
+      },
+      {
+        "name": "getContextClassLoader",
+        "parameterTypes": []
+      },
+      {
+        "name": "setContextClassLoader",
+        "parameterTypes": ["java.lang.ClassLoader"]
+      }
+    ]
+  },
+  {
+    "name": "java.lang.Class",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.ClassLoader",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.security.SecureClassLoader",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.ThreadLocal",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.InheritableThreadLocal",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Math",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.StrictMath",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Boolean",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Byte",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Character",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Double",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Float",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Integer",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Long",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Short",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.System",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.Enum",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.String",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.StringBuilder",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.StringBuffer",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.StringConcatHelper",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.Proxy",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.AccessibleObject",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.Executable",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.Field",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.Method",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.Constructor",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.Array",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.Modifier",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.Parameter",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.lang.reflect.RecordComponent",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.ArrayList",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.ArrayDeque",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.HashMap",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.LinkedHashMap",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.IdentityHashMap",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.HashSet",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.LinkedHashSet",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.Vector",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.Stack",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.Arrays",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.Objects",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.Collections",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.AbstractCollection",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.AbstractList",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.AbstractSequentialList",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.AbstractSet",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.AbstractMap",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.AbstractQueue",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.Locale",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.ServiceLoader",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.regex.Pattern",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.regex.Matcher",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.regex.PatternSyntaxException",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.math.BigInteger",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.math.BigDecimal",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.math.MathContext",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.math.RoundingMode",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.net.URL",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.net.URI",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.net.URLConnection",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.net.JarURLConnection",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.net.URLClassLoader",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.jar.JarFile",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.jar.JarEntry",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.jar.Manifest",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.jar.Attributes",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.jar.Attributes$Name",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.zip.ZipFile",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.zip.ZipEntry",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.zip.Inflater",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.logging.Level",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.logging.Logger",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.concurrent.CopyOnWriteArrayList",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.concurrent.CopyOnWriteArraySet",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.concurrent.ConcurrentLinkedQueue",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.concurrent.ConcurrentLinkedDeque",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.concurrent.ConcurrentHashMap",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.util.concurrent.TimeUnit",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.file.Paths",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.file.Files",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.file.FileSystems",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.file.StandardOpenOption",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "java.nio.file.StandardCopyOption",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "java.nio.file.LinkOption",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "java.nio.file.FileVisitOption",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "java.nio.file.FileVisitResult",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "java.nio.charset.StandardCharsets",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "java.nio.charset.Charset",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.charset.CharsetEncoder",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.charset.CharsetDecoder",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.charset.CodingErrorAction",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.ByteOrder",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.ByteBuffer",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.Buffer",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.MappedByteBuffer",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.nio.channels.FileChannel$MapMode",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "sun.misc.Unsafe",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "javax.swing.Icon",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "kotlinx.coroutines.BuildersKt",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "kotlinx.coroutines.Dispatchers",
+    "allDeclaredFields": true,
+    "allDeclaredMethods": true
+  }
+]

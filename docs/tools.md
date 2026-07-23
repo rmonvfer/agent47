@@ -6,7 +6,10 @@ result back to the model.
 
 ## Built-in tools
 
-agent47 ships with a set of core tools for coding tasks.
+agent47 ships with core coding tools. The primary CLI enables `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`,
+`multiedit`, `todowrite`, `todoread`, `todocreate`, `todoupdate`, and `batch` by default, then adds the subagent
+coordination tools `task`, `check_inbox`, and `send_message`. Pass `--tools` to replace the core set, or `--no-tools` to
+disable both core and coordination tools.
 
 `read` reads file contents, with optional line offset and limit. It also supports the `skill://` protocol for loading
 skill files.
@@ -28,6 +31,8 @@ skill files.
 `batch` runs multiple tool calls in parallel within a single turn.
 
 `todowrite` manages an in-memory task list that persists across turns.
+
+`todoread`, `todocreate`, and `todoupdate` provide granular access to the same in-memory task state.
 
 `task` spawns subagents to handle delegated work (see [agents.md](agents.md) for spawning configuration).
 
@@ -85,7 +90,8 @@ val definition = toolDefinition("search_docs", "Search project documentation.") 
 ## Controlling tool availability
 
 Agent definitions specify which tools are available via the `tools` frontmatter field. When creating tools
-programmatically, `createCoreTools()` accepts an `enabled` list to filter which tools are instantiated.
+programmatically, `createCoreTools()` accepts an `enabled` list to filter which tools are instantiated. Its default is
+the same full core set used by the CLI.
 
 ```kotlin
 val tools = createCoreTools(

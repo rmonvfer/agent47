@@ -91,23 +91,27 @@ public class BackgroundAgents(
     private var maxConcurrentLimit = maxConcurrent.coerceAtLeast(1)
     private var generation = 0L
 
-    // The orchestrator (main-loop) agent, set once it exists. Used so sub-agents can inherit its
-    // system prompt (append mode) and conversation (inherit_context), and for push notifications.
-    @Volatile private var orchestrator: Agent? = null
+    // State suppliers keep subagent context inheritance behind the client facade.
+    @Volatile private var orchestratorSystemPrompt: (() -> String?)? = null
+    @Volatile private var orchestratorMessages: (() -> List<Message>)? = null
 
-    public fun setOrchestrator(agent: Agent) {
-        orchestrator = agent
+    public fun setOrchestrator(
+        systemPrompt: () -> String?,
+        messages: () -> List<Message>,
+    ) {
+        orchestratorSystemPrompt = systemPrompt
+        orchestratorMessages = messages
     }
 
-    public fun orchestratorSystemPrompt(): String? = orchestrator?.state?.systemPrompt
+    public fun orchestratorSystemPrompt(): String? = orchestratorSystemPrompt?.invoke()
 
-    public fun orchestratorMessages(): List<Message> = orchestrator?.state?.messages ?: emptyList()
+    public fun orchestratorMessages(): List<Message> = orchestratorMessages?.invoke().orEmpty()
 
     // Invoked once per agent when it completes (result stored), in addition to the inbox. Used by
     // the opt-in push-notification path; the inbox (pull) is always populated regardless.
     @Volatile private var completionListener: ((RunningAgent) -> Unit)? = null
 
-    public fun setCompletionListener(listener: (RunningAgent) -> Unit) {
+    public fun setCompletionListener(listener: ((RunningAgent) -> Unit)?) {
         completionListener = listener
     }
 

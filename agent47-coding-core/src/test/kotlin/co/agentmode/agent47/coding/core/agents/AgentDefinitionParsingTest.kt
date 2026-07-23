@@ -1,5 +1,9 @@
 package co.agentmode.agent47.coding.core.agents
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
@@ -76,6 +80,93 @@ class AgentDefinitionParsingTest {
         assertTrue(def.enabled)
     }
 
+    @Test
+    fun `parses documented nested YAML structured output schema`() {
+        val def = AgentParser.parse(
+            content = """
+            ---
+            name: analyzer
+            output:
+              properties:
+                summary:
+                  type: string
+                issues:
+                  elements:
+                    properties:
+                      file:
+                        type: string
+                      line:
+                        type: uint32
+                      message:
+                        type: string
+              optionalProperties:
+                confidence:
+                  type: float64
+                  nullable: true
+              metadata:
+                labels: [audit, structured]
+                revision: 2
+                threshold: 0.75
+                active: true
+                note: null
+            ---
+            Analyze the code.
+            """.trimIndent(),
+            fallbackName = "analyzer",
+            source = AgentSource.PROJECT,
+        )
+
+        val output = requireNotNull(def.output)
+        val properties = output.objectAt("properties")
+        assertEquals("string", properties.objectAt("summary").stringAt("type"))
+        val issueProperties = properties.objectAt("issues").objectAt("elements").objectAt("properties")
+        assertEquals("string", issueProperties.objectAt("file").stringAt("type"))
+        assertEquals("uint32", issueProperties.objectAt("line").stringAt("type"))
+        assertEquals("string", issueProperties.objectAt("message").stringAt("type"))
+        assertEquals(true, output.objectAt("optionalProperties").objectAt("confidence").booleanAt("nullable"))
+
+        val metadata = output.objectAt("metadata")
+        assertEquals(JsonArray(listOf(JsonPrimitive("audit"), JsonPrimitive("structured"))), metadata["labels"])
+        assertEquals(JsonPrimitive(2), metadata["revision"])
+        assertEquals(JsonPrimitive(0.75), metadata["threshold"])
+        assertEquals(JsonPrimitive(true), metadata["active"])
+        assertEquals(JsonNull, metadata["note"])
+    }
+
+    @Test
+    fun `preserves inline JSON structured output schema`() {
+        val def = AgentParser.parse(
+            content = """
+            ---
+            name: inline
+            output: {"properties": {"answer": {"type": "string"}}}
+            ---
+            Answer the question.
+            """.trimIndent(),
+            fallbackName = "inline",
+            source = AgentSource.PROJECT,
+        )
+
+        assertEquals("string", requireNotNull(def.output).objectAt("properties").objectAt("answer").stringAt("type"))
+    }
+
+    @Test
+    fun `ignores non-object structured output values`() {
+        val def = AgentParser.parse(
+            content = """
+            ---
+            name: invalid-output
+            output: string
+            ---
+            Answer the question.
+            """.trimIndent(),
+            fallbackName = "invalid-output",
+            source = AgentSource.PROJECT,
+        )
+
+        assertNull(def.output)
+    }
+
     // Regression: bundled explore.md carries `thinking-level`, which is not a data-class field.
     // With strict-mode kaml this silently dropped the whole frontmatter (tools + model + description).
     // Node-tree parsing must preserve them.
@@ -137,4 +228,11 @@ class AgentDefinitionParsingTest {
         // Still discoverable for management UIs.
         assertTrue(registry.getAll().any { it.name == "explore" })
     }
+
+    private fun JsonObject.objectAt(key: String): JsonObject = requireNotNull(this[key] as? JsonObject)
+
+    private fun JsonObject.stringAt(key: String): String = requireNotNull((this[key] as? JsonPrimitive)?.content)
+
+    private fun JsonObject.booleanAt(key: String): Boolean =
+        requireNotNull((this[key] as? JsonPrimitive)?.content?.toBooleanStrictOrNull())
 }

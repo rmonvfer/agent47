@@ -154,8 +154,8 @@ public data class RetryEvent(
  *
  * [convertToLlm] transforms the raw message history into the list sent to the LLM,
  * typically via [defaultConvertToLlm] which strips error turns and inserts synthetic
- * tool results for orphaned calls. [transformContext] is an optional second pass that
- * can further modify messages (e.g., for overflow trimming).
+ * tool results for orphaned calls. [transformContext] is an optional second pass over
+ * the complete model request context.
  *
  * [getSteeringMessages] and [getFollowUpMessages] are polled by the loop between turns.
  * Steering messages interrupt tool execution; follow-up messages are injected after the
@@ -168,7 +168,7 @@ public data class AgentLoopConfig(
     val thinkingBudgets: ThinkingBudgets? = null,
     val maxRetryDelayMs: Long? = null,
     val convertToLlm: suspend (List<Message>) -> List<Message>,
-    val transformContext: (suspend (List<Message>) -> List<Message>)? = null,
+    val transformContext: (suspend (Context) -> Context)? = null,
     val getApiKey: (suspend (provider: String) -> String?)? = null,
     val getSteeringMessages: (suspend () -> List<Message>)? = null,
     val getFollowUpMessages: (suspend () -> List<Message>)? = null,

@@ -185,6 +185,7 @@ public class PromptOverlayEntry(
     override val id: Int,
     public val title: String,
     public val placeholder: String,
+    public val initialValue: String,
     public val description: String?,
     public val masked: Boolean,
     public val onSubmit: (String) -> Unit,
@@ -263,6 +264,7 @@ public class OverlayHostState {
     public fun pushPrompt(
         title: String,
         placeholder: String = "",
+        initialValue: String = "",
         description: String? = null,
         masked: Boolean = false,
         onSubmit: (String) -> Unit = {},
@@ -272,6 +274,7 @@ public class OverlayHostState {
             id = nextId++,
             title = title,
             placeholder = placeholder,
+            initialValue = initialValue,
             description = description,
             masked = masked,
             onSubmit = onSubmit,

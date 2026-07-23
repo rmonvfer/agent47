@@ -8,6 +8,11 @@ By design, agent47 trusts the LLM provider to return well-formed tool calls, tru
 
 agent47 does **not** protect against prompt injection, malicious instruction files placed in the working directory, or adversarial content in files the model reads. If an attacker can modify files in your project or influence the model's context, they can cause agent47 to execute arbitrary commands. This is inherent to the architecture and is the same trust model as running a shell script you downloaded from the internet.
 
+Model configuration is also executable input. A string beginning with `!` in `models.yml` is passed to the local shell
+and its standard output becomes the configuration value. Only use model configuration from sources you trust, review
+project and global configuration before running agent47 in an unfamiliar repository, and prefer environment-variable
+references for credentials. The 10-second timeout limits duration; it does not sandbox or make the command safe.
+
 ## Supported Versions
 
 | Version | Supported |

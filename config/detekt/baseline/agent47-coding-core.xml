@@ -1,0 +1,107 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:FindTool.kt:FindTool$matcher.matches(rel) || matcher.matches(file.fileName) || fallbackMatcher?.matches(rel) == true || fallbackMatcher?.matches(file.fileName) == true</ID>
+    <ID>ComplexCondition:SubAgentExecutor.kt:options.currentDepth &lt; options.maxDepth &amp;&amp; definition.spawns !is SpawnsPolicy.None &amp;&amp; options.agentRegistry != null &amp;&amp; bg != null</ID>
+    <ID>CyclomaticComplexMethod:BashTool.kt:BashTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>CyclomaticComplexMethod:CheckInboxTool.kt:CheckInboxTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;Unit>?, ): AgentToolResult&lt;Unit></ID>
+    <ID>CyclomaticComplexMethod:ConfigValueResolver.kt:ConfigValueResolver$private fun interpolateEnv(value: String): String</ID>
+    <ID>CyclomaticComplexMethod:FindTool.kt:FindTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: co.agentmode.agent47.agent.core.AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>CyclomaticComplexMethod:GrepTool.kt:GrepTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: co.agentmode.agent47.agent.core.AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>CyclomaticComplexMethod:InstructionDiscovery.kt:InstructionDiscovery$public fun discover( cwd: Path, globalDir: Path, claudeDir: Path?, settings: Settings, ): List&lt;InstructionFile></ID>
+    <ID>CyclomaticComplexMethod:ModelRegistry.kt:ModelRegistry$private fun applyProviderOverrides(baseModels: MutableList&lt;Model>, config: ModelsConfig)</ID>
+    <ID>CyclomaticComplexMethod:ModelRegistry.kt:private fun providerDisplayName(id: String): String</ID>
+    <ID>CyclomaticComplexMethod:ModelResolver.kt:ModelResolver$public fun resolveInitialModel( cliProvider: String?, cliModel: String?, settings: Settings, available: List&lt;Model>, ): Model?</ID>
+    <ID>CyclomaticComplexMethod:SettingsManager.kt:SettingsManager.Companion$private fun materialize(global: SettingsPatch?, project: SettingsPatch?): Settings</ID>
+    <ID>CyclomaticComplexMethod:SlashCommandExpander.kt:SlashCommandExpander$public fun parseArgs(argsString: String): List&lt;String></ID>
+    <ID>CyclomaticComplexMethod:SubAgentExecutor.kt:public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult</ID>
+    <ID>CyclomaticComplexMethod:SubagentsSettings.kt:SubagentsSettingsManager$private fun materialize(global: SubagentsSettingsPatch?, project: SubagentsSettingsPatch?): SubagentsSettings</ID>
+    <ID>CyclomaticComplexMethod:TaskTool.kt:TaskTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;List&lt;SubAgentResult>>?, ): AgentToolResult&lt;List&lt;SubAgentResult>></ID>
+    <ID>CyclomaticComplexMethod:Tools.kt:public fun createCoreTools( cwd: Path, enabled: List&lt;String> = DEFAULT_TOOLS, skillReader: SkillReader? = null, todoState: TodoState? = null, commandPrefix: String? = null, ): CoreTools</ID>
+    <ID>LongMethod:BashTool.kt:BashTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>LongMethod:GrepTool.kt:GrepTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: co.agentmode.agent47.agent.core.AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>LongMethod:ModelRegistry.kt:ModelRegistry$private fun defaultModelCatalog(): List&lt;Model></ID>
+    <ID>LongMethod:MultiEditTool.kt:MultiEditTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>LongMethod:ReadTool.kt:ReadTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: co.agentmode.agent47.agent.core.AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>LongMethod:SessionManager.kt:private fun encodeMessage(message: Message): JsonObject</ID>
+    <ID>LongMethod:SubAgentExecutor.kt:public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult</ID>
+    <ID>LongMethod:TaskTool.kt:TaskTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;List&lt;SubAgentResult>>?, ): AgentToolResult&lt;List&lt;SubAgentResult>></ID>
+    <ID>LoopWithTooManyJumpStatements:Compaction.kt:for</ID>
+    <ID>LoopWithTooManyJumpStatements:CopilotAuthPlugin.kt:CopilotAuthPlugin$while</ID>
+    <ID>LoopWithTooManyJumpStatements:GrepTool.kt:GrepTool$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ModelRegistry.kt:ModelRegistry$for</ID>
+    <ID>LoopWithTooManyJumpStatements:SlashCommandExpander.kt:SlashCommandExpander$while</ID>
+    <ID>LoopWithTooManyJumpStatements:Truncate.kt:for</ID>
+    <ID>MatchingDeclarationName:Tools.kt:CoreTools</ID>
+    <ID>NestedBlockDepth:GrepTool.kt:GrepTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: co.agentmode.agent47.agent.core.AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>ReturnCount:AgentConfig.kt:AgentConfig.Companion$private fun resolveAgentDir(): Path</ID>
+    <ID>ReturnCount:AgentMemory.kt:AgentMemory$public fun readMemoryIndex(memoryDir: Path): String?</ID>
+    <ID>ReturnCount:AgentMemory.kt:AgentMemory$public fun safeReadFile(filePath: Path): String?</ID>
+    <ID>ReturnCount:AuthStorage.kt:AuthStorage$private fun decodeCredential(raw: JsonObject): AuthCredential?</ID>
+    <ID>ReturnCount:AuthStorage.kt:AuthStorage$private suspend fun refreshWithLock(provider: String, credential: OAuthCredential): OAuthCredential?</ID>
+    <ID>ReturnCount:AuthStorage.kt:AuthStorage$public fun reload()</ID>
+    <ID>ReturnCount:AuthStorage.kt:AuthStorage$public suspend fun getApiKey(provider: String): String?</ID>
+    <ID>ReturnCount:AuthStorage.kt:AuthStorage.Companion$private fun defaultEnvResolver(provider: String): String?</ID>
+    <ID>ReturnCount:BackgroundAgents.kt:BackgroundAgents$public fun abort(id: String): Boolean</ID>
+    <ID>ReturnCount:BackgroundAgents.kt:BackgroundAgents$public fun post(from: String, to: String, text: String): Boolean</ID>
+    <ID>ReturnCount:BatchTool.kt:BatchTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;List&lt;BatchToolCallResult>>?, ): AgentToolResult&lt;List&lt;BatchToolCallResult>></ID>
+    <ID>ReturnCount:ConfigValueResolver.kt:ConfigValueResolver$private fun wholeEnvReference(value: String): String?</ID>
+    <ID>ReturnCount:ConfigValueResolver.kt:ConfigValueResolver$public fun resolveSync(value: String): String</ID>
+    <ID>ReturnCount:ConfigValueResolver.kt:ConfigValueResolver$public suspend fun resolve(value: String): String?</ID>
+    <ID>ReturnCount:CopilotAuthPlugin.kt:CopilotAuthPlugin$override suspend fun pollForToken(): OAuthResult</ID>
+    <ID>ReturnCount:EditDiff.kt:public fun computeEditDiff(path: String, oldText: String, newText: String, cwd: Path): EditDiffPreview</ID>
+    <ID>ReturnCount:EditDiff.kt:public fun detectLineEnding(content: String): String</ID>
+    <ID>ReturnCount:EditDiff.kt:public fun fuzzyFindText(content: String, oldText: String): FuzzyMatchResult</ID>
+    <ID>ReturnCount:InstructionDiscovery.kt:InstructionDiscovery$public fun resolveGlob(pattern: String, cwd: Path): List&lt;Path></ID>
+    <ID>ReturnCount:ModelRegistry.kt:ModelRegistry$private fun loadCustomModels(): CustomModelsResult</ID>
+    <ID>ReturnCount:ModelRegistry.kt:ModelRegistry$private suspend fun discoverOllamaModels(provider: String, config: ProviderConfig): List&lt;Model></ID>
+    <ID>ReturnCount:ModelResolver.kt:ModelResolver$public fun findSlowModel( available: List&lt;Model>, savedModel: String? = null, ): Model?</ID>
+    <ID>ReturnCount:ModelResolver.kt:ModelResolver$public fun findSmolModel( available: List&lt;Model>, savedModel: String? = null, ): Model?</ID>
+    <ID>ReturnCount:ModelResolver.kt:ModelResolver$public fun resolveInitialModel( cliProvider: String?, cliModel: String?, settings: Settings, available: List&lt;Model>, ): Model?</ID>
+    <ID>ReturnCount:ModelResolver.kt:ModelResolver$public fun tryMatchModel(pattern: String, available: List&lt;Model>): Model?</ID>
+    <ID>ReturnCount:PathUtils.kt:public fun expandPath(rawPath: String): String</ID>
+    <ID>ReturnCount:PathUtils.kt:public fun resolveReadPath(path: String, cwd: Path): Path</ID>
+    <ID>ReturnCount:ReadTool.kt:ReadTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: co.agentmode.agent47.agent.core.AgentToolUpdateCallback&lt;JsonObject?>?, ): AgentToolResult&lt;JsonObject?></ID>
+    <ID>ReturnCount:ReadTool.kt:ReadTool$private fun readSkill(path: String, offset: Int?, limit: Int?): AgentToolResult&lt;JsonObject?></ID>
+    <ID>ReturnCount:Schedule.kt:ScheduleParser$public fun detect(raw: String, now: Instant = Instant.now()): DetectedSchedule</ID>
+    <ID>ReturnCount:SendMessageTool.kt:SendMessageTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;Unit>?, ): AgentToolResult&lt;Unit></ID>
+    <ID>ReturnCount:SessionManager.kt:public fun migrateToCurrentVersion(entries: MutableList&lt;FileEntry>): Boolean</ID>
+    <ID>ReturnCount:SkillRegistry.kt:SkillRegistry$public fun readSkillFile(name: String, relativePath: String? = null): String?</ID>
+    <ID>ReturnCount:SlashCommandExpander.kt:SlashCommandExpander$public fun expand(text: String, commands: List&lt;SlashCommand>): String?</ID>
+    <ID>ReturnCount:SubAgentExecutor.kt:private fun buildMemoryBlock(definition: AgentDefinition, options: SubAgentOptions): String?</ID>
+    <ID>ReturnCount:SubAgentExecutor.kt:private fun buildSkillBlocks(definition: AgentDefinition, options: SubAgentOptions): List&lt;PromptExtras.SkillBlock></ID>
+    <ID>ReturnCount:SubAgentExecutor.kt:private fun buildSubAgentOutput( submitResult: SubmitResultData?, agent: Agent, error: String?, ): String</ID>
+    <ID>ReturnCount:SubAgentExecutor.kt:private fun resolveAgentModel(definition: AgentDefinition, options: SubAgentOptions, override: String?): Model</ID>
+    <ID>ReturnCount:TaskTool.kt:TaskTool$override suspend fun execute( toolCallId: String, parameters: JsonObject, onUpdate: AgentToolUpdateCallback&lt;List&lt;SubAgentResult>>?, ): AgentToolResult&lt;List&lt;SubAgentResult>></ID>
+    <ID>ReturnCount:ToolDetails.kt:ToolDetails.Companion$@Suppress("UNCHECKED_CAST") public fun from(toolName: String, details: Any?): ToolDetails?</ID>
+    <ID>ReturnCount:Truncate.kt:public fun truncateHead(content: String, options: TruncationOptions = TruncationOptions()): TruncationResult</ID>
+    <ID>ReturnCount:Worktree.kt:Worktree$private fun runGit(cwd: Path, args: List&lt;String>, timeoutSeconds: Long): GitResult</ID>
+    <ID>ReturnCount:Worktree.kt:Worktree$public fun cleanupWorktree(cwd: Path, worktree: WorktreeInfo, agentDescription: String): WorktreeCleanupResult</ID>
+    <ID>ReturnCount:Worktree.kt:Worktree$public fun createWorktree(cwd: Path, agentId: String): WorktreeInfo?</ID>
+    <ID>SwallowedException:SubagentScheduler.kt:SubagentScheduler$e: Exception</ID>
+    <ID>ThrowsCount:CopilotAuthPlugin.kt:CopilotAuthPlugin$override suspend fun authorize(): OAuthAuthorization</ID>
+    <ID>TooGenericExceptionCaught:BackgroundAgents.kt:BackgroundAgents$e: Throwable</ID>
+    <ID>TooGenericExceptionCaught:BatchTool.kt:BatchTool$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ModelRegistry.kt:ModelRegistry$error: Throwable</ID>
+    <ID>TooGenericExceptionCaught:SubAgentExecutor.kt:e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SubagentScheduler.kt:SubagentScheduler$e: Exception</ID>
+    <ID>TooGenericExceptionThrown:CopilotAuthPlugin.kt:CopilotAuthPlugin$throw RuntimeException("Failed to initiate device authorization (HTTP ${response.statusCode()})")</ID>
+    <ID>TooGenericExceptionThrown:CopilotAuthPlugin.kt:CopilotAuthPlugin$throw RuntimeException("Missing device_code in device code response")</ID>
+    <ID>TooGenericExceptionThrown:CopilotAuthPlugin.kt:CopilotAuthPlugin$throw RuntimeException("Missing user_code in device code response")</ID>
+    <ID>TooGenericExceptionThrown:CopilotAuthPlugin.kt:CopilotAuthPlugin$throw RuntimeException("Missing verification_uri in device code response")</ID>
+    <ID>TooManyFunctions:AuthStorage.kt:AuthStorage</ID>
+    <ID>TooManyFunctions:BackgroundAgents.kt:BackgroundAgents</ID>
+    <ID>TooManyFunctions:EditDiff.kt:co.agentmode.agent47.coding.core.tools.EditDiff.kt</ID>
+    <ID>TooManyFunctions:ModelRegistry.kt:ModelRegistry</ID>
+    <ID>TooManyFunctions:SessionManager.kt:SessionManager</ID>
+    <ID>TooManyFunctions:SubAgentExecutor.kt:co.agentmode.agent47.coding.core.agents.SubAgentExecutor.kt</ID>
+    <ID>TooManyFunctions:SubagentScheduler.kt:SubagentScheduler</ID>
+    <ID>TopLevelPropertyNaming:PathUtils.kt:private const val narrowNoBreakSpace: String = "\u202F"</ID>
+    <ID>UnusedParameter:SubAgentExecutor.kt:subAgentId: String</ID>
+    <ID>WildcardImport:AuthStorage.kt:import kotlinx.serialization.json.*</ID>
+    <ID>WildcardImport:BatchToolTest.kt:import kotlinx.serialization.json.*</ID>
+    <ID>WildcardImport:Compaction.kt:import co.agentmode.agent47.ai.types.*</ID>
+    <ID>WildcardImport:MultiEditTool.kt:import kotlinx.serialization.json.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

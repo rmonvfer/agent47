@@ -747,7 +747,7 @@ public fun OverlayHost(
             val promptHeight = min(10, max(6, terminalHeight - 6))
             val promptOffsetY = max(0, (terminalHeight - promptHeight) / 2)
 
-            val dialogState = entry.dialogState ?: PromptDialogState().also {
+            val dialogState = entry.dialogState ?: PromptDialogState(entry.initialValue).also {
                 it.masked = entry.masked
                 entry.dialogState = it
             }

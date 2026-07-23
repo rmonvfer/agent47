@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:GenerateModels.kt:modelId.startsWith("amazon.nova-lite") || modelId.startsWith("amazon.nova-micro") || modelId.startsWith("amazon.nova-premier") || modelId.startsWith("amazon.nova-pro") || modelId.startsWith("anthropic.claude-3-7-sonnet") || modelId.startsWith("anthropic.claude-opus-4-1") || modelId.startsWith("anthropic.claude-opus-4-20250514") || modelId.startsWith("deepseek.r1") || modelId.startsWith("meta.llama3-2") || modelId.startsWith("meta.llama3-3") || modelId.startsWith("meta.llama4")</ID>
+    <ID>ComplexCondition:GenerateModels.kt:modelId.startsWith("anthropic.claude-haiku-4-5") || modelId.startsWith("anthropic.claude-sonnet-4") || modelId.startsWith("anthropic.claude-opus-4-5") || modelId.startsWith("amazon.nova-2-lite") || modelId.startsWith("cohere.embed-v4") || modelId.startsWith("twelvelabs.pegasus-1-2")</ID>
+    <ID>CyclomaticComplexMethod:GenerateModels.kt:fun fetchAiGatewayModels(): List&lt;Model></ID>
+    <ID>CyclomaticComplexMethod:GenerateModels.kt:fun fetchKimiCodeModels(): List&lt;Model></ID>
+    <ID>CyclomaticComplexMethod:GenerateModels.kt:fun fetchOpenRouterModels(): List&lt;Model></ID>
+    <ID>CyclomaticComplexMethod:GenerateModels.kt:fun loadModelsDevData(): List&lt;Model></ID>
+    <ID>CyclomaticComplexMethod:GenerateModels.kt:fun main()</ID>
+    <ID>DestructuringDeclarationWithTooManyEntries:GenerateModels.kt:(id, name, inputCost, outputCost)</ID>
+    <ID>LongMethod:GenerateModels.kt:fun loadModelsDevData(): List&lt;Model></ID>
+    <ID>LongMethod:GenerateModels.kt:fun main()</ID>
+    <ID>LoopWithTooManyJumpStatements:GenerateModels.kt:for</ID>
+    <ID>ReturnCount:GenerateModels.kt:fun fetchAiGatewayModels(): List&lt;Model></ID>
+    <ID>ReturnCount:GenerateModels.kt:fun fetchOpenRouterModels(): List&lt;Model></ID>
+    <ID>ReturnCount:GenerateModels.kt:private fun processModelsDevProvider( data: JsonObject, providerKey: String, providerId: String, apiId: String, baseUrl: String, defaultContext: Int = 4096, defaultMaxTokens: Int = 4096, skipFilter: ((String, JsonObject) -> Boolean)? = null, transformId: ((String) -> String)? = null, extraCompat: JsonObject? = null, extraHeaders: Map&lt;String, String>? = null, ): List&lt;Model></ID>
+    <ID>TooGenericExceptionCaught:GenerateModels.kt:e: Exception</ID>
+    <ID>TooManyFunctions:GenerateModels.kt:co.agentmode.agent47.model.generator.GenerateModels.kt</ID>
+    <ID>WildcardImport:GenerateModels.kt:import co.agentmode.agent47.ai.types.*</ID>
+    <ID>WildcardImport:GenerateModels.kt:import kotlinx.serialization.json.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

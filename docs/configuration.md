@@ -11,6 +11,7 @@ The global directory location can be changed by setting the `AGENT47_DIR` enviro
 ~/.agent47/
 ├── auth.json           # Provider credentials
 ├── settings.json       # Global settings
+├── subagents.json      # Global subagent runtime settings
 ├── update-state.json   # Timestamp of the last automatic update check
 ├── models.yml          # Model and provider configuration
 ├── sessions/           # Persisted conversation history
@@ -20,6 +21,7 @@ The global directory location can be changed by setting the `AGENT47_DIR` enviro
 
 .agent47/
 ├── settings.json       # Project-level settings (overrides global)
+├── subagents.json      # Project-level subagent runtime overrides
 ├── agents/             # Project-level agent definitions
 ├── skills/             # Project-level skills
 └── commands/           # Project-level slash commands
@@ -65,8 +67,8 @@ field: a project setting overrides the corresponding global setting when it is e
 `defaultProvider` and `defaultModel` control which model agent47 uses when no CLI flags are passed.
 `defaultThinkingLevel` sets the extended thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`).
 
-`shellPath` overrides the shell used by the `bash` tool (defaults to the system shell). `shellCommandPrefix` is
-prepended to every shell command.
+`shellPath` and `shellCommandPrefix` are accepted settings fields but are not currently wired into the CLI's `bash`
+tool. Shell commands currently run through `/bin/bash -lc`.
 
 `modelRoles` maps role names to model patterns. The `smol` role selects a fast, cheap model for subagents that need
 speed. The `slow` role selects a powerful model for complex reasoning. The `default` role overrides the primary model
@@ -88,7 +90,7 @@ executable and restart agent47. Set `AGENT47_NO_AUTO_UPDATE=1` to skip the check
 
 ## Models
 
-Model configuration lives in `~/.agent47/models.yml`. agent47 ships with a built-in catalog of 150+ models across 20+ 
+Model configuration lives in `~/.agent47/models.yml`. agent47 ships with a built-in catalog of 800+ models across 20+
 providers. The config file lets you add custom providers, add models, and override properties of built-in models.
 
 ```yaml
@@ -143,7 +145,8 @@ their own.
 `headers` apply to all models under that provider; model-level `headers` are merged on top.
 
 Setting `discovery.type` to `"ollama"` makes agent47 query the Ollama API at startup and register every locally
-available model.
+available model. Startup uses the asynchronous registry refresh, so discovered models are included before initial model
+resolution. Ollama itself must already be running at the configured `baseUrl`.
 
 ### Config value resolution
 
@@ -153,7 +156,8 @@ String values in models.yml support two dynamic prefixes:
 the environment at startup.
 
 `!command` executes a shell command and uses its stdout as the value. The result is cached for the lifetime of the
-process. The command has a 10-second timeout and returns null on failure. For example,
+process. The command has a 10-second timeout and returns null on failure. It runs with your local account's permissions
+and is not sandboxed, so treat every `models.yml` containing this syntax as executable code. For example,
 `apiKey: "!cat ~/.secrets/anthropic"` reads the key from a file via shell.
 
 Values without a prefix are used as literal strings.
@@ -198,14 +202,16 @@ Agents, skills, and slash commands are discovered from the filesystem using a co
 files override user-level files, which override bundled defaults. Deduplication is by name: the first definition found
 for a given name wins.
 
-For agents: project `.agent47/agents/*.md`, then global `~/.agent47/agents/*.md`, then bundled classpath resources (
-`explore`, `plan`, `task`, `quick_task`).
+For agents: project `.agent47/agents/*.md`, then global `~/.agent47/agents/*.md`, then bundled classpath resources
+(`explore`, `general-purpose`, `plan`, `task`, `quick_task`).
 
 For skills: project `.agent47/skills/*/SKILL.md`, then global `~/.agent47/skills/*/SKILL.md`. There are no bundled
 skills.
 
 For commands: project `.agent47/commands/*.md`, then global `~/.agent47/commands/*.md`, then bundled classpath
 resources.
+
+Subagent runtime settings are documented with agent definitions in [agents.md](agents.md).
 
 This hierarchy lets you override a bundled agent's behavior for a specific project by placing a file with the same name
 in `.agent47/agents/`, without modifying the global configuration or the source code.

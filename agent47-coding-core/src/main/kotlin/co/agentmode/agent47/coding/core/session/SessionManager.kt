@@ -205,6 +205,8 @@ public class SessionManager(
 
     public fun getHeader(): SessionHeader = header
 
+    public fun getSessionFile(): Path = sessionFile
+
     public fun getEntries(): List<SessionEntry> = entries.toList()
 
     public fun getLeafId(): String? = leafId

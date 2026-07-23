@@ -1,0 +1,30 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:WordWrap.kt:WordWrap$end &lt; text.length &amp;&amp; end > start + 1 &amp;&amp; Character.isHighSurrogate(text[end - 1]) &amp;&amp; Character.isLowSurrogate(text[end])</ID>
+    <ID>CyclomaticComplexMethod:EditorState.kt:EditorState$public fun moveWordLeft(selecting: Boolean = false)</ID>
+    <ID>CyclomaticComplexMethod:EditorState.kt:EditorState$public fun moveWordRight(selecting: Boolean = false)</ID>
+    <ID>CyclomaticComplexMethod:ToolUtils.kt:public fun summarizeToolArguments(toolName: String, arguments: String, maxWidth: Int): String</ID>
+    <ID>CyclomaticComplexMethod:ToolUtils.kt:public fun summarizeToolOutput(toolName: String, output: String, details: ToolDetails?, isError: Boolean): String</ID>
+    <ID>FunctionOnlyReturningConstant:ChatHistoryState.kt:ChatHistoryState$private fun defaultToolCollapsed(@Suppress("UNUSED_PARAMETER") toolName: String): Boolean</ID>
+    <ID>LoopWithTooManyJumpStatements:EditorState.kt:EditorState$while</ID>
+    <ID>MatchingDeclarationName:FuzzyMatch.kt:FuzzyResult</ID>
+    <ID>ReturnCount:Autocomplete.kt:AutocompleteManager$private fun detectCompletionContext(lineText: String, cursorColumn: Int): CompletionContext?</ID>
+    <ID>ReturnCount:Autocomplete.kt:AutocompleteManager$public fun applySelection(state: EditorState): Boolean</ID>
+    <ID>ReturnCount:Autocomplete.kt:AutocompleteManager$public fun update(lineText: String, cursorColumn: Int): AutocompletePopupModel?</ID>
+    <ID>ReturnCount:EditorState.kt:EditorState$private fun deleteSelectionIfAny(): String?</ID>
+    <ID>ReturnCount:EditorState.kt:EditorState$public fun deleteBackward(): String</ID>
+    <ID>ReturnCount:EditorState.kt:EditorState$public fun deleteForward(): String</ID>
+    <ID>ReturnCount:EditorState.kt:EditorState$public fun killToEndOfLine(): String</ID>
+    <ID>ReturnCount:EditorState.kt:EditorState$public fun killToStartOfLine(): String</ID>
+    <ID>ReturnCount:FuzzyMatch.kt:public fun fuzzyMatch(label: String, query: String): FuzzyResult?</ID>
+    <ID>ReturnCount:KillRing.kt:KillRing$public fun yankPop(): String?</ID>
+    <ID>ReturnCount:WordWrap.kt:WordWrap$public fun logicalToVisual(mapping: Mapping, position: Position): VisualPosition</ID>
+    <ID>TooManyFunctions:ChatHistoryState.kt:ChatHistoryState</ID>
+    <ID>TooManyFunctions:EditorState.kt:EditorState</ID>
+    <ID>WildcardImport:ChatHistoryState.kt:import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:ChatHistoryState.kt:import co.agentmode.agent47.ai.types.*</ID>
+    <ID>WildcardImport:OverlayState.kt:import androidx.compose.runtime.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

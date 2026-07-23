@@ -34,11 +34,14 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class GoogleProvidersTest {
+    private val registry = ApiRegistry()
+    private val runtime = AiRuntime(registry)
+
     private var server: HttpServer? = null
 
     @AfterTest
     fun tearDown() {
-        ApiRegistry.clear()
+        registry.clear()
         server?.stop(0)
     }
 
@@ -57,7 +60,7 @@ class GoogleProvidersTest {
         }
         server!!.start()
 
-        registerGoogleProviders()
+        registerGoogleProviders(registry)
 
         val model = Model(
             id = "gemini-2.5-pro",
@@ -72,7 +75,7 @@ class GoogleProvidersTest {
             maxTokens = 4096,
         )
 
-        AiRuntime.completeSimple(
+        runtime.completeSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
             options = SimpleStreamOptions(apiKey = "secret-google-key"),
@@ -124,7 +127,7 @@ class GoogleProvidersTest {
         }
         server!!.start()
 
-        registerGoogleProviders()
+        registerGoogleProviders(registry)
 
         val model = Model(
             id = "gemini-2.5-pro",
@@ -139,7 +142,7 @@ class GoogleProvidersTest {
             maxTokens = 4096,
         )
 
-        val result = AiRuntime.completeSimple(
+        val result = runtime.completeSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -160,7 +163,7 @@ class GoogleProvidersTest {
         }
         server!!.start()
 
-        registerGoogleProviders()
+        registerGoogleProviders(registry)
 
         val model = Model(
             id = "gemini-2.5-pro",
@@ -175,7 +178,7 @@ class GoogleProvidersTest {
             maxTokens = 4096,
         )
 
-        val stream = AiRuntime.streamSimple(
+        val stream = runtime.streamSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hi")), timestamp = 1L))),
         )
@@ -196,7 +199,7 @@ class GoogleProvidersTest {
         }
         server!!.start()
 
-        registerGoogleProviders()
+        registerGoogleProviders(registry)
 
         val model = Model(
             id = "gemini-2.5-pro",
@@ -211,7 +214,7 @@ class GoogleProvidersTest {
             maxTokens = 4096,
         )
 
-        val stream = AiRuntime.streamSimple(
+        val stream = runtime.streamSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -234,7 +237,7 @@ class GoogleProvidersTest {
         }
         server!!.start()
 
-        registerGoogleProviders()
+        registerGoogleProviders(registry)
 
         val model = Model(
             id = "gemini-2.5-pro",
@@ -249,7 +252,7 @@ class GoogleProvidersTest {
             maxTokens = 4096,
         )
 
-        val stream = AiRuntime.streamSimple(
+        val stream = runtime.streamSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -290,7 +293,7 @@ class GoogleProvidersTest {
         }
         server!!.start()
 
-        registerGoogleProviders()
+        registerGoogleProviders(registry)
 
         val model = Model(
             id = "gemini-2.5-pro",
@@ -305,7 +308,7 @@ class GoogleProvidersTest {
             maxTokens = 4096,
         )
 
-        val result = AiRuntime.completeSimple(
+        val result = runtime.completeSimple(
             model = model,
             context = Context(messages = listOf(UserMessage(content = listOf(TextContent(text = "hello")), timestamp = 1L))),
         )
@@ -327,7 +330,7 @@ class GoogleProvidersTest {
         }
         server!!.start()
 
-        registerGoogleProviders()
+        registerGoogleProviders(registry)
 
         val model = Model(
             id = "gemini-2.5-pro",
@@ -371,7 +374,7 @@ class GoogleProvidersTest {
             ),
         )
 
-        AiRuntime.completeSimple(model = model, context = context)
+        runtime.completeSimple(model = model, context = context)
 
         val body = captured.get() ?: error("request body was not captured")
         assertTrue(body.contains("\"functionCall\""), "assistant tool call must be sent as a functionCall part")

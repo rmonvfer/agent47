@@ -7,12 +7,15 @@ import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicReference
 
 public data class AgentOptions(
+    val streamFunction: AgentStreamFunction,
     val initialState: PartialAgentState? = null,
     val convertToLlm: (suspend (messages: List<Message>) -> List<Message>)? = null,
-    val transformContext: (suspend (messages: List<Message>) -> List<Message>)? = null,
+    val transformContext: (suspend (context: Context) -> Context)? = null,
+    val beforeAgent: (suspend (messages: List<Message>) -> List<Message>)? = null,
+    val afterAgent: (suspend (messages: List<Message>) -> Unit)? = null,
+    val onEvent: (suspend (event: AgentEvent) -> Unit)? = null,
     val steeringMode: QueueMode = QueueMode.ONE_AT_A_TIME,
     val followUpMode: QueueMode = QueueMode.ONE_AT_A_TIME,
-    val streamFunction: AgentStreamFunction? = null,
     val sessionId: String? = null,
     val getApiKey: (suspend (provider: String) -> String?)? = null,
     val thinkingBudgets: ThinkingBudgets? = null,
@@ -69,7 +72,7 @@ public enum class QueueMode {
  * user corrections), while [followUp] queues messages that are sent after the current
  * turn completes. [abort] forcefully stops the loop by interrupting its thread.
  */
-public class Agent(options: AgentOptions = AgentOptions()) {
+public class Agent(options: AgentOptions) {
     // Mutated from both the loop's collector coroutine and abort() on a foreign thread.
     @Volatile
     private var stateValue: AgentState = AgentState(
@@ -94,11 +97,14 @@ public class Agent(options: AgentOptions = AgentOptions()) {
     private var loopGeneration: Long = 0
     private var currentStream: EventStream<AgentEvent, List<Message>>? = null
 
-    private var streamFunction: AgentStreamFunction? = options.streamFunction
+    private val streamFunction: AgentStreamFunction = options.streamFunction
     private var convertToLlm: suspend (messages: List<Message>) -> List<Message> = options.convertToLlm ?: { msgs ->
         defaultConvertToLlm(msgs)
     }
-    private var transformContext: (suspend (messages: List<Message>) -> List<Message>)? = options.transformContext
+    private var transformContext: (suspend (context: Context) -> Context)? = options.transformContext
+    private var beforeAgent: (suspend (messages: List<Message>) -> List<Message>)? = options.beforeAgent
+    private var afterAgent: (suspend (messages: List<Message>) -> Unit)? = options.afterAgent
+    private var onEvent: (suspend (event: AgentEvent) -> Unit)? = options.onEvent
 
     private var steeringMode: QueueMode = options.steeringMode
     private var followUpMode: QueueMode = options.followUpMode
@@ -282,6 +288,8 @@ public class Agent(options: AgentOptions = AgentOptions()) {
             maxRetryDelayMs = maxRetryDelayMs,
             convertToLlm = convertToLlm,
             transformContext = transformContext,
+            beforeAgent = beforeAgent,
+            afterAgent = afterAgent,
             getApiKey = getApiKey,
             getSteeringMessages = {
                 if (skipInitialSteering) {
@@ -306,6 +314,7 @@ public class Agent(options: AgentOptions = AgentOptions()) {
             currentStream = stream
 
             stream.events.collect { event ->
+                onEvent?.invoke(event)
                 when (event) {
                     is MessageStartEvent -> {
                         stateValue = stateValue.copy(streamMessage = event.message)

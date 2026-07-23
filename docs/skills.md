@@ -1,7 +1,7 @@
 # Skills
 
-Skills are domain-specific knowledge files that agents can load on demand. They appear in the system prompt, so the 
-model knows what knowledge is available without loading everything upfront.
+Skills are domain-specific knowledge files that agents can load on demand. Their names and descriptions appear in the
+system prompt so the model knows what is available without loading every skill body.
 
 ## Creating a skill
 
@@ -69,13 +69,17 @@ Use this sparingly because every auto-applied skill consumes context window toke
 
 ## File-scoped skills
 
-The `globs` field associates a skill with specific file patterns. This hints to the model that the skill is relevant
-when working with matching files.
+The `globs` field applies a skill when the `read` tool reads a file matching at least one inclusion pattern: the tool
+prepends the skill instructions to that read result. Prefix a pattern with `!` to exclude matching files. A skill with
+neither `alwaysApply` nor `globs` remains on demand.
 
 ```markdown
 ---
 name: react-patterns
 description: React component patterns for this project
-globs: [src/components/**/*.tsx, src/hooks/**/*.ts]
+globs:
+  - "src/components/**/*.tsx"
+  - "src/hooks/**/*.ts"
+  - "!src/components/generated/**"
 ---
 ```

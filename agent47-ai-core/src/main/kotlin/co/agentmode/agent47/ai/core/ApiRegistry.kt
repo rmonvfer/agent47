@@ -5,15 +5,13 @@ import co.agentmode.agent47.ai.types.ApiId
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Global registry mapping [ApiId] values to [ApiProvider] implementations. Providers
- * register themselves at startup (typically in `Main.kt` via `registerOpenAiProviders()`,
- * `registerAnthropicProviders()`, etc.) and the runtime looks them up when streaming
- * a model's response.
+ * Registry mapping [ApiId] values to [ApiProvider] implementations. A registry belongs
+ * to one application runtime, allowing independently composed runtimes to coexist safely.
  *
- * Providers can optionally carry a [sourceId] for bulk unregistration, which is useful
+ * Providers can optionally carry a source identifier for bulk unregistration, which is useful
  * for dynamic provider sources that may be reloaded at runtime.
  */
-public object ApiRegistry {
+public class ApiRegistry {
     private val providers: MutableMap<String, RegisteredProvider> = ConcurrentHashMap()
 
     public fun register(provider: ApiProvider, sourceId: String? = null): Unit {

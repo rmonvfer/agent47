@@ -8,6 +8,7 @@ import kotlin.io.path.readText
 public class SkillRegistry(
     private val projectDir: Path?,
     private val globalDir: Path?,
+    private val additionalDirectories: List<Path> = emptyList(),
 ) {
     private var skills: List<Skill> = emptyList()
     private var skillsByName: Map<String, Skill> = emptyMap()
@@ -17,7 +18,7 @@ public class SkillRegistry(
     }
 
     public fun refresh() {
-        skills = SkillDiscovery.discover(projectDir, globalDir)
+        skills = SkillDiscovery.discover(projectDir, globalDir, additionalDirectories)
         skillsByName = skills.associateBy { it.name }
     }
 

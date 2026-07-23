@@ -44,9 +44,10 @@ public class Editor(
 
     private val undoStack: UndoStack<EditorSnapshot> = UndoStack(state.snapshot())
     private val killRing: KillRing = KillRing()
+    private val slashCommandCompletionProvider = SlashCommandCompletionProvider(slashCommands, slashCommandDetails)
     private val autocomplete: AutocompleteManager = AutocompleteManager(
         providers = listOf(
-            SlashCommandCompletionProvider(slashCommands, slashCommandDetails),
+            slashCommandCompletionProvider,
             FileCompletionProvider(fileCompletionRoot),
         ),
     )
@@ -75,6 +76,11 @@ public class Editor(
     }
 
     public fun text(): String = state.text()
+
+    public fun setSlashCommands(commands: List<String>, descriptions: Map<String, String> = emptyMap()) {
+        slashCommandCompletionProvider.update(commands, descriptions)
+        autocomplete.dismiss()
+    }
 
     public fun hasAutocompletePopup(): Boolean {
         return autocomplete.popup?.items?.isNotEmpty() == true

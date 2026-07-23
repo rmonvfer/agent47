@@ -9,6 +9,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.nio.file.Path
+import kotlin.io.path.nameWithoutExtension
+import kotlin.io.path.readText
 
 /**
  * Desired theme appearance. AUTO defers to terminal background detection, which is
@@ -642,6 +645,18 @@ public data class NamedTheme(
      */
     public fun forAppearance(appearance: ThemeAppearance): ThemeConfig =
         if (appearance.isLight) lightConfig else config
+}
+
+/**
+ * Loads a named dark/light theme from a package JSON file.
+ */
+public fun loadNamedTheme(path: Path): NamedTheme {
+    val content = path.readText()
+    val dark = requireNotNull(parseThemeJson(content, ThemeAppearance.DARK)) {
+        "Invalid theme file: $path"
+    }
+    val light = parseThemeJson(content, ThemeAppearance.LIGHT) ?: dark
+    return NamedTheme(path.nameWithoutExtension, dark, light)
 }
 
 /**

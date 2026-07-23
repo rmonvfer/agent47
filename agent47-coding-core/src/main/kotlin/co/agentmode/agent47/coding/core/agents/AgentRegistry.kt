@@ -13,9 +13,15 @@ import java.nio.file.Path
 public class AgentRegistry(
     private val projectDir: Path?,
     private val globalDir: Path?,
-    private val disableDefaultAgents: Boolean = false,
+    disableDefaultAgents: Boolean = false,
 ) {
+    @Volatile
+    private var disableDefaultAgents: Boolean = disableDefaultAgents
+
+    @Volatile
     private var agents: List<AgentDefinition> = emptyList()
+
+    @Volatile
     private var availableByName: Map<String, AgentDefinition> = emptyMap()
 
     init {
@@ -23,7 +29,16 @@ public class AgentRegistry(
     }
 
     public fun refresh() {
-        agents = AgentDiscovery.discover(projectDir, globalDir)
+        val discovered = AgentDiscovery.discover(projectDir, globalDir)
+        agents = discovered
+        availableByName = discovered
+            .filter { isAvailable(it) }
+            .associateBy { it.name.lowercase() }
+    }
+
+    /** Applies bundled-agent availability immediately without rediscovering files. */
+    public fun setDisableDefaultAgents(disabled: Boolean) {
+        disableDefaultAgents = disabled
         availableByName = agents
             .filter { isAvailable(it) }
             .associateBy { it.name.lowercase() }

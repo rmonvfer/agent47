@@ -10,7 +10,10 @@ agent47 looks for these file names in priority order: `AGENTS.md`, `AGENT47.md`,
 
 Discovery runs through four tiers. Files found earlier take priority when deduplicating by absolute path.
 
-**Project-level** instructions are found by walking upward from the current working directory to the git worktree root (or filesystem root). The walk stops at the first directory that contains any matching file name. All matches from that directory are collected.
+**Project-level** instructions are found by walking upward from the current working directory through the git worktree
+root, or through the filesystem root when no Git root exists. Every matching file in every visited directory is loaded;
+the search does not stop at the nearest match. Ancestor instructions are ordered before instructions closer to the
+working directory, and files within one directory use the filename order above.
 
 **Global** instructions come from `~/.agent47/AGENTS.md`. This is the canonical location for instructions that should apply across all projects.
 

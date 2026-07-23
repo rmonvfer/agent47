@@ -3,6 +3,7 @@ package co.agentmode.agent47.coding.core.agents
 import co.agentmode.agent47.agent.core.Agent
 import co.agentmode.agent47.agent.core.AgentEvent
 import co.agentmode.agent47.agent.core.AgentOptions
+import co.agentmode.agent47.agent.core.AgentStreamFunction
 import co.agentmode.agent47.agent.core.AgentThinkingLevel
 import co.agentmode.agent47.agent.core.AgentTool
 import co.agentmode.agent47.agent.core.MessageEndEvent
@@ -20,6 +21,7 @@ import co.agentmode.agent47.coding.core.models.ModelRegistry
 import co.agentmode.agent47.coding.core.models.ModelResolver
 import co.agentmode.agent47.coding.core.settings.Settings
 import co.agentmode.agent47.coding.core.settings.SubagentsSettings
+import co.agentmode.agent47.coding.core.settings.SubagentsSettingsState
 import co.agentmode.agent47.coding.core.tools.SubmitResultData
 import co.agentmode.agent47.coding.core.tools.SubmitResultTool
 import co.agentmode.agent47.coding.core.tools.createCoreTools
@@ -54,6 +56,7 @@ public data class PromptExtras(
 }
 
 public data class SubAgentOptions(
+    val streamFunction: AgentStreamFunction,
     val agentDefinition: AgentDefinition,
     val task: String,
     val taskId: String,
@@ -74,7 +77,7 @@ public data class SubAgentOptions(
     val onAgentReady: ((Agent) -> Unit)? = null,
     val backgroundAgents: BackgroundAgents? = null,
     val backgroundAgentId: String? = null,
-    val subagentsSettings: SubagentsSettings = SubagentsSettings(),
+    val subagentsSettings: SubagentsSettingsState = SubagentsSettingsState(SubagentsSettings()),
     val invocation: AgentInvocationParams = AgentInvocationParams(),
     val parentSystemPrompt: String? = null,
     val parentMessages: List<Message> = emptyList(),
@@ -155,7 +158,8 @@ public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult {
     val env = AgentEnv.detect(effectiveCwd)
     val systemPrompt = buildSubAgentSystemPrompt(definition, effectiveOptions, env)
 
-    val outputTranscriptEnabled = definition.outputTranscript ?: options.subagentsSettings.outputTranscript
+    val activeSubagentsSettings = options.subagentsSettings.get()
+    val outputTranscriptEnabled = definition.outputTranscript ?: activeSubagentsSettings.outputTranscript
     val transcript: AgentTranscript? = if (outputTranscriptEnabled) {
         val dir = Path.of(System.getProperty("java.io.tmpdir"), "agent47-subagents", options.parentSessionId ?: "none", "tasks")
         AgentTranscript(dir.resolve("$id.output"), id, effectiveCwd.toString()).also { it.writeInitial(options.task) }
@@ -164,8 +168,8 @@ public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult {
     }
 
     // Turn budget: per-call override > definition > settings default (0 = unlimited).
-    val maxTurns = normalizeMaxTurns(params.maxTurns ?: definition.maxTurns ?: options.subagentsSettings.defaultMaxTurns)
-    val graceTurns = options.subagentsSettings.graceTurns
+    val maxTurns = normalizeMaxTurns(params.maxTurns ?: definition.maxTurns ?: activeSubagentsSettings.defaultMaxTurns)
+    val graceTurns = activeSubagentsSettings.graceTurns
 
     var submitResult: SubmitResultData? = null
     var toolCount = 0
@@ -186,6 +190,7 @@ public suspend fun runSubAgent(options: SubAgentOptions): SubAgentResult {
 
     val agent = Agent(
         AgentOptions(
+            streamFunction = options.streamFunction,
             initialState = PartialAgentState(
                 model = model,
                 systemPrompt = systemPrompt,
@@ -472,6 +477,7 @@ private fun buildToolList(
         options.agentRegistry != null && bg != null
     ) {
         tools += co.agentmode.agent47.coding.core.tools.TaskTool(
+            streamFunction = options.streamFunction,
             agentRegistry = options.agentRegistry,
             modelRegistry = options.modelRegistry,
             settings = options.settings,

@@ -49,7 +49,7 @@ public class ReadTool(
                 Files.readAllBytes(absolutePath)
             })
             return AgentToolResult(
-                content = listOf(
+                content = applicableSkillContent(path) + listOf(
                     TextContent(text = "Read image file [$mimeType]"),
                     ImageContent(data = data, mimeType = mimeType),
                 ),
@@ -102,7 +102,7 @@ public class ReadTool(
         }
 
         return AgentToolResult(
-            content = listOf(TextContent(text = textOut)),
+            content = applicableSkillContent(path) + TextContent(text = textOut),
             details = details
         )
     }
@@ -170,8 +170,26 @@ public class ReadTool(
             else -> "image/png"
         }
     }
+
+    private fun applicableSkillContent(path: String): List<TextContent> {
+        return skillReader
+            ?.readApplicableSkills(path)
+            .orEmpty()
+            .map { skill ->
+                TextContent(
+                    text = "Applicable skill instructions (${skill.name}):\n${skill.content}",
+                )
+            }
+    }
 }
+
+public data class ApplicableSkill(
+    val name: String,
+    val content: String,
+)
 
 public fun interface SkillReader {
     public fun readSkillFile(name: String, relativePath: String?): String?
+
+    public fun readApplicableSkills(path: String): List<ApplicableSkill> = emptyList()
 }

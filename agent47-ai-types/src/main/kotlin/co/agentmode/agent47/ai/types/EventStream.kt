@@ -1,11 +1,12 @@
 package co.agentmode.agent47.ai.types
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.channels.Channel
 
 /**
  * A typed event channel that produces a stream of events and resolves to a final result.
@@ -45,6 +46,7 @@ public open class EventStream<T : Any, R : Any>(
 
     public fun cancel() {
         closed = true
+        finalResult.cancel(CancellationException("Event stream was cancelled"))
         eventsChannel.close()
     }
 

@@ -27,6 +27,9 @@ import co.agentmode.agent47.ui.core.state.ToolExecutionView
 import co.agentmode.agent47.ui.core.util.summarizeToolArguments
 import co.agentmode.agent47.ui.core.util.summarizeToolOutput
 import co.agentmode.agent47.ui.core.util.formatDuration
+import co.agentmode.agent47.ext.core.RegisteredMessageRenderer
+import co.agentmode.agent47.ext.core.RegisteredToolRenderer
+import co.agentmode.agent47.ext.core.ToolRenderData
 
 /**
  * Creates and remembers a [ChatHistoryState] across recompositions.
@@ -39,13 +42,14 @@ public fun rememberChatHistoryState(): ChatHistoryState = remember { ChatHistory
  *
  * All entries are flattened into a list of styled text lines, and only the
  * visible window (controlled by [ChatHistoryState.scrollTopLine]) is emitted
- * as Mosaic [Text] nodes inside a [Column] with a constrained [height].
+ * as Mosaic [Text] nodes inside a column with a constrained [height].
  *
  * Message types are distinguished by full-width background tint rather than by
  * prefix glyphs: user prompts and tool panels are solid colored blocks, and
  * extension/summary messages get a violet panel with a bracketed label.
  */
 @Composable
+@Suppress("CyclomaticComplexMethod", "LongMethod")
 public fun ChatHistory(
     state: ChatHistoryState,
     width: Int,
@@ -55,6 +59,8 @@ public fun ChatHistory(
     version: Int = 0,
     spinnerFrame: Int = 0,
     cwd: String = "",
+    toolRenderers: List<RegisteredToolRenderer> = emptyList(),
+    messageRenderers: List<RegisteredMessageRenderer> = emptyList(),
 ) {
     val theme = LocalThemeConfig.current
     val viewportHeight = height.coerceAtLeast(1)
@@ -62,7 +68,15 @@ public fun ChatHistory(
     // Flatten all entries into rendered lines
     val allLines = buildList {
         state.entries.forEachIndexed { index, entry ->
-            val entryLines = renderEntry(entry, width, state, markdownRenderer, theme)
+            val entryLines = renderEntry(
+                entry,
+                width,
+                state,
+                markdownRenderer,
+                theme,
+                toolRenderers,
+                messageRenderers,
+            )
             addAll(entryLines)
             if (index != state.entries.lastIndex) {
                 val nextEntry = state.entries[index + 1]
@@ -217,27 +231,59 @@ private fun renderEntry(
     state: ChatHistoryState,
     markdownRenderer: MarkdownRenderer,
     theme: ThemeConfig,
+    toolRenderers: List<RegisteredToolRenderer>,
+    messageRenderers: List<RegisteredMessageRenderer>,
 ): List<AnnotatedString> {
     val toolExec = entry.toolExecution
-    if (toolExec != null) {
+    return if (toolExec != null) {
         val collapsed = state.toolCollapsedState[entry.key] ?: toolExec.collapsed
-        return renderToolExecutionLines(toolExec.copy(collapsed = collapsed), width, theme)
-    }
+        val custom = renderWithExtension(
+            toolRenderers.lastOrNull { it.toolName == toolExec.toolName },
+            ToolRenderData(
+                toolCallId = toolExec.toolCallId,
+                toolName = toolExec.toolName,
+                arguments = toolExec.arguments,
+                output = toolExec.output,
+                details = toolExec.details,
+                isError = toolExec.isError,
+                pending = toolExec.pending,
+                collapsed = collapsed,
+            ),
+            width,
+        )
+        custom?.map(::annotated)
+            ?: renderToolExecutionLines(toolExec.copy(collapsed = collapsed), width, theme)
+    } else {
+        when (val msg = entry.message) {
+            is UserMessage -> renderUserMessageLines(msg, width, markdownRenderer, theme)
+            is AssistantMessage -> {
+                val thinkingCollapsed = state.thinkingCollapsedState[entry.key] ?: true
+                renderAssistantMessageLines(msg, width, markdownRenderer, thinkingCollapsed, theme)
+            }
 
-    return when (val msg = entry.message) {
-        is UserMessage -> renderUserMessageLines(msg, width, markdownRenderer, theme)
-        is AssistantMessage -> {
-            val thinkingCollapsed = state.thinkingCollapsedState[entry.key] ?: true
-            renderAssistantMessageLines(msg, width, markdownRenderer, thinkingCollapsed, theme)
+            is BashExecutionMessage -> renderBashExecutionLines(msg, width, theme)
+            is BranchSummaryMessage -> renderBranchSummaryLines(msg, width, theme)
+            is CompactionSummaryMessage -> renderCompactionSummaryLines(msg, width, theme)
+            is CustomMessage -> {
+                val custom = runCatching {
+                    messageRenderers.lastOrNull { it.customType == msg.customType }
+                        ?.renderer
+                        ?.render(msg, width)
+                }.getOrNull()
+                custom?.map(::annotated) ?: renderCustomMessageLines(msg, width, theme)
+            }
+            else -> emptyList()
         }
-
-        is BashExecutionMessage -> renderBashExecutionLines(msg, width, theme)
-        is BranchSummaryMessage -> renderBranchSummaryLines(msg, width, theme)
-        is CompactionSummaryMessage -> renderCompactionSummaryLines(msg, width, theme)
-        is CustomMessage -> renderCustomMessageLines(msg, width, theme)
-        else -> emptyList()
     }
 }
+
+internal fun renderWithExtension(
+    renderer: RegisteredToolRenderer?,
+    data: ToolRenderData,
+    width: Int,
+): List<String>? = runCatching {
+    renderer?.renderer?.render(data, width)
+}.getOrNull()
 
 private fun renderUserMessageLines(
     message: UserMessage,
