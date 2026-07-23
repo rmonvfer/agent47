@@ -39,7 +39,19 @@ import co.agentmode.agent47.ui.core.editor.WordWrap
 import co.agentmode.agent47.ui.core.state.*
 import co.agentmode.agent47.tui.input.Key
 import co.agentmode.agent47.tui.input.KeyboardEvent
+import co.agentmode.agent47.tui.input.keyboardShortcutName
 import co.agentmode.agent47.tui.input.toKeyboardEvent
+import co.agentmode.agent47.tui.commands.SlashCommandSpec
+import co.agentmode.agent47.tui.commands.builtinSlashCommands
+import co.agentmode.agent47.tui.commands.helpText
+import co.agentmode.agent47.tui.session.SESSION_DATE_FORMAT
+import co.agentmode.agent47.tui.session.firstUserText
+import co.agentmode.agent47.tui.session.loadSession
+import co.agentmode.agent47.tui.session.randomEntryId
+import co.agentmode.agent47.tui.state.UsageState
+import co.agentmode.agent47.tui.state.emptyUsage
+import co.agentmode.agent47.tui.util.detectBranchName
+import co.agentmode.agent47.tui.util.executeShell
 import co.agentmode.agent47.tui.rendering.DiffRenderer
 import co.agentmode.agent47.tui.rendering.MarkdownTheme
 import co.agentmode.agent47.tui.rendering.MarkdownRenderer
@@ -79,22 +91,17 @@ import co.agentmode.agent47.ext.core.InputStreamingBehavior
 import co.agentmode.agent47.ext.core.RegisteredCommand
 import co.agentmode.agent47.ext.core.SessionStartReason
 import kotlinx.coroutines.*
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicReference
 import java.util.*
-import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
 
 /** How far the base layer is darkened toward black while a dialog is open (1 = unchanged). */
 private const val SCRIM_DIM_FACTOR = 0.5f
-
-private val SESSION_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d HH:mm")
 
 /**
  * The session the interactive app is currently in. Read by the terminal-restore shutdown hook —
@@ -113,21 +120,6 @@ private fun printResumeHint(out: java.io.PrintStream) {
         out.flush()
     }
 }
-
-private fun firstUserText(session: SessionManager): String? {
-    val entry = session.getEntries()
-        .filterIsInstance<SessionMessageEntry>()
-        .firstOrNull { it.message is UserMessage } ?: return null
-    return (entry.message as UserMessage).content
-        .filterIsInstance<TextContent>()
-        .firstOrNull()?.text
-        ?.replace("\n", " ")?.trim()?.ifBlank { null }
-}
-
-private data class SlashCommandSpec(
-    val command: String,
-    val description: String,
-)
 
 private enum class SettingsAction {
     Model,
@@ -256,24 +248,6 @@ private fun Agent47AppContent(
     // --- Slash command definitions ---
 
     val fileSlashCommands = remember { fileCommands }
-    val builtinSlashCommands = remember {
-        listOf(
-            SlashCommandSpec("/help", "Show help and shortcuts"),
-            SlashCommandSpec("/commands", "List available slash commands"),
-            SlashCommandSpec("/new", "Start a new session"),
-            SlashCommandSpec("/clear", "Clear the chat display"),
-            SlashCommandSpec("/model", "Pick or set the active model"),
-            SlashCommandSpec("/provider", "Connect a provider"),
-            SlashCommandSpec("/theme", "Pick a color theme"),
-            SlashCommandSpec("/session", "Load a saved session"),
-            SlashCommandSpec("/compact", "Compact conversation context"),
-            SlashCommandSpec("/reload", "Reload extensions"),
-            SlashCommandSpec("/memory", "Show loaded instruction files"),
-            SlashCommandSpec("/agents", "View and steer background sub-agents"),
-            SlashCommandSpec("/settings", "Open interactive settings"),
-            SlashCommandSpec("/exit", "Exit interactive mode"),
-        )
-    }
     var extensionCommands by remember { mutableStateOf(initialExtensionCommands) }
     var extensionShortcuts by remember { mutableStateOf(initialExtensionShortcuts) }
     var extensionToolRenderers by remember { mutableStateOf(initialExtensionToolRenderers) }
@@ -379,7 +353,7 @@ private fun Agent47AppContent(
 
     val currentModel = currentModels.getOrNull(selectedModelIndex) ?: initialModel
 
-    val usageHolder = remember { UsageHolder() }
+    val usageHolder = remember { UsageState() }
     LaunchedEffect(activeSessionManager) {
         usageHolder.reset(
             activeSessionManager?.getEntries()
@@ -1975,69 +1949,14 @@ private fun Agent47AppContent(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-composables
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun ActivityLine(
-    spinnerFrame: Int,
-    label: String,
-    width: Int,
-) {
-    val theme = LocalThemeConfig.current
-    val frames = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-    val frame = frames[spinnerFrame.mod(frames.size)]
-    val displayLabel = label.ifBlank { "Thinking" }
-
-    Text(
-        buildAnnotatedString {
-            withStyle(SpanStyle(color = theme.colors.accent)) { append(frame) }
-            append(" ")
-            withStyle(SpanStyle(color = theme.colors.muted)) { append(displayLabel) }
-            withStyle(SpanStyle(color = theme.colors.muted)) { append("...") }
-            val used = 1 + 1 + displayLabel.length + 3
-            val padding = (width - used).coerceAtLeast(0)
-            if (padding > 0) append(" ".repeat(padding))
-        },
-    )
-}
-
-@Composable
-private fun EditorBorder(
-    width: Int,
-    bashMode: Boolean,
-    thinkingLevel: AgentThinkingLevel,
-) {
-    val theme = LocalThemeConfig.current
-    // The input rule's color is the primary mode indicator: green in bash mode,
-    // otherwise a distinct shade per thinking level (off → xhigh).
-    val color = if (bashMode) {
-        theme.bashModeBorder
-    } else {
-        when (thinkingLevel) {
-            AgentThinkingLevel.OFF -> theme.thinkingOff
-            AgentThinkingLevel.MINIMAL -> theme.thinkingMinimal
-            AgentThinkingLevel.LOW -> theme.thinkingLow
-            AgentThinkingLevel.MEDIUM -> theme.thinkingMedium
-            AgentThinkingLevel.HIGH -> theme.thinkingHigh
-            AgentThinkingLevel.XHIGH -> theme.thinkingXhigh
-        }
-    }
-    Filler('─', modifier = Modifier.width(width).height(1), foreground = color)
-}
-
-// ---------------------------------------------------------------------------
-// Agent event handling
-// ---------------------------------------------------------------------------
-
+@Suppress("CyclomaticComplexMethod", "LongMethod")
 private fun handleAgentEvent(
     event: AgentEvent,
     client: AgentClient,
     chatHistoryState: ChatHistoryState,
     toolArgumentsById: MutableMap<String, String>,
     activeSessionManager: SessionManager?,
-    usageHolder: UsageHolder,
+    usageHolder: UsageState,
     setIsStreaming: (Boolean) -> Unit,
     setLiveActivityLabel: (String) -> Unit,
     setCurrentPromptJob: (Job?) -> Unit,
@@ -2456,62 +2375,6 @@ private fun submitMessage(
     setCurrentPromptJob(job)
 }
 
-// ---------------------------------------------------------------------------
-// Session loading
-// ---------------------------------------------------------------------------
-
-private fun loadSession(
-    path: Path,
-    sessionsDir: Path?,
-    availableModels: List<Model>,
-    client: AgentClient,
-    chatHistoryState: ChatHistoryState,
-    activeSessionManagerSetter: (SessionManager) -> Unit,
-    applyModel: (Model) -> Unit,
-    setThinkingLevel: (AgentThinkingLevel) -> Unit,
-    appendSystemMessage: (String) -> Unit,
-) {
-    val resolvedPath = when {
-        path.isAbsolute -> path
-        sessionsDir != null -> sessionsDir.resolve(path)
-        else -> path
-    }
-
-    if (!Files.exists(resolvedPath)) {
-        appendSystemMessage("Session not found: ${resolvedPath.toAbsolutePath()}")
-        return
-    }
-
-    val loadedManager = runCatching { SessionManager(resolvedPath) }
-        .getOrElse {
-            appendSystemMessage("Failed to open session: ${it.message ?: it::class.simpleName}")
-            return
-        }
-    val context = loadedManager.buildContext()
-
-    activeSessionManagerSetter(loadedManager)
-    client.replaceMessages(context.messages)
-    chatHistoryState.entries.clear()
-    context.messages.forEach { chatHistoryState.appendMessage(it) }
-
-    val restoredModel = context.model?.let { (provider, id) ->
-        availableModels.firstOrNull { it.provider.value == provider && it.id == id }
-    }
-    if (restoredModel != null) {
-        applyModel(restoredModel)
-    }
-
-    parseThinkingLevelOrNull(context.thinkingLevel)?.let {
-        setThinkingLevel(it)
-    }
-
-    appendSystemMessage("Loaded session ${resolvedPath.fileName}")
-}
-
-// ---------------------------------------------------------------------------
-// Utility functions
-// ---------------------------------------------------------------------------
-
 private fun cycleModel(
     direction: Int,
     availableModels: List<Model>,
@@ -2535,259 +2398,6 @@ private fun defaultToolCollapsed(toolName: String): Boolean = when (toolName.low
     "read", "grep", "find", "ls" -> true
     else -> false
 }
-
-private fun openSubAgentResultOverlay(
-    chatHistoryState: ChatHistoryState,
-    overlayHostState: OverlayHostState,
-    appendSystemMessage: (String) -> Unit,
-) {
-    val lastTaskExecution = chatHistoryState.entries.asReversed()
-        .firstOrNull { entry ->
-            val details = entry.toolExecution?.details
-            details is ToolDetails.SubAgent && details.results.isNotEmpty()
-        }?.toolExecution
-
-    val subAgent = lastTaskExecution?.details as? ToolDetails.SubAgent
-    if (subAgent == null || subAgent.results.isEmpty()) {
-        appendSystemMessage("No sub-agent results available.")
-        return
-    }
-
-    val results = subAgent.results
-    if (results.size == 1) {
-        showSubAgentResult(results.first(), overlayHostState)
-        return
-    }
-
-    val options = results.map { result ->
-        val status = when {
-            result.aborted -> "ABORTED"
-            result.error != null -> "ERROR"
-            result.exitCode == 0 -> "OK"
-            else -> "FAILED"
-        }
-        SelectItem(
-            label = "[$status] ${result.agent}/${result.id} - ${result.description ?: result.task.take(40)}",
-            value = result,
-        )
-    }
-
-    overlayHostState.push(
-        title = "Sub-Agent Results",
-        items = options,
-        selectedIndex = 0,
-        onSubmit = { result -> showSubAgentResult(result, overlayHostState) },
-    )
-}
-
-private fun showSubAgentResult(
-    result: co.agentmode.agent47.coding.core.agents.SubAgentResult,
-    overlayHostState: OverlayHostState,
-) {
-    val lines = buildList {
-        add("Agent: ${result.agent}  ID: ${result.id}")
-        add("Task: ${result.description ?: result.task.take(80)}")
-        add("Status: ${if (result.exitCode == 0) "SUCCESS" else "FAILED"}  Duration: ${result.durationMs}ms  Tokens: ${result.tokens}")
-        if (result.error != null) {
-            add("Error: ${result.error}")
-        }
-        add("")
-
-        // Load session file if available
-        val sessionPath = result.sessionFile?.let { java.nio.file.Path.of(it) }
-        if (sessionPath != null && java.nio.file.Files.exists(sessionPath)) {
-            add("--- Session Transcript ---")
-            add("")
-            val sessionManager = runCatching {
-                co.agentmode.agent47.coding.core.session.SessionManager(sessionPath)
-            }.getOrNull()
-            if (sessionManager != null) {
-                val context = sessionManager.buildContext()
-                context.messages.forEach { message ->
-                    when (message) {
-                        is AssistantMessage -> {
-                            add("[assistant]")
-                            message.content.filterIsInstance<TextContent>().forEach { block ->
-                                block.text.lines().forEach { line -> add("  $line") }
-                            }
-                            add("")
-                        }
-                        is UserMessage -> {
-                            add("[user]")
-                            message.content.filterIsInstance<TextContent>().forEach { block ->
-                                block.text.lines().forEach { line -> add("  $line") }
-                            }
-                            add("")
-                        }
-                        is ToolResultMessage -> {
-                            val output = message.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
-                            val preview = output.lines().take(5).joinToString("\n")
-                            add("[tool:${message.toolName}] ${if (message.isError) "ERROR" else "OK"}")
-                            preview.lines().forEach { line -> add("  $line") }
-                            if (output.lines().size > 5) add("  ... ${output.lines().size - 5} more lines")
-                            add("")
-                        }
-                        else -> {}
-                    }
-                }
-            } else {
-                add("(failed to load session file)")
-            }
-        } else {
-            // Fallback: show output
-            add("--- Output ---")
-            add("")
-            result.output.lines().forEach { line -> add(line) }
-        }
-    }
-
-    overlayHostState.pushScrollableText(
-        title = "Sub-Agent: ${result.agent}/${result.id}",
-        lines = lines,
-    )
-}
-
-private fun emptyUsage(): Usage = Usage(
-    input = 0,
-    output = 0,
-    cacheRead = 0,
-    cacheWrite = 0,
-    totalTokens = 0,
-    cost = UsageCost(input = 0.0, output = 0.0, cacheRead = 0.0, cacheWrite = 0.0, total = 0.0),
-)
-
-private fun randomEntryId(): String = UUID.randomUUID().toString().substring(0, 8)
-
-private fun detectBranchName(path: Path): String? {
-    return runCatching {
-        val process = ProcessBuilder("git", "-C", path.toString(), "rev-parse", "--abbrev-ref", "HEAD")
-            .redirectErrorStream(true)
-            .start()
-        val ok = process.waitFor(1, TimeUnit.SECONDS)
-        if (!ok || process.exitValue() != 0) return null
-        process.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }.trim().ifBlank { null }
-    }.getOrNull()
-}
-
-private fun executeShell(command: String, cwd: Path): Pair<String, Int> {
-    return runCatching {
-        val process = ProcessBuilder("/bin/sh", "-lc", command)
-            .directory(cwd.toFile())
-            .redirectErrorStream(true)
-            .start()
-        val finished = process.waitFor(60, TimeUnit.SECONDS)
-        if (!finished) {
-            process.destroyForcibly()
-            return "Command timed out after 60s" to 124
-        }
-        val output = process.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
-        output.ifBlank { "(no output)" } to process.exitValue()
-    }.getOrElse { error ->
-        "Command failed: ${error.message ?: error::class.simpleName}" to 1
-    }
-}
-
-private fun parseThinkingLevelOrNull(value: String?): AgentThinkingLevel? {
-    if (value == null) return null
-    return when (value.lowercase()) {
-        "off" -> AgentThinkingLevel.OFF
-        "minimal" -> AgentThinkingLevel.MINIMAL
-        "low" -> AgentThinkingLevel.LOW
-        "medium" -> AgentThinkingLevel.MEDIUM
-        "high" -> AgentThinkingLevel.HIGH
-        "xhigh" -> AgentThinkingLevel.XHIGH
-        else -> null
-    }
-}
-
-@Suppress("CyclomaticComplexMethod")
-private fun keyboardShortcutName(event: KeyboardEvent): String? {
-    val key = when (val value = event.key) {
-        is Key.Character -> value.value.lowercaseChar().toString()
-        Key.Enter -> "enter"
-        Key.Tab -> "tab"
-        Key.Escape -> "escape"
-        Key.Backspace -> "backspace"
-        Key.Delete -> "delete"
-        Key.ArrowUp -> "up"
-        Key.ArrowDown -> "down"
-        Key.ArrowLeft -> "left"
-        Key.ArrowRight -> "right"
-        Key.PageUp -> "pageup"
-        Key.PageDown -> "pagedown"
-        else -> return null
-    }
-    return buildList {
-        if (event.ctrl) add("ctrl")
-        if (event.alt) add("alt")
-        if (event.shift) add("shift")
-        add(key)
-    }.joinToString("+")
-}
-
-private fun helpText(slashCommands: List<SlashCommandSpec>): String = buildString {
-    appendLine("Commands:")
-    slashCommands.forEach { spec ->
-        appendLine("  ${spec.command.padEnd(20)} ${spec.description}")
-    }
-    appendLine("")
-    appendLine("Shortcuts:")
-    appendLine("  Enter          Submit")
-    appendLine("  Shift+Enter    Insert newline (Alt+Enter also works)")
-    appendLine("  Ctrl+C         Interrupt current run, then press twice to exit")
-    appendLine("  Ctrl+L         Clear visible chat")
-    appendLine("  Ctrl+T         Toggle thinking")
-    appendLine("  Ctrl+P/Ctrl+N  Cycle models")
-    appendLine("  Ctrl+O         Open settings overlay")
-    appendLine("  Ctrl+G         Toggle latest thinking block")
-    appendLine("  Ctrl+E         Toggle latest tool details")
-    appendLine("  Ctrl+R         View sub-agent results")
-    appendLine("  PgUp/PgDn      Scroll chat history")
-    appendLine("  Ctrl+U/Ctrl+D  Scroll chat history")
-    appendLine("  Up/Down        Scroll chat when input is empty")
-    appendLine("  Alt+PgUp/PgDn  Scroll chat history")
-    appendLine("  Esc            Interrupt agent or close modal")
-    append("Prefix a line with ! to run local shell commands.")
-}
-
-/**
- * Mutable holder for usage stats that persists across recompositions.
- * Using a class with var fields instead of mutableStateOf for each field
- * because these are updated from the agent event handler (non-composable)
- * and read during composition to build the status bar state.
- */
-private class UsageHolder {
-    var inputTokens: Int by mutableIntStateOf(0)
-    var outputTokens: Int by mutableIntStateOf(0)
-    var cacheReadTokens: Int by mutableIntStateOf(0)
-    var cacheWriteTokens: Int by mutableIntStateOf(0)
-    var latestCacheHitRate: Double? by mutableStateOf(null)
-    var cost: Double by mutableDoubleStateOf(0.0)
-
-    fun reset(usages: List<Usage>) {
-        inputTokens = 0
-        outputTokens = 0
-        cacheReadTokens = 0
-        cacheWriteTokens = 0
-        latestCacheHitRate = null
-        cost = 0.0
-        usages.forEach(::add)
-    }
-
-    fun add(usage: Usage) {
-        inputTokens += usage.input
-        outputTokens += usage.output
-        cacheReadTokens += usage.cacheRead
-        cacheWriteTokens += usage.cacheWrite
-        cost += usage.cost.total
-        val promptTokens = usage.input + usage.cacheRead + usage.cacheWrite
-        latestCacheHitRate = if (promptTokens > 0) usage.cacheRead.toDouble() / promptTokens * 100.0 else null
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
 
 /**
  * Launches the interactive TUI. This is the primary entry point
