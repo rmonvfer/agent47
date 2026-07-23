@@ -1,0 +1,63 @@
+{
+  "foreign": {
+    "upcalls": [
+      {
+        "returnType": "void",
+        "parameterTypes": ["void*"]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": ["void*", "jboolean"]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": ["void*", "jint", "jint", "jint", "jint"]
+      }
+    ],
+    "downcalls": [
+      {
+        "returnType": "struct(void*,jint,jboolean,jboolean,padding(2))",
+        "parameterTypes": [],
+        "options": {
+          "firstVariadicArg": 0
+        }
+      },
+      {
+        "returnType": "struct(jint,jint)",
+        "parameterTypes": ["void*", "void*", "jint"]
+      },
+      {
+        "returnType": "struct(jint,jint)",
+        "parameterTypes": ["void*", "void*", "jint", "jint"]
+      },
+      {
+        "returnType": "struct(jboolean,padding(3),jint)",
+        "parameterTypes": ["void*"]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": ["void*"]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": ["void*", "jboolean"]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": ["void*"]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": ["void*", "void*"]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": ["void*", "jint", "jint", "jint", "jint"]
+      },
+      {
+        "returnType": "struct(jint,jint,jint,jint,jint)",
+        "parameterTypes": ["void*"]
+      }
+    ]
+  }
+}

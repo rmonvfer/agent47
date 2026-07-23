@@ -7,11 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.4] - 2026-07-23
+## [0.1.5] - 2026-07-23
 
 ### Fixed
 
-- Standalone native binaries initialize Mosaic's JNI loader at runtime so the interactive terminal UI can start.
+- Native builds preserve Mosaic's Java 22 FFM implementation and register its complete foreign-call surface so the interactive terminal UI starts on GraalVM 25.1.3.
+
+## [0.1.4] - 2026-07-23
+
+### Changed
+
 - Release smoke tests launch every native artifact in a real pseudo-terminal and reject startup exceptions.
 
 ## [0.1.3] - 2026-07-23
@@ -67,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.1.5]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.5
 [0.1.4]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.4
 [0.1.3]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.3
 [0.1.2]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.2

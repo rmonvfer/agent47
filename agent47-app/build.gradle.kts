@@ -131,8 +131,8 @@ graalvmNative {
     binaries {
         named("main") {
             classpath.from(sourceSets.main.get().runtimeClasspath, kotlinCompilerCompatibilityJar)
-            // Force a fat classpath JAR so the stripping task below can remove
-            // multi-release FFM entries before native-image processes the classpath.
+            // Force a fat classpath JAR so runtime-loaded Kotlin extensions can resolve
+            // the same application and dependency classes available to native-image.
             useFatJar.set(true)
             imageName.set("agent47")
             mainClass.set("co.agentmode.agent47.app.MainKt")
@@ -145,11 +145,6 @@ graalvmNative {
             buildArgs.add("-H:+RuntimeClassLoading")
             buildArgs.add("--features=co.agentmode.agent47.app.KotlinCompilerCompatibilityFeature")
             buildArgs.add("--enable-native-access=ALL-UNNAMED")
-            buildArgs.add(
-                "--initialize-at-run-time=" +
-                    "com.jakewharton.mosaic.tty.Jni," +
-                    "com.jakewharton.mosaic.tty.NativeLibrary",
-            )
             buildArgs.add("-H:+AddAllCharsets")
             buildArgs.add("-H:+AllowJRTFileSystem")
             buildArgs.add("--add-modules=java.logging,java.management,java.xml,jdk.unsupported")
@@ -251,13 +246,11 @@ tasks.named("nativeCompile") {
     }
 }
 
-// Mosaic's multi-release JAR ships FFM/Panama bindings under META-INF/versions/22/ that
-// replace the JNI bindings on JDK 22+. GraalVM 25 picks up the FFM path, but FFM downcalls
-// require explicit registration in reachability-metadata.json for every function descriptor
-// (and Mosaic doesn't ship those registrations). Stripping the version-22 entries from the
-// native image classpath JAR forces Mosaic to use its JNI fallback, which GraalVM handles
-// without additional configuration.
-tasks.named("nativeCompileClasspathJar") {
+// Dependencies such as Mosaic use multi-release entries to select their Java 22+ FFM
+// implementation. The fat native classpath JAR must retain those entries and advertise
+// itself as multi-release so native-image resolves the implementation for its JDK.
+tasks.named<Jar>("nativeCompileClasspathJar") {
+    manifest.attributes["Multi-Release"] = "true"
     doLast {
         val jar = outputs.files.singleFile
         val tmpJar = File(jar.parentFile, "${jar.name}.tmp")
@@ -265,7 +258,6 @@ tasks.named("nativeCompileClasspathJar") {
         ZipFile(jar).use { zip ->
             ZipOutputStream(tmpJar.outputStream()).use { zos ->
                 for (entry in zip.entries()) {
-                    if (entry.name.startsWith("META-INF/versions/")) continue
                     // kotlin-compiler-embeddable shades JLine's native-image.properties without
                     // the reflection/resource JSON files referenced by those properties.
                     if (entry.name.startsWith("META-INF/native-image/org.jline/")) continue
