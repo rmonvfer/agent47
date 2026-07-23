@@ -34,14 +34,14 @@ public class AgentConfig(
         get() = projectDir.resolve("subagents.json")
     public val sessionsDir: Path
         get() = agentDir.resolve("sessions")
-    public val globalPackagesRegistryPath: Path
-        get() = agentDir.resolve("packages.json")
-    public val globalPackagesDir: Path
-        get() = agentDir.resolve("packages")
-    public val projectPackagesRegistryPath: Path
-        get() = projectDir.resolve("packages.json")
-    public val projectPackagesDir: Path
-        get() = projectDir.resolve("packages")
+    public val globalExtensionRepositoriesPath: Path
+        get() = agentDir.resolve("extensions.json")
+    public val globalExtensionGitDir: Path
+        get() = agentDir.resolve("git")
+    public val projectExtensionRepositoriesPath: Path
+        get() = projectDir.resolve("extensions.json")
+    public val projectExtensionGitDir: Path
+        get() = projectDir.resolve("git")
 
     public val projectAgentsDir: Path
         get() = projectDir.resolve("agents")

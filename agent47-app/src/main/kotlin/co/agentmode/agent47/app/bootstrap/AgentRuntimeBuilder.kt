@@ -43,8 +43,8 @@ import co.agentmode.agent47.coding.core.auth.CopilotAuthPlugin
 import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.coding.core.commands.SlashCommandDiscovery
 import co.agentmode.agent47.coding.core.config.AgentConfig
-import co.agentmode.agent47.coding.core.extensions.ExtensionPackageManager
-import co.agentmode.agent47.coding.core.extensions.ExtensionPackageResources
+import co.agentmode.agent47.coding.core.extensions.ExtensionRepositoryManager
+import co.agentmode.agent47.coding.core.extensions.ExtensionRepositoryResources
 import co.agentmode.agent47.coding.core.instructions.InstructionLoader
 import co.agentmode.agent47.coding.core.models.ModelRegistry
 import co.agentmode.agent47.coding.core.session.SessionManager
@@ -71,6 +71,21 @@ import com.github.ajalt.mordant.terminal.Terminal
 import java.nio.file.Path
 
 private const val VALID_ENV_HINT = "ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY"
+
+private fun createRepositoryManagers(
+    config: AgentConfig,
+    workingDirectory: Path,
+): Pair<ExtensionRepositoryManager, ExtensionRepositoryManager> =
+    ExtensionRepositoryManager(
+        config.globalExtensionRepositoriesPath,
+        config.globalExtensionGitDir,
+        workingDirectory,
+    ) to ExtensionRepositoryManager(
+        config.projectExtensionRepositoriesPath,
+        config.projectExtensionGitDir,
+        workingDirectory,
+        relativeLocalSources = true,
+    )
 
 /**
  * Assembles the [AgentRuntime] object graph from parsed options in the same order the CLI has
@@ -107,27 +122,21 @@ internal class AgentRuntimeBuilder(
             require(name !in values) { "Duplicate extension flag value: $name" }
             values.apply { put(name, value) }
         }
-        val globalPackages = ExtensionPackageManager(config.globalPackagesRegistryPath, config.globalPackagesDir)
-        val projectPackages = ExtensionPackageManager(config.projectPackagesRegistryPath, config.projectPackagesDir)
-        val packageResources = runCatching {
-            val global = globalPackages.resources()
-            val project = projectPackages.resources()
-            ExtensionPackageResources(
-                extensions = global.extensions + project.extensions,
-                skillDirectories = global.skillDirectories + project.skillDirectories,
-                promptDirectories = global.promptDirectories + project.promptDirectories,
-                themeFiles = global.themeFiles + project.themeFiles,
-            )
+        val (globalRepositories, projectRepositories) = createRepositoryManagers(config, workingDir)
+        val repositoryResources = runCatching {
+            val project = projectRepositories.resources()
+            val global = globalRepositories.resources(excluding = projectRepositories.identities())
+            project + global
         }.getOrElse { abort(it.message ?: it.toString()) }
         val availableThemes = runCatching {
-            mergeThemes(packageResources.themeFiles.map(::loadNamedTheme))
+            mergeThemes(repositoryResources.themeFiles.map(::loadNamedTheme))
         }.getOrElse { abort(it.message ?: it.toString()) }
         val discoveredExtensionPaths = runCatching {
             KotlinExtensionDiscovery.discover(
                 explicitPaths = options.extensionPaths,
                 projectDirectory = config.projectExtensionsDir,
                 globalDirectory = config.globalExtensionsDir,
-                packagePaths = packageResources.extensions,
+                repositoryPaths = repositoryResources.extensions,
                 autoDiscover = !options.noExtensions,
             )
         }.getOrElse { abort(it.message ?: it.toString()) }
@@ -155,7 +164,7 @@ internal class AgentRuntimeBuilder(
             terminal.printError("Unknown extension flags: ${unknownFlags.joinToString()}")
             loadFailed = true
         }
-        return ExtensionSetup(extensionRuntime, availableThemes, packageResources, loadFailed)
+        return ExtensionSetup(extensionRuntime, availableThemes, repositoryResources, loadFailed)
     }
 
     private suspend fun buildRegistries(extensionRuntime: KotlinExtensionRuntime): Registries {
@@ -270,12 +279,12 @@ internal class AgentRuntimeBuilder(
         val skillRegistry = SkillRegistry(
             config.projectSkillsDir,
             config.globalSkillsDir,
-            extensions.packageResources.skillDirectories,
+            extensions.repositoryResources.skillDirectories,
         )
         val fileCommands = SlashCommandDiscovery.discover(
             config.projectCommandsDir,
             config.globalCommandsDir,
-            extensions.packageResources.promptDirectories,
+            extensions.repositoryResources.promptDirectories,
         )
         val skillReader = object : SkillReader {
             override fun readSkillFile(name: String, relativePath: String?): String? =
@@ -476,7 +485,7 @@ internal class AgentRuntimeBuilder(
     private class ExtensionSetup(
         val runtime: KotlinExtensionRuntime,
         val availableThemes: List<NamedTheme>,
-        val packageResources: ExtensionPackageResources,
+        val repositoryResources: ExtensionRepositoryResources,
         val loadFailed: Boolean,
     )
 

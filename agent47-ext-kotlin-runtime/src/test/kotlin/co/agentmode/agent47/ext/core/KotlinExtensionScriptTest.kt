@@ -1,12 +1,35 @@
 package co.agentmode.agent47.ext.core
 
 import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.exists
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class KotlinExtensionScriptTest {
+    @Test
+    fun `complete repository example compiles every Kotlin entrypoint`() {
+        val extensions = exampleRepository().resolve("extensions")
+        val scripts = Files.walk(extensions).use { paths ->
+            paths
+                .filter { path -> path.fileName.toString() == "index.kts" }
+                .sorted()
+                .toList()
+        }
+
+        val loaded = scripts.map { script -> KotlinExtensionScriptLoader().load(script) }
+
+        assertEquals(2, loaded.size)
+        loaded.forEach { result ->
+            assertIs<ScriptLoadResult.Loaded>(
+                result,
+                (result as? ScriptLoadResult.Failed)?.failure?.diagnostics?.joinToString("\n"),
+            )
+        }
+    }
+
     @Test
     fun `loads Kotlin extension source`() {
         val script = Files.createTempFile("agent47-extension", ".kts")
@@ -117,4 +140,13 @@ class KotlinExtensionScriptTest {
         assertEquals(1, runner.messageRenderers().size)
         assertEquals(1, runner.flags().size)
     }
+
+    private fun exampleRepository(): Path =
+        listOf(
+            Path.of("examples/extension-repository"),
+            Path.of("../examples/extension-repository"),
+        ).firstOrNull { it.resolve("agent47.json").exists() }
+            ?.toAbsolutePath()
+            ?.normalize()
+            ?: error("Cannot locate examples/extension-repository")
 }

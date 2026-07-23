@@ -14,6 +14,7 @@ import co.agentmode.agent47.ext.core.SessionStartEvent
 import co.agentmode.agent47.ext.core.SessionStartReason
 import com.github.ajalt.clikt.command.SuspendingCliktCommand
 import com.github.ajalt.clikt.core.Abort
+import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple as multipleArguments
 import com.github.ajalt.clikt.parameters.options.flag
@@ -114,8 +115,21 @@ class Agent47Command :
         help = "Show the installed agent47 version"
     ).flag()
     private val promptArgs by argument(
-        help = "Prompt messages, @file paths, or the update command"
+        help = "Prompt messages or @file paths"
     ).multipleArguments()
+
+    override fun helpEpilog(context: Context): String =
+        """
+        Extension repositories:
+
+        agent47 install SOURCE [-l|--local]
+
+        agent47 remove SOURCE [-l|--local]
+
+        agent47 list
+
+        agent47 update [--self|--extensions|--all|SOURCE]
+        """.trimIndent()
 
     private val terminal = Terminal()
 

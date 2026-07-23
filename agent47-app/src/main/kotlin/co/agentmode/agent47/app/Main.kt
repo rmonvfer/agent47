@@ -7,8 +7,8 @@ import co.agentmode.agent47.app.update.shouldCheckForUpdates
 import com.github.ajalt.clikt.command.main
 
 suspend fun main(args: Array<String>) {
-    if (args.firstOrNull() == "extension") {
-        runExtensionPackageCommand(args.drop(1))
+    if (isExtensionRepositoryCommand(args.firstOrNull())) {
+        runExtensionRepositoryCommand(args.toList())
         return
     }
     if (args.firstOrNull() == "update") {

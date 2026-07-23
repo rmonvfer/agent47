@@ -96,7 +96,8 @@ and custom prompt templates.
 **Hackable and extensible.** Everything is file-based and overridable. Agents, skills, and commands are markdown files
 you can edit, version, and share. Runtime extensions are ordinary Kotlin `.kts` source files loaded directly by the
 self-contained native executable; users do not install Java or distribute extension JARs. See
-[docs/extensions.md](docs/extensions.md).
+[docs/extensions.md](docs/extensions.md). A complete multi-resource repository is available in
+[examples/extension-repository](examples/extension-repository).
 
 ## Configuration
 
@@ -112,14 +113,16 @@ Project settings override global settings.
 | `~/.agent47/skills/*/SKILL.md` | User-defined skills                                   |
 | `~/.agent47/commands/*.md`     | User-defined slash commands                           |
 | `~/.agent47/extensions/*.kts`  | User-defined Kotlin runtime extensions                |
-| `~/.agent47/packages.json`     | Installed global extension package registry           |
+| `~/.agent47/extensions.json`  | Installed global extension repository sources         |
+| `~/.agent47/git/`             | Managed global extension repository checkouts         |
 | `.agent47/settings.json`       | Project-level setting overrides                       |
 | `.agent47/subagents.json`      | Project-level subagent runtime overrides              |
 | `.agent47/agents/*.md`         | Project-level agent overrides                         |
 | `.agent47/skills/*/SKILL.md`   | Project-level skills                                  |
 | `.agent47/commands/*.md`       | Project-level slash commands                          |
 | `.agent47/extensions/*.kts`    | Project-level Kotlin runtime extensions               |
-| `.agent47/packages.json`       | Installed project extension package registry          |
+| `.agent47/extensions.json`    | Installed project extension repository sources        |
+| `.agent47/git/`               | Managed project extension repository checkouts        |
 
 See [docs/configuration.md](docs/configuration.md) for full details.
 

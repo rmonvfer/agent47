@@ -11,12 +11,12 @@ public object KotlinExtensionDiscovery {
         explicitPaths: List<Path>,
         projectDirectory: Path,
         globalDirectory: Path,
-        packagePaths: List<Path> = emptyList(),
+        repositoryPaths: List<Path> = emptyList(),
         autoDiscover: Boolean = true,
     ): List<Path> {
         val candidates = buildList {
             explicitPaths.forEach { path -> addAll(resolveExplicitPath(path)) }
-            packagePaths.forEach { path -> addAll(resolveExplicitPath(path)) }
+            repositoryPaths.forEach { path -> addAll(resolveExplicitPath(path)) }
             if (autoDiscover) {
                 addAll(discoverDirectory(projectDirectory))
                 addAll(discoverDirectory(globalDirectory))

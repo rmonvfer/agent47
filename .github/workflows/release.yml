@@ -99,6 +99,25 @@ jobs:
             --extension-flag example=true \
             | grep -F "$extension_path"
           test ! -e "$clean_home/.agent47"
+          repository_path="$RUNNER_TEMP/agent47-extension-repository"
+          mkdir -p "$repository_path/extensions"
+          cp "$extension_path" "$repository_path/extensions/api-surface.kts"
+          git -C "$repository_path" init --initial-branch=main
+          git -C "$repository_path" -c user.name=agent47 -c user.email=agent47@example.invalid \
+            add extensions/api-surface.kts
+          git -C "$repository_path" -c user.name=agent47 -c user.email=agent47@example.invalid \
+            commit -m "Native extension smoke fixture"
+          repository_source="file://$repository_path"
+          env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
+            "$PWD/agent47-${{ matrix.target }}" install "$repository_source"
+          env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
+            "$PWD/agent47-${{ matrix.target }}" --list-extensions \
+            | grep -F "/extensions/api-surface.kts"
+          env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
+            "$PWD/agent47-${{ matrix.target }}" update --extensions \
+            | grep -F "already current"
+          env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
+            "$PWD/agent47-${{ matrix.target }}" remove "$repository_source"
           python3 scripts/smoke-interactive.py "$PWD/agent47-${{ matrix.target }}"
 
       - name: Upload artifact

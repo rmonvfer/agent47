@@ -27,17 +27,19 @@ Sessions are persisted unless `--no-session` is set. `-c`/`--continue` loads the
 `--session-dir PATH` changes storage.
 
 `--list-models` lists available models, with optional filtering through `--list-models-search`. `--version` and `--help`
-provide command information, and `agent47 update` forces a release check.
+provide command information. `agent47 update` and `agent47 update --self` update the executable,
+`agent47 update --extensions` updates every unpinned extension repository, and `agent47 update --all` does both.
+`agent47 update SOURCE` and `agent47 update --extension SOURCE` update one installed repository.
 
 `-e`/`--extension PATH` loads a Kotlin extension file or directory and may be repeated. `--no-extensions` disables
-automatic project and global discovery while preserving explicit `-e` paths. `--list-extensions` compiles the selected
-extensions, prints their canonical paths, and exits. `--extension-flag name` and `--extension-flag name=value` supply
-values declared by loaded extensions.
+loose discovery from `.agent47/extensions/` and `~/.agent47/extensions/` while preserving explicit `-e` paths and
+installed repositories. `--list-extensions` compiles the selected extensions, prints their canonical paths, and exits.
+`--extension-flag name` and `--extension-flag name=value` supply values declared by loaded extensions.
 
-`agent47 extension install SOURCE`, `remove SOURCE`, `update [SOURCE]`, and `list` manage extension packages. These
-commands operate on the global registry by default; `-l`/`--local` selects the current project's registry. Sources may
-be local files or directories, Git URLs, SSH URLs, or GitHub `owner/repository` shorthand. See
-[extensions.md](extensions.md) for the package manifest and runtime API.
+`agent47 install SOURCE`, `remove SOURCE`, `uninstall SOURCE`, and `list` manage extension repositories. Install and
+remove use global scope by default; `-l`/`--local` selects the current project. A source may be a local path, a Git URL,
+an SSH source, a `file://` Git source, or shorthand such as `git:github.com/owner/repository`. See
+[extensions.md](extensions.md) for registry behavior, repository layout, authoring workflow, and the runtime API.
 
 ## Interactive UI
 

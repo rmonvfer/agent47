@@ -143,6 +143,7 @@ graalvmNative {
             buildArgs.add("-Dsun.misc.unsafe.memory.access=allow")
             buildArgs.add("-H:+UnlockExperimentalVMOptions")
             buildArgs.add("-H:+RuntimeClassLoading")
+            buildArgs.add("--future-defaults=class-for-name-respects-class-loader")
             buildArgs.add("--features=co.agentmode.agent47.app.KotlinCompilerCompatibilityFeature")
             buildArgs.add("--enable-native-access=ALL-UNNAMED")
             buildArgs.add("-H:+AddAllCharsets")

@@ -10,16 +10,17 @@ Read an extension before installing it.
 
 Global extensions live in `~/.agent47/extensions/` and project extensions in `.agent47/extensions/`. A directory may
 contain individual `.kts` files or use `index.kts` as its entry point. Explicit paths load first, followed by project,
-package, and global extensions.
+project-installed repositories, global-installed repositories, project extensions, and global extensions.
 
 ```bash
 agent47 -e ./my-extension.kts
 agent47 --no-extensions -e ./my-extension.kts --list-extensions
 ```
 
-`-e`/`--extension` may be repeated. `--no-extensions` disables automatic project, package, and global discovery but
-keeps explicit paths. `/reload` recompiles the selected files and replaces the active extension set only when every
-script compiles successfully.
+`-e`/`--extension` may be repeated. `--no-extensions` disables loose extension discovery from
+`.agent47/extensions/` and `~/.agent47/extensions/`; explicitly selected files and installed repositories remain
+enabled. `/reload` recompiles the selected files and replaces the active extension set only when every script compiles
+successfully.
 
 ## Script API
 
@@ -154,27 +155,70 @@ if (getFlag("verbose") == "true") {
 Providers may be keyless for local services or declare an API key. Reload unregisters providers and models belonging
 to files that are no longer active.
 
-## Packages
+## Extension repositories
 
-An extension package is a local path or Git repository containing extensions, skills, prompt commands, themes, or any
-combination of those resources.
+An extension repository is an ordinary source repository containing Kotlin extensions, skills, prompt commands,
+themes, or any combination of those resources. Installation consumes the repository directly: authors do not publish
+a package or JAR, and users do not need Java or Gradle.
 
 ```bash
-agent47 extension install ./my-package
-agent47 extension install owner/repository
-agent47 extension install https://github.com/owner/repository.git
-agent47 extension install owner/repository@v1.0.0
-agent47 extension list
-agent47 extension update
-agent47 extension remove owner/repository
+agent47 install git:github.com/owner/repository
+agent47 install https://github.com/owner/repository.git
+agent47 install git@github.com:owner/repository.git
+agent47 install git:github.com/owner/repository@v1.0.0
+agent47 install ./local-repository
+agent47 install file:///absolute/path/to/repository.git
+
+agent47 install git:github.com/owner/repository --local
+agent47 list
+
+agent47 update
+agent47 update --extensions
+agent47 update --all
+agent47 update git:github.com/owner/repository
+agent47 update --extension git:github.com/owner/repository
+
+agent47 remove git:github.com/owner/repository
+agent47 remove git:github.com/owner/repository --local
+agent47 uninstall git:github.com/owner/repository
 ```
 
-Commands use global scope by default. Add `-l` or `--local` to install, update, remove, or list the project-scoped
-registry under `.agent47/`. Local filesystem packages remain in place when removed. Git packages are cloned into the
-agent47 package directory; unpinned packages update with a fast-forward pull, while tagged or branch-ref packages stay
-pinned.
+Install and remove use global scope by default. Add `-l` or `--local` to declare the source in
+`.agent47/extensions.json`; that file can be committed, and agent47 clones a missing checkout when the project starts.
+The project declaration wins when the same repository is installed globally. Local sources remain in place when
+removed, while removing a managed Git source deletes its checkout. `remove` and `uninstall` are equivalent.
 
-Packages may declare resources in `agent47.json`:
+Plain `agent47 update` updates the agent47 executable. `--extensions` updates every unpinned repository, `--all`
+updates the executable and repositories, and either a positional source or `--extension SOURCE` updates one installed
+repository. A source with an `@ref` remains pinned. An unpinned checkout with local changes is not replaced. Updates
+validate a fresh checkout before replacing the installed revision, and a failed clone or invalid manifest leaves the
+working revision intact. Installing or updating a remote source requires `git` on `PATH`.
+
+Global declarations are stored in `~/.agent47/extensions.json`. Project declarations are stored in
+`.agent47/extensions.json`, with project-local filesystem sources made relative to that file:
+
+```json
+{
+  "repositories": [
+    "git:github.com/owner/repository@v1.0.0",
+    "../local-repository"
+  ]
+}
+```
+
+Managed checkouts live under the corresponding `git/` directory beside the registry. The registry contains source
+declarations only; it does not contain copied scripts, dependency metadata, or executable code.
+
+Without a manifest, agent47 discovers the conventional repository layout:
+
+```text
+extensions/   Kotlin .kts entrypoints
+skills/       skill directories containing SKILL.md
+prompts/      slash-command prompt files
+themes/       JSON themes
+```
+
+A repository may instead declare resource paths in `agent47.json`:
 
 ```json
 {
@@ -185,8 +229,62 @@ Packages may declare resources in `agent47.json`:
 }
 ```
 
-Entries are files or directories relative to the package root and cannot escape it. Directory discovery is recursive
-for `.kts` extensions and non-recursive for JSON themes. Without a manifest, the four conventional directories above
-are used. Package themes use the OpenCode JSON theme shape and appear in the TUI theme picker.
+Entries are files or directories relative to the repository root and cannot escape it. Directory discovery is recursive
+for `.kts` extensions and non-recursive for JSON themes. An `index.kts` file is the entrypoint for its directory, so
+sibling `.kts` files are not independently loaded. Without a manifest, the four conventional directories above are
+used. A repository must resolve at least one supported resource. Repository themes use the OpenCode JSON theme shape
+and appear in the TUI theme picker.
 
-See [`examples/extensions`](../examples/extensions) for complete command and tool examples.
+See [`examples/extension-repository`](../examples/extension-repository) for a complete repository containing two
+extensions, a skill, a prompt command, a theme, a manifest, and an optional Gradle authoring check. Gradle is an
+author-side convenience only; agent47 never invokes it when installing or loading a repository. The standalone
+[`examples/extensions`](../examples/extensions) scripts provide smaller API examples.
+
+## Script API reference
+
+Each `.kts` entrypoint is evaluated once when it is loaded. Registration calls apply only to that entrypoint. The
+complete top-level registration surface is:
+
+```kotlin
+beforeAgent { messages -> messages }
+afterAgent { messages -> }
+transformContext { context -> context }
+wrapTools(wrapper)
+registerTool(tool)
+on("event_type") { event, context -> }
+beforeCompaction { event, context -> CompactionHookResult() }
+afterCompaction { event, context -> }
+registerProvider(provider, models, apiKey = null, requiresAuth = true)
+onToolCall { event, context -> ToolCallHookResult() }
+onToolResult { event, context -> ToolResultHookResult() }
+onInput { event, context -> InputHookResult.Continue }
+onSessionStart { event, context -> }
+onSessionShutdown { event, context -> }
+registerShortcut("ctrl+k", "Description") { context -> }
+registerToolRenderer("tool-name", renderer)
+registerMessageRenderer("custom-type", renderer)
+registerFlag("flag-name", "Description")
+getFlag("flag-name")
+registerCommand("command-name", "Description") { arguments, context -> }
+```
+
+`beforeAgent` and `transformContext` replace their input values. `afterAgent` observes the completed message list.
+Registration order is execution order for lifecycle, event, input, and tool hooks. A failing lifecycle handler is
+reported and later handlers still run. Tool-call hooks may replace input or block execution; tool-result hooks may
+replace content or details. Input hooks may continue, transform, or consume input.
+
+`ExtensionContext` exposes `cwd`, `mode`, `model`, `availableModels`, `thinkingLevel`, `messages`, `isIdle`,
+`systemPrompt`, `availableTools`, `activeToolNames`, `sessionId`, `sessionEntries`, `sessionName`, `flags`, `ui`, and
+`session`. It can notify the user, deliver a steering or follow-up message, register or unregister tools, choose active
+tools, select a model or thinking level, append or send custom messages, name the session, label entries, wait for idle,
+execute a child process, and abort the current run.
+
+`ExtensionUi` provides notification, selection, confirmation, input, editor, status, widget, title, and editor-text
+operations. Dialog methods return `null` or `false` when no interactive UI is available. `ExtensionSessionControl`
+creates, switches, and forks sessions. Command handlers receive the smaller `ExtensionCommandContext`, which exposes
+the working directory, UI availability, notifications, user-message delivery, and reload.
+
+Types used by hooks and renderers live in `co.agentmode.agent47.ext.core`. Tool implementations use
+`co.agentmode.agent47.agent.core.AgentTool` and the shared types from `co.agentmode.agent47.ai.types`. The compiling
+[`api-surface.kts`](../examples/extensions/api-surface.kts) example is the compatibility reference for every
+top-level registration call.
