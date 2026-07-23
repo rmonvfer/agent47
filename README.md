@@ -41,7 +41,7 @@ agent47 update
 Automatic checks can be configured under `updates` in `~/.agent47/settings.json` or disabled for a single launch with
 `AGENT47_NO_AUTO_UPDATE=1`.
 
-**Build from source** (requires GraalVM Community 25.1.3):
+**Build from source** (requires GraalVM Community 25; use 25.1.3 where available):
 
 ```bash
 git clone https://github.com/rmonvfer/agent47.git
