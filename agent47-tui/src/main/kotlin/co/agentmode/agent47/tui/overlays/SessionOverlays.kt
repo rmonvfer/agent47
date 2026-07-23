@@ -21,7 +21,7 @@ internal fun OverlayNavigator.openSessionOverlay() {
             stream
                 .filter { Files.isRegularFile(it) }
                 .filter { it.fileName.toString().endsWith(".jsonl") }
-                // Exclude sub-agent sessions — they aren't top-level conversations.
+                // Exclude sub-agent sessions, they aren't top-level conversations.
                 .filter { !it.fileName.toString().startsWith("subagent-") }
                 .sorted(Comparator.comparing<Path, String> { it.fileName.toString() }.reversed())
                 .limit(50)

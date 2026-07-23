@@ -31,7 +31,7 @@ internal data class TuiLayout(
 
 internal fun computeTuiLayout(width: Int, height: Int, inputs: LayoutInputs): TuiLayout {
     val statusHeight = 2 // ohm-style two-line footer
-    val editorPromptWidth = 2 // "❯ " or "! "
+    val editorPromptWidth = 2 // two columns for the prompt marker, e.g. "! " in bash mode
     val editorContentWidth = (width - editorPromptWidth).coerceAtLeast(1)
     val baseInputHeight = min(8, max(1, inputs.visualLineCount))
     val popupRowCount = min(8, inputs.popupItemCount)

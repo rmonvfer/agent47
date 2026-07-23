@@ -26,6 +26,12 @@ import co.agentmode.agent47.tui.input.parseSubmission
 import co.agentmode.agent47.tui.input.toKeyboardEvent
 import co.agentmode.agent47.tui.layout.LayoutInputs
 import co.agentmode.agent47.tui.layout.computeTuiLayout
+import co.agentmode.agent47.tui.runtime.AgentEventCollector
+import co.agentmode.agent47.tui.runtime.AgentTranscriptMirror
+import co.agentmode.agent47.tui.runtime.PushNotificationPump
+import co.agentmode.agent47.tui.runtime.ResumeHintTracker
+import co.agentmode.agent47.tui.runtime.SpinnerTicker
+import co.agentmode.agent47.tui.runtime.TerminalSession
 import co.agentmode.agent47.tui.commands.SlashCommandSpec
 import co.agentmode.agent47.tui.commands.builtinSlashCommands
 import co.agentmode.agent47.tui.commands.helpText
@@ -93,24 +99,6 @@ import kotlin.math.min
 
 /** How far the base layer is darkened toward black while a dialog is open (1 = unchanged). */
 private const val SCRIM_DIM_FACTOR = 0.5f
-
-/**
- * The session the interactive app is currently in. Read by the terminal-restore shutdown hook —
- * the app exits via exitProcess(), so that hook is the only reliable place to print on the way out.
- */
-private val activeResumeSession = AtomicReference<SessionManager?>(null)
-
-/** Prints a "resume this session" hint to [out] once the terminal has been restored. */
-private fun printResumeHint(out: java.io.PrintStream) {
-    val session = activeResumeSession.get() ?: return
-    val hasContent = runCatching { session.getEntries().any { it is SessionMessageEntry } }.getOrDefault(false)
-    if (!hasContent) return
-    val id = runCatching { session.getHeader().id }.getOrNull() ?: return
-    runCatching {
-        out.write("\nTo resume this session:  agent47 --resume $id\n".toByteArray())
-        out.flush()
-    }
-}
 
 /**
  * Top-level Mosaic composable for the interactive TUI.
@@ -517,57 +505,11 @@ private fun Agent47AppContent(
         }
     }
 
-    // --- Agent event collection ---
-
-    LaunchedEffect(running) {
-        if (!running) return@LaunchedEffect
-        client.events.collect { event ->
-            conversationController.onAgentEvent(event)
-            compactionController.maybeAutoCompactAfter(event)
-        }
-    }
-
-    // --- Refresh ticker for spinner animation ---
-
-    LaunchedEffect(isStreaming) {
-        if (!isStreaming) return@LaunchedEffect
-        while (true) {
-            delay(80L)
-            spinnerFrame++
-        }
-    }
-
-    // Rebuild the focused agent's transcript from its live messages while focus mode is active.
-    LaunchedEffect(viewingAgentId) {
-        val id = viewingAgentId ?: return@LaunchedEffect
-        while (viewingAgentId == id) {
-            val ref = backgroundAgents?.runningStatus()?.firstOrNull { it.id == id }?.agentRef
-            if (ref != null) {
-                viewingChatState.entries.clear()
-                ref.state.messages.forEach { viewingChatState.appendMessage(it) }
-            } else {
-                break
-            }
-            delay(200L)
-        }
-    }
-
-    // Keep the background-agents panel (and its elapsed times) live while agents run, even
-    // when the main loop is idle between turns.
-    if (backgroundAgents != null) {
-        LaunchedEffect(Unit) {
-            while (true) {
-                delay(100L)
-                if (backgroundAgents.hasRunning()) spinnerFrame++
-                conversationController.deliverPushQueue()
-            }
-        }
-    }
-
-    // Track the active session so the shutdown hook can print a resume hint on exit.
-    LaunchedEffect(activeSessionManager) {
-        activeResumeSession.set(activeSessionManager)
-    }
+    AgentEventCollector(state, client, conversationController, compactionController)
+    SpinnerTicker(state)
+    AgentTranscriptMirror(state, backgroundAgents)
+    PushNotificationPump(state, backgroundAgents, conversationController)
+    ResumeHintTracker(state)
 
     // --- Render the editor ---
 
@@ -741,58 +683,13 @@ public fun runTui(
     conversationServices: TuiConversationServices = TuiConversationServices(),
     subagentServices: TuiSubagentServices = TuiSubagentServices(),
 ) {
-    val out = System.out
-    val restoreTerminal = "\u001b[<u\u001b[?25h\u001b[?1049l"
-
-    // Install a shutdown hook so that exitProcess() (or any JVM shutdown) restores
-    // the terminal from alternate screen / kitty keyboard mode.
-    val shutdownHook = Thread({
-        out.write(restoreTerminal.toByteArray())
-        out.flush()
-        printResumeHint(out)
-    }, "terminal-restore")
-    Runtime.getRuntime().addShutdownHook(shutdownHook)
-
-    // Enter alternate screen buffer, hide cursor, and enable kitty keyboard protocol.
-    // Kitty keyboard flags=1 (disambiguate) makes the terminal encode modifier keys
-    // on Enter, Tab, Escape, and Backspace via CSI u sequences, allowing Shift+Enter
-    // to be distinguished from bare Enter.
-    // Non-ASCII Unicode codepoints (ñ, é, etc.) are handled by our patched CompatKt.java
-    // which shadows Mosaic's broken version that throws for codepoints outside ASCII.
-    out.write("\u001b[?1049h\u001b[?25l\u001b[>1u".toByteArray())
-    out.flush()
-
-    // Fill the alternate screen with the theme background color. Mosaic renders
-    // rows-1 rows of content (to avoid a scroll caused by the trailing \r\n it
-    // appends after every row). Pre-filling ensures the unused last terminal row
-    // matches the app background instead of showing the terminal's native color.
-    if (configuration.theme.background.isSpecifiedColor) {
-        val (r, g, b) = configuration.theme.background
-        val red = (r * 255).toInt()
-        val green = (g * 255).toInt()
-        val blue = (b * 255).toInt()
-        out.write("\u001b[48;2;${red};${green};${blue}m\u001b[2J\u001b[H\u001b[0m".toByteArray())
-        out.flush()
-    }
-    try {
-        runMosaicMain {
-            Agent47App(
-                client = client,
-                configuration = configuration,
-                providerServices = providerServices,
-                conversationServices = conversationServices,
-                subagentServices = subagentServices,
-            )
-        }
-    } catch (e: UnsupportedOperationException) {
-        // Safety net: if our CompatKt shadow somehow isn't loaded and Mosaic's
-        // original throws for an unrecognized codepoint, exit gracefully.
-        System.err.println("Keyboard input error: ${e.message}")
-        System.err.println("This is a Mosaic library bug with non-ASCII characters.")
-    } finally {
-        // Pop kitty keyboard flags, restore cursor, and leave alternate screen buffer
-        out.write(restoreTerminal.toByteArray())
-        out.flush()
-        runCatching { Runtime.getRuntime().removeShutdownHook(shutdownHook) }
+    TerminalSession.runInTerminalSession(configuration.theme) {
+        Agent47App(
+            client = client,
+            configuration = configuration,
+            providerServices = providerServices,
+            conversationServices = conversationServices,
+            subagentServices = subagentServices,
+        )
     }
 }

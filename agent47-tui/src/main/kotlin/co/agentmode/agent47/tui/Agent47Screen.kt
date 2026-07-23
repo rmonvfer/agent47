@@ -57,7 +57,7 @@ private fun ChatPane(
     cwd: Path,
 ) {
     val cwdDisplay = cwd.toString().replace(System.getProperty("user.home"), "~")
-    // Chat history viewport — the conversation, or a background agent's transcript in focus mode.
+    // Chat history viewport - the conversation, or a background agent's transcript in focus mode.
     val viewing = state.viewingAgentId
     if (viewing != null) {
         Text("▶ Viewing agent $viewing  ·  Esc to return")
