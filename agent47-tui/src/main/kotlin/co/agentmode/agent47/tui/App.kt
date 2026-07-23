@@ -17,9 +17,12 @@ import co.agentmode.agent47.tui.components.*
 import co.agentmode.agent47.tui.editor.Editor
 import co.agentmode.agent47.ui.core.editor.WordWrap
 import co.agentmode.agent47.ui.core.state.*
-import co.agentmode.agent47.tui.input.Key
+import co.agentmode.agent47.tui.input.KeyBindings
+import co.agentmode.agent47.tui.input.KeyContext
 import co.agentmode.agent47.tui.input.KeyboardEvent
-import co.agentmode.agent47.tui.input.keyboardShortcutName
+import co.agentmode.agent47.tui.input.SubmitDispatcher
+import co.agentmode.agent47.tui.input.TuiIntent
+import co.agentmode.agent47.tui.input.parseSubmission
 import co.agentmode.agent47.tui.input.toKeyboardEvent
 import co.agentmode.agent47.tui.commands.SlashCommandSpec
 import co.agentmode.agent47.tui.commands.builtinSlashCommands
@@ -470,6 +473,22 @@ private fun Agent47AppContent(
             onSettingsChanged = onSettingsChanged,
         )
     }
+    val submitDispatcher = remember {
+        SubmitDispatcher(
+            state = state,
+            feed = feed,
+            navigator = navigator,
+            conversation = conversationController,
+            compaction = compactionController,
+            session = sessionController,
+            models = modelController,
+            client = client,
+            cwd = cwd,
+            scope = promptScope,
+            reloadExtensions = reloadExtensions,
+            processInput = processInput,
+        )
+    }
 
     // --- Configure agent on first composition ---
 
@@ -562,175 +581,91 @@ private fun Agent47AppContent(
 
     // --- Key event handler ---
 
-    fun handleKeyEvent(keyEvent: KeyboardEvent): Boolean {
-        // Overlay gets first priority
-        // (Note: overlay key handling is done via Modifier.onKeyEvent on OverlayHost/SelectDialog)
-
-        // Ctrl+C handling
-        if (keyEvent.ctrl && keyEvent.key is Key.Character && keyEvent.key.value == 'c') {
-            if (isStreaming) {
-                client.abort()
-                appendSystemMessage("Interrupted current response.")
-                ctrlCArmed = false
-                return true
-            }
-            if (ctrlCArmed) {
-                state.quit(client)
-            }
-            ctrlCArmed = true
-            appendSystemMessage("Press Ctrl+C again to exit.")
-            return true
-        }
-        ctrlCArmed = false
-
-        // ESC handling — leave agent-transcript focus, else interrupt the orchestrator when streaming.
-        // Interrupting only aborts the orchestrator's own loop; background agents run on a separate
-        // supervisor scope and keep going.
-        if (keyEvent.key is Key.Escape) {
-            if (viewingAgentId != null) {
-                viewingAgentId = null
-                return true
-            }
-            if (isStreaming) {
-                client.abort()
-                appendSystemMessage("Interrupted current response.")
-                return true
-            }
-            return false
-        }
-
-        // Global shortcuts
-        if (keyEvent.ctrl && keyEvent.key is Key.Character) {
-            when (keyEvent.key.value.lowercaseChar()) {
-                'l' -> {
-                    chatHistoryState.entries.clear()
-                    return true
-                }
-
-                't' -> {
-                    val next = if (thinkingLevel == AgentThinkingLevel.OFF) {
-                        AgentThinkingLevel.LOW
-                    } else {
-                        AgentThinkingLevel.OFF
-                    }
-                    modelController.setThinkingLevel(next)
-                    return true
-                }
-
-                'p' -> {
-                    modelController.cycleModel(direction = -1)
-                    return true
-                }
-
-                'n' -> {
-                    modelController.cycleModel(direction = 1)
-                    return true
-                }
-
-                'o' -> {
-                    navigator.openSettingsOverlay(activeTheme, themeAppearance, setActiveTheme, setThemeAppearance)
-                    return true
-                }
-
-                'g' -> {
-                    if (!chatHistoryState.toggleLatestThinkingCollapsed()) {
-                        appendSystemMessage("No thinking block available to toggle.")
-                    }
-                    return true
-                }
-
-                'e' -> {
-                    // With text in the editor, Ctrl+E is move-to-end-of-line; only act globally
-                    // when the editor is empty so the line-editing shortcut isn't shadowed.
-                    if (editor.text().isBlank()) {
-                        if (!chatHistoryState.toggleLatestToolCollapsed()) {
-                            appendSystemMessage("No tool execution available to toggle.")
-                        }
-                        return true
-                    }
-                }
-
-                'u' -> {
-                    // With text in the editor, Ctrl+U is kill-to-start-of-line; only scroll the
-                    // chat globally when the editor is empty.
-                    if (editor.text().isBlank()) {
-                        activeChat().scrollUp(12)
-                        return true
-                    }
-                }
-
-                'd' -> {
-                    activeChat().scrollDown(12)
-                    return true
-                }
-            }
-        }
-
-        val shortcut = keyboardShortcutName(keyEvent)?.let { pressed ->
-            extensionShortcuts.firstOrNull { it.key == pressed }
-        }
-        if (shortcut != null && extensionContext != null) {
-            promptScope.launch {
-                runCatching { shortcut.handler.run(extensionContext) }
-                    .onFailure { error -> appendCommandResult(error.message ?: error.toString()) }
-            }
-            return true
-        }
-
-        // Scroll shortcuts
-        if ((keyEvent.ctrl || keyEvent.shift) && keyEvent.key == Key.ArrowUp) {
-            activeChat().scrollUp(3)
-            return true
-        }
-        if ((keyEvent.ctrl || keyEvent.shift) && keyEvent.key == Key.ArrowDown) {
-            activeChat().scrollDown(3)
-            return true
-        }
-        if (keyEvent.key == Key.PageUp && !keyEvent.alt && !keyEvent.ctrl) {
-            activeChat().scrollUp(12)
-            return true
-        }
-        if (keyEvent.key == Key.PageDown && !keyEvent.alt && !keyEvent.ctrl) {
-            activeChat().scrollDown(12)
-            return true
-        }
-        if (keyEvent.alt && keyEvent.key == Key.PageUp) {
-            activeChat().scrollUp(10)
-            return true
-        }
-        if (keyEvent.alt && keyEvent.key == Key.PageDown) {
-            activeChat().scrollDown(10)
-            return true
-        }
-
-        // Arrow up/down scroll when editor is empty
-        if (editor.text().isBlank()) {
-            if (keyEvent.key == Key.ArrowUp && !keyEvent.ctrl && !keyEvent.alt) {
-                activeChat().scrollUp(3)
-                return true
-            }
-            if (keyEvent.key == Key.ArrowDown && !keyEvent.ctrl && !keyEvent.alt) {
-                activeChat().scrollDown(3)
-                return true
-            }
-        }
-
-        // Enter on autocomplete popup
-        if (keyEvent.key == Key.Enter && editor.hasAutocompletePopup()) {
-            editor.handle(keyEvent)
+    // Apply the current slash-command popup selection (when submitting after a popup), then submit
+    // the editor contents through the parser and dispatcher.
+    fun submitInput(applyPopupFirst: Boolean, event: KeyboardEvent) {
+        if (applyPopupFirst) {
+            editor.handle(event)
             editorVersion++
-            return true
         }
-
-        // Submit on Enter (no modifiers)
-        val shouldSubmit = keyEvent.key == Key.Enter && !keyEvent.shift && !keyEvent.ctrl && !keyEvent.alt
-        if (shouldSubmit) {
-            return true // handled separately after the dispatch
+        val text = editor.text().trimEnd()
+        if (text.isBlank()) {
+            editor.setText("")
+            editorVersion++
+            return
         }
-
-        // Everything else goes to the editor
-        editor.handle(keyEvent)
+        // Record the submission so Up-arrow / Ctrl+P recall previous prompts.
+        promptHistory.add(text)
+        editor.setHistory(promptHistory.toList())
+        editor.setText("")
         editorVersion++
+        submitDispatcher.dispatch(
+            parseSubmission(text, extensionCommands, fileSlashCommands),
+            activeTheme,
+            themeAppearance,
+            setActiveTheme,
+            setThemeAppearance,
+        )
+    }
+
+    fun applyIntent(intent: TuiIntent?, event: KeyboardEvent): Boolean {
+        // Every key that reaches the keymap clears the Ctrl+C armed state, except the arming key
+        // itself and the submit path (which never resets it in the interactive flow).
+        if (intent !is TuiIntent.Submit && intent !is TuiIntent.SubmitAfterPopup && intent !is TuiIntent.ArmCtrlC) {
+            ctrlCArmed = false
+        }
+        when (intent) {
+            null -> return false
+            TuiIntent.InterruptStreaming -> {
+                client.abort()
+                appendSystemMessage("Interrupted current response.")
+            }
+            TuiIntent.ArmCtrlC -> {
+                ctrlCArmed = true
+                appendSystemMessage("Press Ctrl+C again to exit.")
+            }
+            TuiIntent.Quit -> state.quit(client)
+            TuiIntent.ExitFocusMode -> viewingAgentId = null
+            TuiIntent.ClearChat -> chatHistoryState.entries.clear()
+            TuiIntent.ToggleThinking -> {
+                val next = if (thinkingLevel == AgentThinkingLevel.OFF) {
+                    AgentThinkingLevel.LOW
+                } else {
+                    AgentThinkingLevel.OFF
+                }
+                modelController.setThinkingLevel(next)
+            }
+            is TuiIntent.CycleModel -> modelController.cycleModel(intent.direction)
+            TuiIntent.OpenSettings ->
+                navigator.openSettingsOverlay(activeTheme, themeAppearance, setActiveTheme, setThemeAppearance)
+            TuiIntent.ToggleThinkingBlock -> {
+                if (!chatHistoryState.toggleLatestThinkingCollapsed()) {
+                    appendSystemMessage("No thinking block available to toggle.")
+                }
+            }
+            TuiIntent.ToggleToolBlock -> {
+                if (!chatHistoryState.toggleLatestToolCollapsed()) {
+                    appendSystemMessage("No tool execution available to toggle.")
+                }
+            }
+            is TuiIntent.ScrollUp -> activeChat().scrollUp(intent.lines)
+            is TuiIntent.ScrollDown -> activeChat().scrollDown(intent.lines)
+            is TuiIntent.RunExtensionShortcut -> {
+                val context = extensionContext
+                if (context != null) {
+                    promptScope.launch {
+                        runCatching { intent.shortcut.handler.run(context) }
+                            .onFailure { error -> appendCommandResult(error.message ?: error.toString()) }
+                    }
+                }
+            }
+            TuiIntent.PassToEditor -> {
+                editor.handle(event)
+                editorVersion++
+            }
+            TuiIntent.Submit -> submitInput(applyPopupFirst = false, event = event)
+            TuiIntent.SubmitAfterPopup -> submitInput(applyPopupFirst = true, event = event)
+        }
         return true
     }
 
@@ -753,95 +688,17 @@ private fun Agent47AppContent(
                     return@onKeyEvent false
                 }
                 val keyboardEvent = event.toKeyboardEvent()
-
-                // Slash command auto-submit: when Enter is pressed with a
-                // slash command popup visible, apply the selection and
-                // immediately submit the command.
-                val isSlashAutoSubmit = keyboardEvent.key == Key.Enter &&
-                        !keyboardEvent.shift && !keyboardEvent.ctrl && !keyboardEvent.alt &&
-                        editor.slashCommandPopupItemCount() > 0
-                if (isSlashAutoSubmit) {
-                    editor.handle(keyboardEvent)
-                    editorVersion++
-                }
-
-                val shouldSubmit = isSlashAutoSubmit || (
-                        keyboardEvent.key == Key.Enter &&
-                        !keyboardEvent.shift && !keyboardEvent.ctrl && !keyboardEvent.alt &&
-                        !editor.hasAutocompletePopup())
-                if (shouldSubmit) {
-                    val text = editor.text().trimEnd()
-                    if (text.isBlank()) {
-                        editor.setText("")
-                        editorVersion++
-                        return@onKeyEvent true
-                    }
-                    // Record the submission so Up-arrow / Ctrl+P recall previous prompts.
-                    promptHistory.add(text)
-                    editor.setHistory(promptHistory.toList())
-                    editor.setText("")
-                    editorVersion++
-                    handleSubmit(
-                        rawInput = text,
-                        client = client,
-                        editor = editor,
-                        chatHistoryState = chatHistoryState,
-                        overlayHostState = overlayHostState,
-                        slashCommands = slashCommands,
-                        fileSlashCommands = fileSlashCommands,
-                        extensionCommands = extensionCommands,
-                        cwd = cwd,
-                        activeSessionManager = activeSessionManager,
-                        promptScope = promptScope,
-                        isStreaming = isStreaming,
-                        submit = conversationController::submitMessage,
-                        appendSystemMessage = ::appendSystemMessage,
-                        showCommandInput = ::showCommandInput,
-                        appendCommandResult = ::appendCommandResult,
-                        openModelOverlay = { navigator.openModelOverlay() },
-                        openSessionOverlay = { navigator.openSessionOverlay() },
-                        openSettingsOverlay = {
-                            navigator.openSettingsOverlay(activeTheme, themeAppearance, setActiveTheme, setThemeAppearance)
-                        },
-                        openCommandsOverlay = { navigator.openCommandsOverlay() },
-                        openThemeOverlay = { navigator.openThemeOverlay(activeTheme, themeAppearance, setActiveTheme) },
-                        openProviderOverlay = { navigator.openProviderOverlay() },
-                        openMemoryOverlay = { navigator.openMemoryOverlay() },
-                        openAgentsOverlay = { navigator.openAgentsOverlay() },
-                        setModelById = { modelId ->
-                            val match = currentModels.firstOrNull { model ->
-                                model.id.equals(modelId, ignoreCase = true) ||
-                                        "${model.provider.value}/${model.id}".equals(modelId, ignoreCase = true)
-                            }
-                            if (match == null) {
-                                appendCommandResult("Model not found: $modelId")
-                            } else {
-                                modelController.applyModel(match)
-                            }
-                        },
-                        startNewSession = sessionController::startNewSession,
-                        tryExpandFileCommand = ::tryExpandFileCommand,
-                        setRunning = { value ->
-                            if (!value) {
-                                state.quit(client)
-                            }
-                        },
-                        runCompaction = compactionController::runCompaction,
-                        reloadExtensions = {
-                            val resources = reloadExtensions()
-                            extensionCommands = resources.commands
-                            extensionShortcuts = resources.shortcuts
-                            extensionToolRenderers = resources.toolRenderers
-                            extensionMessageRenderers = resources.messageRenderers
-                            "Reloaded ${resources.commands.size} extension command${if (resources.commands.size == 1) "" else "s"} " +
-                                "and ${resources.shortcuts.size} shortcut${if (resources.shortcuts.size == 1) "" else "s"}."
-                        },
-                        processInput = processInput,
-                    )
-                    return@onKeyEvent true
-                }
-
-                handleKeyEvent(keyboardEvent)
+                val context = KeyContext(
+                    isStreaming = isStreaming,
+                    isViewingAgent = viewingAgentId != null,
+                    ctrlCArmed = ctrlCArmed,
+                    editorBlank = editor.text().isBlank(),
+                    hasAutocompletePopup = editor.hasAutocompletePopup(),
+                    slashPopupItemCount = editor.slashCommandPopupItemCount(),
+                    extensionShortcuts = extensionShortcuts,
+                    hasExtensionContext = extensionContext != null,
+                )
+                applyIntent(KeyBindings.resolve(keyboardEvent, context), keyboardEvent)
             },
     ) {
         CompositionLocalProvider(LocalThemeConfig provides baseTheme) {
@@ -964,220 +821,6 @@ private fun Agent47AppContent(
     if (running) {
         LaunchedEffect(Unit) {
             awaitCancellation()
-        }
-    }
-}
-
-@Suppress("CyclomaticComplexMethod", "LongMethod")
-private fun handleSubmit(
-    rawInput: String,
-    client: AgentClient,
-    editor: Editor,
-    chatHistoryState: ChatHistoryState,
-    overlayHostState: OverlayHostState,
-    slashCommands: List<SlashCommandSpec>,
-    fileSlashCommands: List<SlashCommand>,
-    extensionCommands: List<RegisteredCommand>,
-    cwd: Path,
-    activeSessionManager: SessionManager?,
-    promptScope: CoroutineScope,
-    isStreaming: Boolean,
-    submit: (UserMessage) -> Unit,
-    appendSystemMessage: (String) -> Unit,
-    showCommandInput: (String) -> Unit,
-    appendCommandResult: (String) -> Unit,
-    openModelOverlay: () -> Unit,
-    openSessionOverlay: () -> Unit,
-    openSettingsOverlay: () -> Unit,
-    openCommandsOverlay: () -> Unit,
-    openThemeOverlay: () -> Unit,
-    openProviderOverlay: () -> Unit,
-    openMemoryOverlay: () -> Unit,
-    openAgentsOverlay: () -> Unit,
-    setModelById: (String) -> Unit,
-    startNewSession: () -> Unit,
-    tryExpandFileCommand: (String) -> String?,
-    setRunning: (Boolean) -> Unit,
-    runCompaction: () -> Unit = {},
-    reloadExtensions: suspend () -> String,
-    processInput: suspend (InputEvent) -> InputHookResult,
-) {
-    when {
-        rawInput.startsWith("/") -> {
-            val tokens = rawInput.trim().split(Regex("\\s+"))
-            val command = tokens.firstOrNull().orEmpty()
-            val args = tokens.drop(1)
-
-            when (command) {
-                "/help" -> {
-                    showCommandInput(rawInput)
-                    appendCommandResult(helpText(slashCommands))
-                }
-                "/commands" -> {
-                    showCommandInput(rawInput)
-                    openCommandsOverlay()
-                }
-                "/new" -> {
-                    showCommandInput(rawInput)
-                    startNewSession()
-                }
-                "/clear" -> {
-                    chatHistoryState.entries.clear()
-                }
-                "/exit" -> setRunning(false)
-                "/model" -> {
-                    showCommandInput(rawInput)
-                    if (args.isEmpty()) {
-                        openModelOverlay()
-                    } else {
-                        setModelById(args.joinToString(" "))
-                    }
-                }
-
-                "/theme" -> {
-                    showCommandInput(rawInput)
-                    openThemeOverlay()
-                }
-                "/provider" -> {
-                    showCommandInput(rawInput)
-                    openProviderOverlay()
-                }
-                "/compact" -> {
-                    showCommandInput(rawInput)
-                    runCompaction()
-                }
-                "/reload" -> {
-                    showCommandInput(rawInput)
-                    if (isStreaming) {
-                        appendCommandResult("Wait for the current response before reloading extensions.")
-                    } else {
-                        promptScope.launch {
-                            runCatching { reloadExtensions() }
-                                .onSuccess(appendCommandResult)
-                                .onFailure { error -> appendCommandResult(error.message ?: error.toString()) }
-                        }
-                    }
-                }
-                "/memory" -> {
-                    showCommandInput(rawInput)
-                    openMemoryOverlay()
-                }
-                "/settings" -> {
-                    showCommandInput(rawInput)
-                    openSettingsOverlay()
-                }
-                "/agents" -> {
-                    showCommandInput(rawInput)
-                    openAgentsOverlay()
-                }
-                "/session" -> {
-                    showCommandInput(rawInput)
-                    if (args.isEmpty()) {
-                        openSessionOverlay()
-                    } else {
-                        appendCommandResult("Use /session without arguments to open the session picker.")
-                    }
-                }
-
-                else -> {
-                    val extensionCommand = extensionCommands.firstOrNull {
-                        "/${it.name}".equals(command, ignoreCase = true)
-                    }
-                    val expanded = tryExpandFileCommand(rawInput)
-                    if (extensionCommand != null) {
-                        showCommandInput(rawInput)
-                        if (isStreaming) {
-                            appendCommandResult("Wait for the current response before running extension commands.")
-                        } else {
-                            val rawArgs = rawInput.trim().removePrefix(command).trimStart()
-                            promptScope.launch {
-                                val context = object : ExtensionCommandContext {
-                                    override val cwd: Path = cwd
-                                    override val hasUi: Boolean = true
-
-                                    override fun notify(message: String) {
-                                        appendCommandResult(message)
-                                    }
-
-                                    override suspend fun sendUserMessage(message: String) {
-                                        val userMessage = UserMessage(
-                                            content = listOf(TextContent(text = message)),
-                                            timestamp = System.currentTimeMillis(),
-                                        )
-                                        chatHistoryState.appendMessage(userMessage)
-                                        activeSessionManager?.appendMessage(userMessage)
-                                        client.prompt(listOf(userMessage))
-                                        client.waitForIdle()
-                                    }
-
-                                    override suspend fun reload() {
-                                        notify(reloadExtensions())
-                                    }
-                                }
-                                runCatching { extensionCommand.handler.run(rawArgs, context) }
-                                    .onFailure { error -> appendCommandResult(error.message ?: error.toString()) }
-                            }
-                        }
-                    } else if (expanded != null) {
-                        val message = UserMessage(
-                            content = listOf(TextContent(text = expanded)),
-                            timestamp = System.currentTimeMillis(),
-                        )
-                        submit(message)
-                    } else {
-                        showCommandInput(rawInput)
-                        appendCommandResult("Unknown command: $command")
-                    }
-                }
-            }
-        }
-
-        rawInput.startsWith("!") -> {
-            val command = rawInput.removePrefix("!").trim()
-            if (command.isBlank()) {
-                appendSystemMessage("No command provided after !")
-                return
-            }
-            val start = UserMessage(
-                content = listOf(TextContent(text = "!$command")),
-                timestamp = System.currentTimeMillis(),
-            )
-            chatHistoryState.appendMessage(start)
-            activeSessionManager?.appendMessage(start)
-
-            val output = executeShell(command, cwd)
-            val id = "local-${System.currentTimeMillis()}"
-            chatHistoryState.appendToolExecution(
-                ToolExecutionView(
-                    toolCallId = id,
-                    toolName = "bash",
-                    arguments = command,
-                    output = output.first,
-                    isError = output.second != 0,
-                    pending = false,
-                ),
-            )
-        }
-
-        else -> {
-            promptScope.launch {
-                val behavior = if (isStreaming) InputStreamingBehavior.FOLLOW_UP else null
-                when (val result = processInput(InputEvent(rawInput, InputSource.INTERACTIVE, behavior))) {
-                    InputHookResult.Handled -> Unit
-                    InputHookResult.Continue -> submit(
-                        UserMessage(
-                            content = listOf(TextContent(text = rawInput)),
-                            timestamp = System.currentTimeMillis(),
-                        ),
-                    )
-                    is InputHookResult.Transform -> submit(
-                        UserMessage(
-                            content = listOf(TextContent(text = result.text)),
-                            timestamp = System.currentTimeMillis(),
-                        ),
-                    )
-                }
-            }
         }
     }
 }
