@@ -34,17 +34,24 @@ internal fun InitialAgentSetup(
         initialUserMessage?.let { message ->
             state.chatHistory.appendMessage(message)
             state.activeSessionManager?.appendMessage(message)
-            val job = launch {
-                try {
-                    client.prompt(listOf(message))
-                } catch (_: CancellationException) {
-                } catch (error: Throwable) {
-                    feed.appendSystemMessage("Failed to submit message: ${error.message ?: error::class.simpleName}")
-                } finally {
-                    state.currentPromptJob = null
+            if (initialModel != null) {
+                val job = launch {
+                    try {
+                        client.prompt(listOf(message))
+                    } catch (_: CancellationException) {
+                    } catch (error: Throwable) {
+                        feed.appendSystemMessage("Failed to submit message: ${error.message ?: error::class.simpleName}")
+                    } finally {
+                        state.currentPromptJob = null
+                    }
                 }
+                state.currentPromptJob = job
             }
-            state.currentPromptJob = job
+        }
+        if (initialModel == null) {
+            feed.appendSystemMessage(
+                "No model selected — use /provider to connect a provider, then /model to pick a model",
+            )
         }
     }
 }

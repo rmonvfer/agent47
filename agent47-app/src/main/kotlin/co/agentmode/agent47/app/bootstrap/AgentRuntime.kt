@@ -48,7 +48,7 @@ internal class AgentRuntime(
     val instructionLoader: InstructionLoader,
     val availableThemes: List<NamedTheme>,
     val todoState: TodoState,
-    val resolvedModel: Model,
+    val resolvedModel: Model?,
     val thinkingLevel: AgentThinkingLevel,
     val sessionsDir: Path,
     val initialUserMessage: UserMessage?,

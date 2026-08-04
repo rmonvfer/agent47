@@ -73,6 +73,8 @@ import java.nio.file.Path
 
 private const val VALID_ENV_HINT = "ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY"
 
+private fun CliOptions.runAsPrintMode(): Boolean = printMode || System.console() == null
+
 private fun createRepositoryManagers(
     config: AgentConfig,
     workingDirectory: Path,
@@ -211,8 +213,12 @@ internal class AgentRuntimeBuilder(
                 registries.modelRegistry.storeApiKey(targetProvider, key)
             }
         }
+        // Interactive sessions start without a model and guide the user through /provider and
+        // /model; only non-interactive runs require resolvable credentials up front.
         val resolvedModel = resolveModel(options, registries.modelRegistry, registries.settings)
-            ?: abort("No API key found. Set one of: $VALID_ENV_HINT")
+        if (resolvedModel == null && options.runAsPrintMode()) {
+            abort("No API key found. Set one of: $VALID_ENV_HINT")
+        }
         val thinkingLevel = resolveThinkingLevel(options, registries.settings)
         val sessionManager = resolveSession(options, config, terminal)
         val sessionTracker = SessionTracker(sessionManager)
@@ -365,7 +371,7 @@ internal class AgentRuntimeBuilder(
         extensions: ExtensionSetup,
         registries: Registries,
         aiRuntime: AiRuntime,
-        resolvedModel: Model,
+        resolvedModel: Model?,
         thinkingLevel: AgentThinkingLevel,
         tools: ToolSetup,
     ): ClientCore {
@@ -474,7 +480,7 @@ internal class AgentRuntimeBuilder(
         }
         userContent.addAll(images)
 
-        val runAsPrintMode = options.printMode || System.console() == null
+        val runAsPrintMode = options.runAsPrintMode()
         if (userContent.isEmpty() && runAsPrintMode) {
             abort("No prompt provided. Use --help for usage information.")
         }

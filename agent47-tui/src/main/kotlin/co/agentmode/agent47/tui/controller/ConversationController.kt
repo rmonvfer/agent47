@@ -40,6 +40,15 @@ internal class ConversationController(
     @Suppress("TooGenericExceptionCaught")
     fun submitMessage(message: UserMessage) {
         state.chatHistory.appendMessage(message)
+
+        // Without a model the message cannot be processed, so it is shown but never persisted:
+        // a resumed session should not replay prompts that no agent ever received.
+        if (state.currentModel == null) {
+            feed.appendSystemMessage(
+                "No model selected — use /provider to connect a provider, then /model to pick a model",
+            )
+            return
+        }
         state.activeSessionManager?.appendMessage(message)
 
         if (state.isStreaming) {

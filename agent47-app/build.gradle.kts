@@ -149,6 +149,7 @@ val jvmDistLauncher by tasks.registering {
     dependsOn(jvmDistLibs)
     val libDirectory = distDirectory.map { it.dir("lib") }
     val launcherFile = distDirectory.map { it.file("bin/agent47") }
+    inputs.dir(libDirectory)
     outputs.file(launcherFile)
     doLast {
         val jars = libDirectory.get().asFile

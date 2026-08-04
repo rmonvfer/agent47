@@ -9,7 +9,7 @@ import co.agentmode.agent47.app.cli.printError
 internal suspend fun runPrintMode(runtime: AgentRuntime, userMessage: UserMessage) {
     val client = runtime.client
     val terminal = runtime.terminal
-    val model = runtime.resolvedModel
+    val model = checkNotNull(runtime.resolvedModel) { "Print mode requires a resolved model" }
     val sessionManager = runtime.sessionTracker.current
 
     client.prompt(listOf(userMessage))
