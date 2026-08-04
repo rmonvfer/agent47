@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-04
+
+### Fixed
+
+- Interactive sessions start without provider credentials. The session begins with no model selected and the
+  terminal UI guides provider connection through `/provider` and model selection through `/model`; only print mode
+  requires an API key up front.
+
 ## [0.2.1] - 2026-08-04
 
 ### Added
@@ -112,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.2.2]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.2
 [0.2.1]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.1
 [0.2.0]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.0
 [0.1.6]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.6
