@@ -1,0 +1,71 @@
+name: Dist Validate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/jvm-dist"]
+  pull_request:
+    branches: [main]
+    paths:
+      - "agent47-app/build.gradle.kts"
+      - "scripts/install.sh"
+      - ".github/workflows/dist-validate.yml"
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build dist (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+          - os: ubuntu-22.04
+            target: linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: linux-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@90ddb51e90a5fd9ba75f40cf85156b7b41bf76a3 # v6
+
+      - name: Build distribution
+        run: ./gradlew :agent47-app:jvmDistArchive -Pagent47.dist.target=${{ matrix.target }}
+        env:
+          CI: "true"
+
+      - name: Smoke test distribution
+        shell: bash
+        run: |
+          dist_root="$RUNNER_TEMP/agent47-dist"
+          mkdir -p "$dist_root"
+          tar -xzf agent47-app/build/distributions/agent47-${{ matrix.target }}.tar.gz -C "$dist_root"
+          binary="$dist_root/agent47/bin/agent47"
+          test -x "$binary"
+          "$binary" --help
+          "$binary" --version
+          extension_path="$PWD/examples/extensions/api-surface.kts"
+          clean_home="$RUNNER_TEMP/agent47-smoke-home"
+          mkdir -p "$clean_home"
+          env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
+            "$binary" --no-extensions -e "$extension_path" --list-extensions \
+            --extension-flag example=true \
+            | grep -F "$extension_path"
+          python3 scripts/smoke-interactive.py "$binary"
+          echo "dist size: $(du -sh "$dist_root/agent47" | cut -f1)"
+          echo "archive size: $(du -sh agent47-app/build/distributions/agent47-${{ matrix.target }}.tar.gz | cut -f1)"

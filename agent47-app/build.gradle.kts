@@ -1,24 +1,10 @@
-import java.io.FileOutputStream
-import java.io.RandomAccessFile
-import java.lang.Short as JavaShort
-import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
-import java.util.zip.ZipOutputStream
-
 plugins {
     id("agent47.kotlin-application-conventions")
-    id("org.graalvm.buildtools.native")
 }
 
 val kotlinExtensionRuntimeClasspath by configurations.creating {
     isCanBeConsumed = false
     isCanBeResolved = true
-}
-
-val kotlinExtensionNativeCompatibilityClasspath by configurations.creating {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    isTransitive = false
 }
 
 dependencies {
@@ -36,9 +22,7 @@ dependencies {
     implementation("com.github.ajalt.clikt:clikt:5.0.3")
     implementation("com.github.ajalt.mordant:mordant:3.0.2")
     implementation("com.github.ajalt.mordant:mordant-coroutines:3.0.2")
-    compileOnly("org.graalvm.sdk:nativeimage:25.1.3")
     kotlinExtensionRuntimeClasspath(project(":agent47-ext-kotlin-runtime"))
-    kotlinExtensionNativeCompatibilityClasspath("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.20")
 
     // JetBrains Compose publishes empty wrapper jars with filenames identical to their
     // AndroidX counterparts. The wrappers are excluded below; these provide the real classes.
@@ -64,55 +48,8 @@ application {
     mainClass.set("co.agentmode.agent47.app.MainKt")
 }
 
-val kotlinCompilerCompatibilityJar by tasks.registering(Jar::class) {
-    dependsOn(kotlinExtensionNativeCompatibilityClasspath)
-    archiveFileName.set("agent47-kotlin-native-compatibility.jar")
-    destinationDirectory.set(layout.buildDirectory.dir("kotlin-extension"))
-    from({ zipTree(kotlinExtensionNativeCompatibilityClasspath.singleFile) }) {
-        include(
-            "org/jetbrains/kotlin/load/java/" +
-                "SpecialGenericSignatures\$TypeSafeBarrierDescription.class",
-            "org/jetbrains/kotlin/load/java/" +
-                "SpecialGenericSignatures\$TypeSafeBarrierDescription\$MAP_GET_OR_DEFAULT.class",
-        )
-    }
-}
-
-val kotlinExtensionRuntimeArchive by tasks.registering(Jar::class) {
-    dependsOn(configurations.runtimeClasspath, kotlinExtensionRuntimeClasspath)
-    archiveFileName.set("agent47-kotlin-runtime.zip")
-    destinationDirectory.set(layout.buildDirectory.dir("kotlin-extension"))
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    from({
-        kotlinExtensionRuntimeClasspath.files.map { dependency ->
-            if (dependency.isDirectory) dependency else zipTree(dependency)
-        }
-    })
-    from({
-        val javaHome = providers.environmentVariable("JAVA_HOME").orNull
-            ?: error("JAVA_HOME is required to build the Kotlin extension runtime")
-        zipTree("$javaHome/lib/ct.sym")
-    }) {
-        eachFile {
-            val segments = path.split('/')
-            if (segments.size < 3 || 'L' !in segments.first() || !path.endsWith(".sig")) {
-                exclude()
-            } else {
-                path = segments.drop(2).joinToString("/").removePrefix("/").removeSuffix(".sig") + ".class"
-            }
-        }
-        includeEmptyDirs = false
-    }
-    exclude("META-INF/versions/**")
-    exclude("META-INF/native-image/org.jline/**")
-    exclude("module-info.class")
-}
-
 tasks.named<JavaExec>("run") {
     classpath(kotlinExtensionRuntimeClasspath)
-    providers.gradleProperty("nativeAgentOutput").orNull?.let { outputDirectory ->
-        jvmArgs("-agentlib:native-image-agent=config-output-dir=$outputDirectory")
-    }
 }
 
 tasks.withType<AbstractCopyTask> {
@@ -126,152 +63,150 @@ tasks.processResources {
     }
 }
 
-graalvmNative {
-    toolchainDetection.set(false)
-    binaries {
-        named("main") {
-            classpath.from(sourceSets.main.get().runtimeClasspath, kotlinCompilerCompatibilityJar)
-            // Force a fat classpath JAR so runtime-loaded Kotlin extensions can resolve
-            // the same application and dependency classes available to native-image.
-            useFatJar.set(true)
-            imageName.set("agent47")
-            mainClass.set("co.agentmode.agent47.app.MainKt")
-            resources.autodetect()
-            resources.includedPatterns.add("agent47-version\\.properties")
-            buildArgs.add("-Os")
-            buildArgs.add("-H:+ReportExceptionStackTraces")
-            buildArgs.add("-Dsun.misc.unsafe.memory.access=allow")
-            buildArgs.add("-H:+UnlockExperimentalVMOptions")
-            buildArgs.add("-H:+RuntimeClassLoading")
-            buildArgs.add("--future-defaults=class-for-name-respects-class-loader")
-            buildArgs.add("--features=co.agentmode.agent47.app.KotlinCompilerCompatibilityFeature")
-            buildArgs.add("--enable-native-access=ALL-UNNAMED")
-            buildArgs.add("-H:+AddAllCharsets")
-            buildArgs.add("-H:+AllowJRTFileSystem")
-            buildArgs.add("--add-modules=java.logging,java.management,java.xml,jdk.unsupported")
-            buildArgs.add("-H:Preserve=package=co.agentmode.agent47.ext.core")
-            buildArgs.add("-H:Preserve=package=kotlin")
-            buildArgs.add("-H:Preserve=package=kotlin.jvm.internal")
-            buildArgs.add("-H:Preserve=package=kotlin.reflect.jvm")
-            buildArgs.add("-H:Preserve=package=kotlin.collections")
-            buildArgs.add("-H:Preserve=package=kotlin.sequences")
-            buildArgs.add("-H:Preserve=package=kotlin.coroutines")
-            buildArgs.add("-H:Preserve=package=kotlin.coroutines.intrinsics")
-            buildArgs.add("-H:Preserve=package=kotlin.coroutines.jvm.internal")
-            buildArgs.add("-H:Preserve=package=kotlin.io")
-            buildArgs.add("-H:Preserve=package=kotlin.text")
-            buildArgs.add("-H:Preserve=package=kotlin.ranges")
-            buildArgs.add("-H:Preserve=package=kotlin.properties")
-            buildArgs.add("-H:Preserve=package=kotlin.annotation")
-            buildArgs.add("-H:Preserve=package=kotlin.comparisons")
-            buildArgs.add("-H:Preserve=package=java.lang")
-            buildArgs.add("-H:Preserve=package=java.lang.invoke")
-            buildArgs.add("-H:Preserve=package=java.lang.ref")
-            buildArgs.add("-H:Preserve=package=java.lang.reflect")
-            buildArgs.add("-H:Preserve=package=java.io")
-            buildArgs.add("-H:Preserve=package=javax.xml.stream")
-            buildArgs.add("-H:Preserve=package=java.util")
-            buildArgs.add("-H:Preserve=package=java.util.function")
-            buildArgs.add("-H:Preserve=package=java.util.concurrent.atomic")
-            buildArgs.add("-H:Preserve=package=java.util.concurrent.locks")
-            buildArgs.add("-H:Preserve=package=kotlinx.serialization.json")
-            buildArgs.add("-H:-UnlockExperimentalVMOptions")
-        }
+// The distribution bundles a jlinked Java runtime so installations have no JDK
+// dependency: <dist>/jre, <dist>/lib (application, dependency, and Kotlin
+// extension runtime jars), and <dist>/bin/agent47 (launcher).
+
+fun detectDistTarget(): String {
+    val os = System.getProperty("os.name").lowercase()
+    val arch = System.getProperty("os.arch").lowercase()
+    val osName = when {
+        os.startsWith("mac") -> "darwin"
+        os.startsWith("linux") -> "linux"
+        else -> error("Unsupported distribution OS: $os")
     }
-}
-
-fun RandomAccessFile.readUnsignedIntLittleEndian(): Long =
-    Integer.toUnsignedLong(Integer.reverseBytes(readInt()))
-
-fun RandomAccessFile.writeUnsignedIntLittleEndian(value: Long) {
-    require(value in 0..0xffff_ffffL) { "ZIP offset exceeds the ZIP32 limit" }
-    writeInt(Integer.reverseBytes(value.toInt()))
-}
-
-fun adjustZipOffsets(archive: File, prefixLength: Long) {
-    RandomAccessFile(archive, "rw").use { file ->
-        val minimumEocdSize = 22L
-        val maximumCommentSize = 0xffffL
-        val searchStart = (file.length() - minimumEocdSize - maximumCommentSize).coerceAtLeast(prefixLength)
-        var eocdOffset = file.length() - minimumEocdSize
-        while (eocdOffset >= searchStart) {
-            file.seek(eocdOffset)
-            if (file.readInt() == 0x504b0506) break
-            eocdOffset--
-        }
-        check(eocdOffset >= searchStart) { "Could not find the Kotlin runtime ZIP directory" }
-
-        file.seek(eocdOffset + 10)
-        val entryCount = JavaShort.toUnsignedInt(JavaShort.reverseBytes(file.readShort()))
-        file.seek(eocdOffset + 16)
-        val centralDirectoryOffset = file.readUnsignedIntLittleEndian()
-        var entryOffset = prefixLength + centralDirectoryOffset
-
-        repeat(entryCount) {
-            file.seek(entryOffset)
-            check(file.readInt() == 0x504b0102) { "Invalid Kotlin runtime ZIP directory" }
-            file.seek(entryOffset + 28)
-            val nameLength = JavaShort.toUnsignedInt(JavaShort.reverseBytes(file.readShort()))
-            val extraLength = JavaShort.toUnsignedInt(JavaShort.reverseBytes(file.readShort()))
-            val commentLength = JavaShort.toUnsignedInt(JavaShort.reverseBytes(file.readShort()))
-            file.seek(entryOffset + 42)
-            val localHeaderOffset = file.readUnsignedIntLittleEndian()
-            file.seek(entryOffset + 42)
-            file.writeUnsignedIntLittleEndian(prefixLength + localHeaderOffset)
-            entryOffset += 46L + nameLength + extraLength + commentLength
-        }
-
-        file.seek(eocdOffset + 16)
-        file.writeUnsignedIntLittleEndian(prefixLength + centralDirectoryOffset)
+    val archName = when (arch) {
+        "aarch64", "arm64" -> "arm64"
+        "amd64", "x86_64" -> "x86_64"
+        else -> error("Unsupported distribution architecture: $arch")
     }
+    return "$osName-$archName"
 }
 
-tasks.named("nativeCompile") {
-    dependsOn(kotlinExtensionRuntimeArchive)
+val distTarget: String = providers.gradleProperty("agent47.dist.target")
+    .getOrElse(detectDistTarget())
+
+// ServiceLoader-driven modules (TLS providers, charsets, zip filesystem) are
+// invisible to static analysis, so the module set is fixed rather than derived
+// from jdeps at build time.
+val jlinkModules = listOf(
+    "java.base",
+    "java.compiler",
+    "java.desktop",
+    "java.instrument",
+    "java.logging",
+    "java.management",
+    "java.naming",
+    "java.net.http",
+    "java.rmi",
+    "java.scripting",
+    "java.sql",
+    "java.xml",
+    "jdk.compiler",
+    "jdk.crypto.ec",
+    "jdk.unsupported",
+    "jdk.zipfs",
+).joinToString(",")
+
+val distDirectory = layout.buildDirectory.dir("jvm-dist/agent47")
+val jdkInstallationPath = javaToolchains
+    .launcherFor(java.toolchain)
+    .map { launcher -> launcher.metadata.installationPath }
+
+val jvmDistRuntime by tasks.registering {
+    description = "Builds the jlinked Java runtime for the distribution"
+    inputs.property("modules", jlinkModules)
+    val runtimeDirectory = distDirectory.map { it.dir("jre") }
+    outputs.dir(runtimeDirectory)
+    val jdkHome = jdkInstallationPath
     doLast {
-        val executable = layout.buildDirectory.file("native/nativeCompile/agent47").get().asFile
-        val runtime = kotlinExtensionRuntimeArchive.get().archiveFile.get().asFile
-        check(executable.isFile) { "Native executable does not exist: $executable" }
-        val alreadyEmbedded = runCatching {
-            ZipFile(executable).use { archive ->
-                archive.getEntry("co/agentmode/agent47/ext/core/KotlinExtensionScriptLoader.class") != null
-            }
-        }.getOrDefault(false)
-        if (alreadyEmbedded) return@doLast
-
-        val prefixLength = executable.length()
-        FileOutputStream(executable, true).buffered().use { output ->
-            runtime.inputStream().buffered().use { input -> input.copyTo(output) }
-        }
-        adjustZipOffsets(executable, prefixLength)
+        val output = runtimeDirectory.get().asFile
+        output.deleteRecursively()
+        val jdk = jdkHome.get().asFile
+        val jlink = ProcessBuilder(
+            "$jdk/bin/jlink",
+            "--module-path", "$jdk/jmods",
+            "--add-modules", jlinkModules,
+            "--strip-debug",
+            "--no-header-files",
+            "--no-man-pages",
+            "--compress", "zip-6",
+            "--output", output.absolutePath,
+        ).redirectErrorStream(true).start()
+        val log = jlink.inputStream.bufferedReader().readText()
+        check(jlink.waitFor() == 0) { "jlink failed:\n$log" }
     }
 }
 
-// Dependencies such as Mosaic use multi-release entries to select their Java 22+ FFM
-// implementation. The fat native classpath JAR must retain those entries and advertise
-// itself as multi-release so native-image resolves the implementation for its JDK.
-tasks.named<Jar>("nativeCompileClasspathJar") {
-    manifest.attributes["Multi-Release"] = "true"
+val jvmDistLibs by tasks.registering(Sync::class) {
+    description = "Collects the application and Kotlin extension runtime jars"
+    from(tasks.named("jar"))
+    from(configurations.runtimeClasspath)
+    from(kotlinExtensionRuntimeClasspath)
+    into(distDirectory.map { it.dir("lib") })
+}
+
+val jvmDistLauncher by tasks.registering {
+    description = "Generates the distribution launcher script"
+    dependsOn(jvmDistLibs)
+    val libDirectory = distDirectory.map { it.dir("lib") }
+    val launcherFile = distDirectory.map { it.file("bin/agent47") }
+    outputs.file(launcherFile)
     doLast {
-        val jar = outputs.files.singleFile
-        val tmpJar = File(jar.parentFile, "${jar.name}.tmp")
+        val jars = libDirectory.get().asFile
+            .listFiles { file -> file.extension == "jar" }
+            .orEmpty()
+            .map(File::getName)
+            .sorted()
+        check(jars.isNotEmpty()) { "The distribution lib directory contains no jars" }
+        val classpath = jars.joinToString(":") { name -> "\$APP_HOME/lib/$name" }
+        val launcher = launcherFile.get().asFile
+        launcher.parentFile.mkdirs()
+        launcher.writeText(
+            """
+            #!/bin/sh
+            INVOKED="$0"
+            case "${'$'}INVOKED" in
+                /*) ;;
+                *) INVOKED="$(pwd)/${'$'}INVOKED" ;;
+            esac
+            SELF="${'$'}INVOKED"
+            while [ -h "${'$'}SELF" ]; do
+                DIR=$(cd "$(dirname "${'$'}SELF")" && pwd)
+                SELF=$(readlink "${'$'}SELF")
+                case "${'$'}SELF" in
+                    /*) ;;
+                    *) SELF="${'$'}DIR/${'$'}SELF" ;;
+                esac
+            done
+            APP_HOME=$(cd "$(dirname "${'$'}SELF")/.." && pwd)
+            exec "${'$'}APP_HOME/jre/bin/java" \
+                --enable-native-access=ALL-UNNAMED \
+                --sun-misc-unsafe-memory-access=allow \
+                -Dagent47.dist.home="${'$'}APP_HOME" \
+                -Dagent47.launcher.path="${'$'}INVOKED" \
+                -cp "$classpath" \
+                co.agentmode.agent47.app.MainKt "${'$'}@"
+            """.trimIndent() + "\n",
+        )
+        launcher.setExecutable(true, false)
+    }
+}
 
-        ZipFile(jar).use { zip ->
-            ZipOutputStream(tmpJar.outputStream()).use { zos ->
-                for (entry in zip.entries()) {
-                    // kotlin-compiler-embeddable shades JLine's native-image.properties without
-                    // the reflection/resource JSON files referenced by those properties.
-                    if (entry.name.startsWith("META-INF/native-image/org.jline/")) continue
-                    zos.putNextEntry(ZipEntry(entry.name))
-                    if (!entry.isDirectory) {
-                        zip.getInputStream(entry).use { it.copyTo(zos) }
-                    }
-                    zos.closeEntry()
-                }
-            }
-        }
+val jvmDist by tasks.registering {
+    description = "Assembles the standalone JVM distribution"
+    group = "distribution"
+    dependsOn(jvmDistRuntime, jvmDistLibs, jvmDistLauncher)
+}
 
-        jar.delete()
-        tmpJar.renameTo(jar)
+val jvmDistArchive by tasks.registering(Tar::class) {
+    description = "Packages the standalone JVM distribution as a tar.gz"
+    group = "distribution"
+    dependsOn(jvmDist)
+    compression = Compression.GZIP
+    archiveFileName.set("agent47-$distTarget.tar.gz")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    into("agent47") {
+        from(distDirectory)
     }
 }

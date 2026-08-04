@@ -83,10 +83,11 @@ recent tokens to preserve verbatim when compacting older context.
 
 `retry` controls automatic retry on transient API failures with exponential backoff.
 
-`updates.automatic` controls whether interactive native installations check GitHub Releases for updates on startup.
+`updates.automatic` controls whether interactive packaged installations check GitHub Releases for updates on startup.
 Update policy is read only from the global settings file, so a project cannot enable executable updates. Checks are
-rate-limited by `updates.checkIntervalHours`, which defaults to 24 hours. Verified updates atomically replace the current
-executable and restart agent47. Set `AGENT47_NO_AUTO_UPDATE=1` to skip the check for a single launch.
+rate-limited by `updates.checkIntervalHours`, which defaults to 24 hours. Verified updates install the new version next
+to the current one, atomically switch the launcher link, and restart agent47. Set `AGENT47_NO_AUTO_UPDATE=1` to skip the
+check for a single launch.
 
 ## Models
 

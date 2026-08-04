@@ -3,7 +3,6 @@ package co.agentmode.agent47.app
 import co.agentmode.agent47.ai.types.Agent47Json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import java.math.BigInteger
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -15,19 +14,15 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
-import java.nio.file.attribute.PosixFilePermission
 import java.security.MessageDigest
 import java.time.Duration
 import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
+import kotlin.io.path.name
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 private const val DEFAULT_REPOSITORY = "rmonvfer/agent47"
-private val RELEASE_VERSION_PATTERN = Regex(
-    "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)" +
-        "(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?" +
-        "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
-)
 
 @Serializable
 private data class GitHubRelease(
@@ -69,16 +64,16 @@ internal class UpdateService(
         .connectTimeout(Duration.ofSeconds(3))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build(),
-    private val executableProvider: () -> Path? = ::currentExecutable,
+    private val distHomeProvider: () -> Path? = ::currentDistHome,
+    private val launcherProvider: () -> Path? = ::currentLauncher,
     private val platformProvider: () -> String? = ::currentPlatform,
-    private val nativeImageProvider: () -> Boolean = ::isNativeImage,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val checkIntervalMillis: Long = 24L * 60L * 60L * 1_000L,
     private val progress: (String) -> Unit = {},
 ) {
     fun checkAndInstall(force: Boolean): UpdateResult {
-        if (!nativeImageProvider()) {
-            return UpdateResult.Skipped("updates are available only in native agent47 installations")
+        if (distHomeProvider() == null) {
+            return UpdateResult.Skipped("updates are available only in packaged agent47 installations")
         }
 
         return try {
@@ -106,9 +101,9 @@ internal class UpdateService(
             return UpdateResult.Skipped("an update check is not due yet")
         }
 
-        val executable = executableProvider()?.let { path ->
+        val distHome = distHomeProvider()?.let { path ->
             runCatching { path.toRealPath() }.getOrElse { path.toAbsolutePath().normalize() }
-        } ?: return UpdateResult.Failed("could not determine the current agent47 executable")
+        } ?: return UpdateResult.Failed("could not determine the agent47 installation directory")
         val platform = platformProvider()
             ?: return UpdateResult.Failed("unsupported platform: ${System.getProperty("os.name")} ${System.getProperty("os.arch")}")
         val release = fetchRelease()
@@ -117,8 +112,16 @@ internal class UpdateService(
             return UpdateResult.Current(currentVersion)
         }
 
+        val launcher = launcherProvider()?.toAbsolutePath()?.normalize()
+        if (launcher == null || !Files.isSymbolicLink(launcher)) {
+            recordCheck()
+            return UpdateResult.Skipped(
+                "this installation has no managed launcher symlink; reinstall with the agent47 installer to enable updates",
+            )
+        }
+
         progress("Updating agent47 $currentVersion to ${release.tagName.removePrefix("v")}...")
-        return installRelease(release, platform, executable).also { result ->
+        return installRelease(release, platform, distHome, launcher).also { result ->
             if (result is UpdateResult.Installed) recordCheck()
         }
     }
@@ -135,10 +138,11 @@ internal class UpdateService(
     private fun installRelease(
         release: GitHubRelease,
         platform: String,
-        executable: Path,
+        distHome: Path,
+        launcher: Path,
     ): UpdateResult {
-        val assetName = "agent47-$platform"
-        val binaryAsset = release.assets.firstOrNull { it.name == assetName }
+        val assetName = "agent47-$platform.tar.gz"
+        val archiveAsset = release.assets.firstOrNull { it.name == assetName }
             ?: error("release ${release.tagName} does not contain $assetName")
         val checksumAsset = release.assets.firstOrNull { it.name == "checksums-sha256.txt" }
             ?: error("release ${release.tagName} does not contain checksums-sha256.txt")
@@ -146,32 +150,33 @@ internal class UpdateService(
         val expectedChecksum = checksumFor(checksums, assetName)
             ?: error("release checksums do not contain $assetName")
 
-        executable.parent?.let(Files::createDirectories)
-        val staged = Files.createTempFile(executable.parent, ".agent47.update.", ".tmp")
+        val distStore = distHome.parent
+            ?: error("the agent47 installation directory has no parent to install updates into")
+        val version = release.tagName.removePrefix("v")
+        val versionDirectory = distStore.resolve(version)
+        val archive = Files.createTempFile(distStore, ".agent47-update.", ".tar.gz")
+        val staging = Files.createTempDirectory(distStore, ".agent47-update.")
         try {
-            downloadFile(binaryAsset.downloadUrl, staged)
-            val actualChecksum = sha256(staged)
+            downloadFile(archiveAsset.downloadUrl, archive)
+            val actualChecksum = sha256(archive)
             check(actualChecksum.equals(expectedChecksum, ignoreCase = true)) {
                 "checksum verification failed for $assetName"
             }
-            Files.setPosixFilePermissions(
-                staged,
-                setOf(
-                    PosixFilePermission.OWNER_READ,
-                    PosixFilePermission.OWNER_WRITE,
-                    PosixFilePermission.OWNER_EXECUTE,
-                    PosixFilePermission.GROUP_READ,
-                    PosixFilePermission.GROUP_EXECUTE,
-                    PosixFilePermission.OTHERS_READ,
-                    PosixFilePermission.OTHERS_EXECUTE,
-                ),
-            )
-            replaceFileAtomically(staged, executable)
+            extractArchive(archive, staging)
+            val stagedLauncher = staging.resolve("bin/agent47")
+            check(Files.isExecutable(stagedLauncher)) {
+                "release archive $assetName does not contain an executable bin/agent47"
+            }
+            deleteRecursively(versionDirectory)
+            moveAtomically(staging, versionDirectory)
+            replaceSymlink(launcher, versionDirectory.resolve("bin/agent47"))
         } finally {
-            Files.deleteIfExists(staged)
+            Files.deleteIfExists(archive)
+            deleteRecursively(staging)
         }
+        pruneVersions(distStore, keep = setOf(distHome.name, version))
 
-        return UpdateResult.Installed(currentVersion, release.tagName.removePrefix("v"), executable)
+        return UpdateResult.Installed(currentVersion, version, launcher)
     }
 
     private fun downloadText(url: String): String {
@@ -216,57 +221,10 @@ internal class UpdateService(
         val staged = Files.createTempFile(statePath.parent, ".update-state.", ".tmp")
         try {
             staged.writeText(Agent47Json.encodeToString(UpdateState.serializer(), UpdateState(nowMillis())))
-            replaceFileAtomically(staged, statePath)
+            moveAtomically(staged, statePath)
         } finally {
             Files.deleteIfExists(staged)
         }
-    }
-}
-
-internal fun compareReleaseVersions(left: String, right: String): Int {
-    return parseReleaseVersion(left).compareTo(parseReleaseVersion(right))
-}
-
-private fun parseReleaseVersion(version: String): SemanticVersion {
-    val match = RELEASE_VERSION_PATTERN.matchEntire(version)
-        ?: error("invalid release version: $version")
-    return SemanticVersion(
-        major = BigInteger(match.groupValues[1]),
-        minor = BigInteger(match.groupValues[2]),
-        patch = BigInteger(match.groupValues[3]),
-        prerelease = match.groupValues[4].takeIf(String::isNotEmpty)?.split('.'),
-    )
-}
-
-private data class SemanticVersion(
-    val major: BigInteger,
-    val minor: BigInteger,
-    val patch: BigInteger,
-    val prerelease: List<String>?,
-) : Comparable<SemanticVersion> {
-    override fun compareTo(other: SemanticVersion): Int {
-        major.compareTo(other.major).takeIf { it != 0 }?.let { return it }
-        minor.compareTo(other.minor).takeIf { it != 0 }?.let { return it }
-        patch.compareTo(other.patch).takeIf { it != 0 }?.let { return it }
-        if (prerelease == null) return if (other.prerelease == null) 0 else 1
-        if (other.prerelease == null) return -1
-
-        for (index in 0 until minOf(prerelease.size, other.prerelease.size)) {
-            val comparison = comparePrereleaseIdentifier(prerelease[index], other.prerelease[index])
-            if (comparison != 0) return comparison
-        }
-        return prerelease.size.compareTo(other.prerelease.size)
-    }
-}
-
-private fun comparePrereleaseIdentifier(left: String, right: String): Int {
-    val leftNumber = left.takeIf { it.all(Char::isDigit) }?.let(::BigInteger)
-    val rightNumber = right.takeIf { it.all(Char::isDigit) }?.let(::BigInteger)
-    return when {
-        leftNumber != null && rightNumber != null -> leftNumber.compareTo(rightNumber)
-        leftNumber != null -> -1
-        rightNumber != null -> 1
-        else -> left.compareTo(right)
     }
 }
 
@@ -292,7 +250,40 @@ private fun sha256(path: Path): String {
     return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
 }
 
-private fun replaceFileAtomically(staged: Path, destination: Path) {
+private fun extractArchive(archive: Path, destination: Path) {
+    val tar = ProcessBuilder(
+        "tar", "-xzf", archive.toString(),
+        "-C", destination.toString(),
+        "--strip-components", "1",
+    ).redirectErrorStream(true).start()
+    val log = tar.inputStream.bufferedReader().readText()
+    check(tar.waitFor() == 0) { "could not extract the release archive: $log" }
+}
+
+private fun replaceSymlink(launcher: Path, target: Path) {
+    val staged = launcher.resolveSibling(".${launcher.name}.update-link")
+    Files.deleteIfExists(staged)
+    Files.createSymbolicLink(staged, target)
+    try {
+        moveAtomically(staged, launcher)
+    } finally {
+        Files.deleteIfExists(staged)
+    }
+}
+
+private fun pruneVersions(distStore: Path, keep: Set<String>) {
+    runCatching {
+        Files.list(distStore).use { entries ->
+            entries
+                .filter { entry -> entry.isDirectory() }
+                .filter { entry -> entry.name !in keep }
+                .filter { entry -> RELEASE_VERSION_PATTERN.matches(entry.name) }
+                .forEach { entry -> deleteRecursively(entry) }
+        }
+    }
+}
+
+private fun moveAtomically(staged: Path, destination: Path) {
     try {
         Files.move(staged, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
     } catch (_: AtomicMoveNotSupportedException) {
@@ -300,10 +291,16 @@ private fun replaceFileAtomically(staged: Path, destination: Path) {
     }
 }
 
-private fun isNativeImage(): Boolean =
-    System.getProperty("org.graalvm.nativeimage.imagecode") == "runtime"
+private fun deleteRecursively(root: Path) {
+    if (!root.exists()) return
+    Files.walk(root).use { paths ->
+        paths.sorted(Comparator.reverseOrder()).forEach { path -> Files.deleteIfExists(path) }
+    }
+}
 
-private fun currentExecutable(): Path? = ProcessHandle.current().info().command().orElse(null)?.let(Path::of)
+private fun currentDistHome(): Path? = System.getProperty("agent47.dist.home")?.let(Path::of)
+
+private fun currentLauncher(): Path? = System.getProperty("agent47.launcher.path")?.let(Path::of)
 
 private fun currentPlatform(): String? {
     val os = when {

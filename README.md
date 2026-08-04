@@ -13,7 +13,8 @@
 ---
 
 agent47 connects to any LLM provider and gives it coding tools - file reading, editing, shell execution, grep, glob - so
-it can work on your codebase autonomously. It ships as a single native binary with an interactive terminal UI.
+it can work on your codebase autonomously. It ships as a self-contained distribution with a bundled Java runtime and an
+interactive terminal UI; installations have no external dependencies.
 
 ## Install
 
@@ -23,17 +24,18 @@ it can work on your codebase autonomously. It ships as a single native binary wi
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
 
-The installer supports macOS on Apple Silicon and Linux on ARM64 and x86-64. It verifies the release binary against
-the published SHA-256 checksums before replacing an existing installation. To install a specific release or update to
-the latest one:
+The installer supports macOS on Apple Silicon and Linux on ARM64 and x86-64. It verifies the release archive against
+the published SHA-256 checksums, unpacks it under `~/.agent47/dist/<version>`, and links `~/.local/bin/agent47` to the
+installed launcher. To install a specific release or update to the latest one:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.6 bash
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
 
-agent47 checks for updates at most once every 24 hours when starting an interactive session. A verified update replaces
-the installed binary atomically and restarts the command. To force a check immediately:
+agent47 checks for updates at most once every 24 hours when starting an interactive session. A verified update installs
+the new version alongside the current one, atomically switches the launcher link, and restarts the command. To force a
+check immediately:
 
 ```bash
 agent47 update
@@ -42,13 +44,13 @@ agent47 update
 Automatic checks can be configured under `updates` in `~/.agent47/settings.json` or disabled for a single launch with
 `AGENT47_NO_AUTO_UPDATE=1`.
 
-**Build from source** (requires GraalVM Community 25.1.3):
+**Build from source** (requires JDK 25):
 
 ```bash
 git clone https://github.com/rmonvfer/agent47.git
 cd agent47
-./gradlew :agent47-app:nativeCompile
-# Binary at agent47-app/build/native/nativeCompile/agent47
+./gradlew :agent47-app:jvmDist
+# Distribution at agent47-app/build/jvm-dist/agent47, launcher at bin/agent47
 ```
 
 ## Quick Start
@@ -95,7 +97,7 @@ and custom prompt templates.
 
 **Hackable and extensible.** Everything is file-based and overridable. Agents, skills, and commands are markdown files
 you can edit, version, and share. Runtime extensions are ordinary Kotlin `.kts` source files loaded directly by the
-self-contained native executable; users do not install Java or distribute extension JARs. See
+self-contained distribution; users do not install Java or distribute extension JARs. See
 [docs/extensions.md](docs/extensions.md). A complete multi-resource repository is available in
 [examples/extension-repository](examples/extension-repository).
 
@@ -147,8 +149,8 @@ Coroutines let independent subagents run concurrently while provider responses a
 typed event model.
 
 The type system catches entire categories of bugs at compile time through sealed hierarchies, non-nullable types by
-default, and exhaustive `when` expressions. GraalVM native image compiles the application to a single binary with fast
-startup, combining Kotlin's static types with straightforward deployment.
+default, and exhaustive `when` expressions. The distribution bundles its own Java runtime, combining Kotlin's static
+types and the full JVM ecosystem with straightforward deployment.
 
 ## How Is This Different?
 
@@ -159,8 +161,8 @@ commands without modifying source code.
 **vs Pi.** agent47 is heavily inspired by Pi and in fact, most of our agentic harness is based on its design (although
 we've made some changes where it makes sense to support the features we think are important)
 
-**vs OpenCode.** Similar space, different trade-offs. agent47 is built in Kotlin with a native binary option, has a
-richer subagent and skills system, and uses a layered module architecture.
+**vs OpenCode.** Similar space, different trade-offs. agent47 is built in Kotlin with a self-contained distribution,
+has a richer subagent and skills system, and uses a layered module architecture.
 
 ## Contributing
 

@@ -7,11 +7,8 @@ import co.agentmode.agent47.ai.types.Model
 import co.agentmode.agent47.ai.types.Context
 import co.agentmode.agent47.ai.types.Message
 import java.nio.file.Path
-import java.io.ByteArrayInputStream
-import java.io.InputStream
 import kotlin.io.path.name
 import kotlin.script.experimental.annotations.KotlinScript
-import kotlin.script.experimental.api.CompiledScript
 import kotlin.script.experimental.api.ResultWithDiagnostics
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
 import kotlin.script.experimental.api.ScriptDiagnostic
@@ -22,8 +19,6 @@ import kotlin.script.experimental.api.constructorArgs
 import kotlin.script.experimental.host.FileScriptSource
 import kotlin.script.experimental.jvm.dependenciesFromCurrentContext
 import kotlin.script.experimental.jvm.jvm
-import kotlin.script.experimental.jvm.impl.KJvmCompiledModuleInMemory
-import kotlin.script.experimental.jvm.impl.KJvmCompiledScript
 import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
 
 @KotlinScript(
@@ -138,9 +133,6 @@ public abstract class Agent47Script(
 
 public object Agent47ScriptCompilationConfiguration : ScriptCompilationConfiguration({
     baseClass(Agent47Script::class)
-    if (System.getProperty("org.graalvm.nativeimage.imagecode") == "runtime") {
-        compilerOptions.append("-no-jdk")
-    }
     compilerOptions.append("-Xlambdas=class")
     jvm {
         dependenciesFromCurrentContext(wholeClasspath = true)
@@ -362,7 +354,7 @@ public class KotlinExtensionScriptLoader : ExtensionScriptLoader {
         val evaluation = when (compilation) {
             is ResultWithDiagnostics.Success -> host.runInCoroutineContext {
                 host.evaluator(
-                    sanitizeCompiledScript(compilation.value),
+                    compilation.value,
                     ScriptEvaluationConfiguration {
                         constructorArgs(api)
                     },
@@ -390,47 +382,4 @@ public class KotlinExtensionScriptLoader : ExtensionScriptLoader {
         }
     }
 
-    private fun sanitizeCompiledScript(script: CompiledScript): CompiledScript =
-        if (System.getProperty("org.graalvm.nativeimage.imagecode") == "runtime") {
-            sanitizeNativeCompiledScript(script)
-        } else {
-            script
-        }
-
-    private fun sanitizeNativeCompiledScript(script: CompiledScript): CompiledScript {
-        val jvmScript = script as? KJvmCompiledScript
-        val module = jvmScript?.getCompiledModule() as? KJvmCompiledModuleInMemory
-        if (jvmScript == null || module == null) return script
-        val entries = module.compilerOutputFiles.mapValues { (name, bytes) ->
-            if (name.endsWith(".class")) RuntimeClassSanitizer.sanitize(bytes) else bytes
-        }
-        val sanitizedModule = object : KJvmCompiledModuleInMemory {
-            override val compilerOutputFiles: Map<String, ByteArray> = entries
-
-            override fun createClassLoader(baseClassLoader: ClassLoader?): ClassLoader =
-                SanitizedScriptClassLoader(baseClassLoader, compilerOutputFiles)
-        }
-        return KJvmCompiledScript(
-            jvmScript.sourceLocationId,
-            jvmScript.compilationConfiguration,
-            jvmScript.scriptClassFQName,
-            jvmScript.resultField,
-            jvmScript.otherScripts,
-            sanitizedModule,
-        )
-    }
-}
-
-private class SanitizedScriptClassLoader(
-    parent: ClassLoader?,
-    private val entries: Map<String, ByteArray>,
-) : ClassLoader(parent) {
-    override fun findClass(name: String): Class<*> {
-        val path = name.replace('.', '/') + ".class"
-        val bytes = entries[path] ?: throw ClassNotFoundException(name)
-        return defineClass(name, bytes, 0, bytes.size)
-    }
-
-    override fun getResourceAsStream(name: String): InputStream? =
-        entries[name]?.let(::ByteArrayInputStream) ?: super.getResourceAsStream(name)
 }

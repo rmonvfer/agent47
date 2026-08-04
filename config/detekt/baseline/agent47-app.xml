@@ -4,7 +4,7 @@
   <CurrentIssues>
     <ID>NestedBlockDepth:UpdateService.kt:UpdateService$fun checkAndInstall(force: Boolean): UpdateResult</ID>
     <ID>ReturnCount:Main.kt:suspend fun main(args: Array&lt;String>)</ID>
-    <ID>ReturnCount:UpdateService.kt:SemanticVersion$override fun compareTo(other: SemanticVersion): Int</ID>
+    <ID>ReturnCount:ReleaseVersions.kt:SemanticVersion$override fun compareTo(other: SemanticVersion): Int</ID>
     <ID>ReturnCount:UpdateService.kt:UpdateService$fun checkAndInstall(force: Boolean): UpdateResult</ID>
     <ID>ReturnCount:UpdateService.kt:UpdateService$private fun checkAndInstallLocked(force: Boolean): UpdateResult</ID>
     <ID>ReturnCount:UpdateService.kt:UpdateService$private fun wasCheckedRecently(): Boolean</ID>

@@ -3,9 +3,10 @@ set -euo pipefail
 
 REPO="${AGENT47_REPOSITORY:-rmonvfer/agent47}"
 INSTALL_DIR="${AGENT47_INSTALL_DIR:-$HOME/.local/bin}"
+DIST_DIR="${AGENT47_DIST_DIR:-$HOME/.agent47/dist}"
 DOWNLOAD_ROOT="https://github.com/${REPO}/releases/download"
 TEMP_DIR=""
-STAGED_PATH=""
+STAGED_DIST=""
 
 die() {
     echo "error: $1" >&2
@@ -21,7 +22,7 @@ download() {
 }
 
 cleanup() {
-    [ -z "$STAGED_PATH" ] || rm -f "$STAGED_PATH"
+    [ -z "$STAGED_DIST" ] || rm -rf "$STAGED_DIST"
     [ -z "$TEMP_DIR" ] || rm -rf "$TEMP_DIR"
 }
 
@@ -80,16 +81,16 @@ checksum_file() {
 }
 
 main() {
-    local platform version asset url checksums_url downloaded expected actual
+    local platform version asset url checksums_url downloaded expected actual version_dir
 
     require_command curl
     require_command mktemp
-    require_command install
+    require_command tar
 
     platform=$(detect_platform)
     version=$(get_version)
     verify_version "$version"
-    asset="agent47-${platform}"
+    asset="agent47-${platform}.tar.gz"
     url="${DOWNLOAD_ROOT}/${version}/${asset}"
     checksums_url="${DOWNLOAD_ROOT}/${version}/checksums-sha256.txt"
     TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/agent47-install.XXXXXXXX")
@@ -108,13 +109,21 @@ main() {
     actual=$(checksum_file "$downloaded")
     [ "$actual" = "$expected" ] || die "checksum verification failed for ${asset}"
 
-    mkdir -p "$INSTALL_DIR"
-    STAGED_PATH="${INSTALL_DIR}/.agent47.install.$$"
-    install -m 0755 "$downloaded" "$STAGED_PATH"
-    mv -f "$STAGED_PATH" "${INSTALL_DIR}/agent47"
-    STAGED_PATH=""
+    mkdir -p "$DIST_DIR"
+    STAGED_DIST=$(mktemp -d "${DIST_DIR}/.install.XXXXXXXX")
+    tar -xzf "$downloaded" -C "$STAGED_DIST" --strip-components 1 || die "failed to extract ${asset}"
+    [ -x "${STAGED_DIST}/bin/agent47" ] || die "release archive does not contain an executable bin/agent47"
 
-    echo "Installed agent47 to ${INSTALL_DIR}/agent47"
+    version_dir="${DIST_DIR}/${version#v}"
+    rm -rf "$version_dir"
+    mv "$STAGED_DIST" "$version_dir"
+    STAGED_DIST=""
+
+    mkdir -p "$INSTALL_DIR"
+    ln -sf "${version_dir}/bin/agent47" "${INSTALL_DIR}/agent47"
+
+    echo "Installed agent47 to ${version_dir}"
+    echo "Linked ${INSTALL_DIR}/agent47"
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
         echo ""

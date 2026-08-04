@@ -34,7 +34,7 @@ jobs:
         run: bash -n scripts/install.sh
 
   build:
-    name: Build native (${{ matrix.target }})
+    name: Build dist (${{ matrix.target }})
     needs: verify
     runs-on: ${{ matrix.os }}
 
@@ -53,12 +53,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Set up GraalVM 25.1.3
-        uses: graalvm/setup-graalvm@0def53c0fd8534bc13416c9469f5be45265824fd # v1
+      - name: Set up JDK 25
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:
-          version: "25.1.3"
-          distribution: graalvm-community
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          distribution: temurin
+          java-version: "25"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@90ddb51e90a5fd9ba75f40cf85156b7b41bf76a3 # v6
@@ -73,20 +72,25 @@ jobs:
             exit 1
           fi
 
-      - name: Build native image
-        run: ./gradlew :agent47-app:nativeCompile
+      - name: Build distribution
+        run: ./gradlew :agent47-app:jvmDistArchive -Pagent47.dist.target=${{ matrix.target }}
         env:
           CI: "true"
 
-      - name: Rename binary
-        run: mv agent47-app/build/native/nativeCompile/agent47 agent47-${{ matrix.target }}
+      - name: Stage archive
+        run: cp agent47-app/build/distributions/agent47-${{ matrix.target }}.tar.gz .
 
-      - name: Smoke test binary
+      - name: Smoke test distribution
         shell: bash
         run: |
-          ./agent47-${{ matrix.target }} --help
+          dist_root="$RUNNER_TEMP/agent47-dist"
+          mkdir -p "$dist_root"
+          tar -xzf "agent47-${{ matrix.target }}.tar.gz" -C "$dist_root"
+          binary="$dist_root/agent47/bin/agent47"
+          test -x "$binary"
+          "$binary" --help
           expected_version="agent47 ${GITHUB_REF_NAME#v}"
-          actual_version="$(./agent47-${{ matrix.target }} --version)"
+          actual_version="$("$binary" --version)"
           if [[ "$actual_version" != "$expected_version" ]]; then
             echo "Expected '$expected_version', got '$actual_version'" >&2
             exit 1
@@ -95,7 +99,7 @@ jobs:
           clean_home="$RUNNER_TEMP/agent47-smoke-home"
           mkdir -p "$clean_home"
           env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
-            "$PWD/agent47-${{ matrix.target }}" --no-extensions -e "$extension_path" --list-extensions \
+            "$binary" --no-extensions -e "$extension_path" --list-extensions \
             --extension-flag example=true \
             | grep -F "$extension_path"
           test ! -e "$clean_home/.agent47"
@@ -106,25 +110,25 @@ jobs:
           git -C "$repository_path" -c user.name=agent47 -c user.email=agent47@example.invalid \
             add extensions/api-surface.kts
           git -C "$repository_path" -c user.name=agent47 -c user.email=agent47@example.invalid \
-            commit -m "Native extension smoke fixture"
+            commit -m "Distribution extension smoke fixture"
           repository_source="file://$repository_path"
           env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
-            "$PWD/agent47-${{ matrix.target }}" install "$repository_source"
+            "$binary" install "$repository_source"
           env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
-            "$PWD/agent47-${{ matrix.target }}" --list-extensions \
+            "$binary" --list-extensions \
             | grep -F "/extensions/api-surface.kts"
           env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
-            "$PWD/agent47-${{ matrix.target }}" update --extensions \
+            "$binary" update --extensions \
             | grep -F "already current"
           env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
-            "$PWD/agent47-${{ matrix.target }}" remove "$repository_source"
-          python3 scripts/smoke-interactive.py "$PWD/agent47-${{ matrix.target }}"
+            "$binary" remove "$repository_source"
+          python3 scripts/smoke-interactive.py "$binary"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: agent47-${{ matrix.target }}
-          path: agent47-${{ matrix.target }}
+          path: agent47-${{ matrix.target }}.tar.gz
 
   release:
     name: Create Release

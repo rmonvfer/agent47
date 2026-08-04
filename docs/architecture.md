@@ -1,7 +1,7 @@
 # Architecture
 
-agent47 is a Gradle multi-module Kotlin application. It uses Kotlin 2.2.20, a JDK 25 toolchain, JVM 21 bytecode, and
-GraalVM Native Image for the distributable binary. The modules separate transport-neutral AI types, provider
+agent47 is a Gradle multi-module Kotlin application. It uses Kotlin 2.2.20, a JDK 25 toolchain, JVM 21 bytecode, and a
+jlinked Java runtime bundled into the distributable archive. The modules separate transport-neutral AI types, provider
 protocols, the agent loop, coding behavior, UI state, and application assembly.
 
 ## Modules
@@ -55,5 +55,6 @@ the same state from the TUI.
 ## Building and API documentation
 
 Use `./gradlew build` for the complete build, `./gradlew test` for tests, and a module-qualified task for focused work.
-`./gradlew :agent47-app:nativeCompile` produces the native executable. Dokka 2 API documentation is generated with
+`./gradlew :agent47-app:jvmDist` assembles the standalone distribution and `:agent47-app:jvmDistArchive` packages it as
+a release tar.gz. Dokka 2 API documentation is generated with
 `./gradlew dokkaGeneratePublicationHtml`; the legacy `dokkaHtml` task is disabled.
