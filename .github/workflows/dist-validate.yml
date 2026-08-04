@@ -2,8 +2,6 @@ name: Dist Validate
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["feat/jvm-dist"]
   pull_request:
     branches: [main]
     paths:
@@ -66,6 +64,7 @@ jobs:
             "$binary" --no-extensions -e "$extension_path" --list-extensions \
             --extension-flag example=true \
             | grep -F "$extension_path"
+          test -n "$(find "$clean_home/.agent47/cache/kotlin-extensions" -type f -name '*.zip' -print -quit)"
           python3 scripts/smoke-interactive.py "$binary"
           echo "dist size: $(du -sh "$dist_root/agent47" | cut -f1)"
           echo "archive size: $(du -sh agent47-app/build/distributions/agent47-${{ matrix.target }}.tar.gz | cut -f1)"

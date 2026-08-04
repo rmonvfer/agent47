@@ -92,15 +92,13 @@ val distTarget: String = providers.gradleProperty("agent47.dist.target")
 val jlinkModules = listOf(
     "java.base",
     "java.compiler",
+    // The embedded Kotlin compiler's IntelliJ core initializes file types with Swing icons.
     "java.desktop",
-    "java.instrument",
     "java.logging",
     "java.management",
     "java.naming",
     "java.net.http",
-    "java.rmi",
     "java.scripting",
-    "java.sql",
     "java.xml",
     "jdk.compiler",
     "jdk.crypto.ec",

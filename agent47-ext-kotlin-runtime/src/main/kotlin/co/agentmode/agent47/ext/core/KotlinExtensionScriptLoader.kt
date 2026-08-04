@@ -9,14 +9,19 @@ import co.agentmode.agent47.ai.types.Message
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.script.experimental.annotations.KotlinScript
+import kotlin.script.experimental.api.CompiledScript
 import kotlin.script.experimental.api.ResultWithDiagnostics
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
+import kotlin.script.experimental.api.ScriptCompiler
 import kotlin.script.experimental.api.ScriptDiagnostic
 import kotlin.script.experimental.api.ScriptEvaluationConfiguration
+import kotlin.script.experimental.api.SourceCode
 import kotlin.script.experimental.api.baseClass
 import kotlin.script.experimental.api.compilerOptions
 import kotlin.script.experimental.api.constructorArgs
+import kotlin.script.experimental.host.BasicScriptingHost
 import kotlin.script.experimental.host.FileScriptSource
+import kotlin.script.experimental.jvm.BasicJvmScriptEvaluator
 import kotlin.script.experimental.jvm.dependenciesFromCurrentContext
 import kotlin.script.experimental.jvm.jvm
 import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
@@ -327,9 +332,26 @@ public class Agent47ExtensionBuilder internal constructor(
 
 public class KotlinExtensionScriptLoader : ExtensionScriptLoader {
     private var flagValues: Map<String, String> = emptyMap()
+    private var compilationCache: KotlinExtensionCompilationCache? = null
+    private val evaluator = BasicJvmScriptEvaluator()
+    private val evaluationHost = object : BasicScriptingHost(
+        compiler = object : ScriptCompiler {
+            override suspend fun invoke(
+                script: SourceCode,
+                scriptCompilationConfiguration: ScriptCompilationConfiguration,
+            ): ResultWithDiagnostics<CompiledScript> = error("The evaluation host cannot compile scripts")
+        },
+        evaluator = evaluator,
+    ) {}
+    private val compilerHost = lazy(::BasicJvmScriptingHost)
 
     override fun configureFlags(values: Map<String, String>) {
         flagValues = values.toMap()
+    }
+
+    override fun configureCompilationCache(directory: Path, runtimeId: String) {
+        require(runtimeId.isNotBlank()) { "Extension compilation cache runtime ID cannot be blank" }
+        compilationCache = KotlinExtensionCompilationCache(directory, runtimeId)
     }
 
     override fun load(path: Path): ScriptLoadResult {
@@ -346,23 +368,31 @@ public class KotlinExtensionScriptLoader : ExtensionScriptLoader {
     private fun loadScript(path: Path): ScriptLoadResult {
         val normalizedPath = path.toAbsolutePath().normalize()
         val api = Agent47ScriptApi(normalizedPath.toString(), flagValues)
-        val host = BasicJvmScriptingHost()
-        val source = FileScriptSource(path.toFile())
-        val compilation = host.runInCoroutineContext {
-            host.compiler(source, Agent47ScriptCompilationConfiguration)
+        val source = FileScriptSource(normalizedPath.toFile())
+        val cachedScript = compilationCache?.load(source, Agent47ScriptCompilationConfiguration)
+        val compilation = if (cachedScript == null) {
+            compilerHost.value.runInCoroutineContext {
+                compilerHost.value.compiler(source, Agent47ScriptCompilationConfiguration)
+            }
+        } else {
+            null
         }
-        val evaluation = when (compilation) {
-            is ResultWithDiagnostics.Success -> host.runInCoroutineContext {
-                host.evaluator(
-                    compilation.value,
+        val compiledScript = cachedScript ?: (compilation as? ResultWithDiagnostics.Success)
+            ?.value
+            ?.also { script ->
+                compilationCache?.store(script, source, Agent47ScriptCompilationConfiguration)
+            }
+        val evaluation = compiledScript?.let { script ->
+            evaluationHost.runInCoroutineContext {
+                evaluator(
+                    script,
                     ScriptEvaluationConfiguration {
                         constructorArgs(api)
                     },
                 )
             }
-            is ResultWithDiagnostics.Failure -> null
         }
-        val reports = compilation.reports + evaluation?.reports.orEmpty()
+        val reports = compilation?.reports.orEmpty() + evaluation?.reports.orEmpty()
         val errors = reports
             .filter { it.severity >= ScriptDiagnostic.Severity.ERROR }
             .map { diagnostic ->
@@ -382,4 +412,5 @@ public class KotlinExtensionScriptLoader : ExtensionScriptLoader {
         }
     }
 
+    internal fun compilerWasInitialized(): Boolean = compilerHost.isInitialized()
 }

@@ -102,7 +102,14 @@ jobs:
             "$binary" --no-extensions -e "$extension_path" --list-extensions \
             --extension-flag example=true \
             | grep -F "$extension_path"
-          test ! -e "$clean_home/.agent47"
+          cache_file="$(find "$clean_home/.agent47/cache/kotlin-extensions" -type f -name '*.zip' -print -quit)"
+          test -n "$cache_file"
+          cache_mtime="$(python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$cache_file")"
+          env -i HOME="$clean_home" AGENT47_DIR="$clean_home/.agent47" PATH=/usr/bin:/bin \
+            "$binary" --no-extensions -e "$extension_path" --list-extensions \
+            --extension-flag example=true \
+            | grep -F "$extension_path"
+          test "$(python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$cache_file")" = "$cache_mtime"
           repository_path="$RUNNER_TEMP/agent47-extension-repository"
           mkdir -p "$repository_path/extensions"
           cp "$extension_path" "$repository_path/extensions/api-surface.kts"

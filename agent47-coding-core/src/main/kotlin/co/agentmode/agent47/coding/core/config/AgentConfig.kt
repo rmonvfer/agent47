@@ -62,6 +62,8 @@ public class AgentConfig(
         get() = projectDir.resolve("extensions")
     public val globalExtensionsDir: Path
         get() = agentDir.resolve("extensions")
+    public val globalExtensionCompilationCacheDir: Path
+        get() = agentDir.resolve("cache").resolve("kotlin-extensions")
 
     public val claudeDir: Path
         get() = Path(System.getProperty("user.home"), ".claude")

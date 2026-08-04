@@ -1,6 +1,6 @@
 # Kotlin extensions
 
-agent47 extensions are Kotlin `.kts` source files. The standalone executable contains the Kotlin compiler and compiles
+agent47 extensions are Kotlin `.kts` source files. The distribution bundles the Kotlin compiler and compiles
 extensions in process, so users do not install Java, Kotlin, JARs, or a companion runtime.
 
 Extensions are trusted application code. They run with the same filesystem, process, and network access as agent47.
@@ -19,8 +19,14 @@ agent47 --no-extensions -e ./my-extension.kts --list-extensions
 
 `-e`/`--extension` may be repeated. `--no-extensions` disables loose extension discovery from
 `.agent47/extensions/` and `~/.agent47/extensions/`; explicitly selected files and installed repositories remain
-enabled. `/reload` recompiles the selected files and replaces the active extension set only when every script compiles
+enabled. `/reload` reloads the selected files and replaces the active extension set only when every script loads
 successfully.
+
+Compiled extension bytecode is cached under `~/.agent47/cache/kotlin-extensions/`, or the corresponding
+`AGENT47_DIR`, and unchanged scripts skip the compiler on later launches. Scripts are still evaluated on every load so
+flags and top-level behavior use the current runtime state. Editing a script, changing its compilation configuration,
+or running a different agent47 build creates a cache miss and recompiles it. Invalid cache entries are discarded
+automatically.
 
 ## Script API
 

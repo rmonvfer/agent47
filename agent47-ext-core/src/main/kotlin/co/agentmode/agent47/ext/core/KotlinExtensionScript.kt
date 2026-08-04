@@ -24,4 +24,6 @@ public fun interface ExtensionScriptLoader {
     public fun configureFlags(values: Map<String, String>) {
         require(values.isEmpty()) { "This extension loader does not support extension flags" }
     }
+
+    public fun configureCompilationCache(directory: Path, runtimeId: String): Unit = Unit
 }

@@ -15,6 +15,7 @@ import co.agentmode.agent47.ai.types.Model
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.UserMessage
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.app.BuildInfo
 import co.agentmode.agent47.app.KotlinExtensionSupport
 import co.agentmode.agent47.app.buildSystemPrompt
 import co.agentmode.agent47.app.cli.CliOptions
@@ -143,7 +144,13 @@ internal class AgentRuntimeBuilder(
         val extensionRuntime = KotlinExtensionRuntime(
             discoveredExtensionPaths,
             discoveredExtensionPaths.takeIf { it.isNotEmpty() }?.let {
-                KotlinExtensionSupport.createLoader().also { loader -> loader.configureFlags(flags) }
+                KotlinExtensionSupport.createLoader().also { loader ->
+                    loader.configureFlags(flags)
+                    loader.configureCompilationCache(
+                        config.globalExtensionCompilationCacheDir,
+                        KotlinExtensionSupport.compilationRuntimeId(BuildInfo.version),
+                    )
+                }
             },
         )
         var loadFailed = false
