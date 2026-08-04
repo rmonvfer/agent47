@@ -29,7 +29,7 @@ the published SHA-256 checksums, unpacks it under `~/.agent47/dist/<version>`, a
 installed launcher. To install a specific release or update to the latest one:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.1.6 bash
+curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | AGENT47_VERSION=v0.2.0 bash
 curl -fsSL https://raw.githubusercontent.com/rmonvfer/agent47/main/scripts/install.sh | bash
 ```
 

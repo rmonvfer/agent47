@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-04
+
+### Changed
+
+- agent47 ships as a self-contained archive bundling a Java runtime. The installer unpacks releases under
+  `~/.agent47/dist/<version>` and links a launcher into `~/.local/bin`, and self-update installs new versions alongside
+  the current one with an atomic launcher switch.
+- Kotlin extensions compile with the full JIT compiler, reducing cold extension loading from tens of seconds to a few
+  seconds.
+
+### Removed
+
+- The GraalVM native image build and its runtime class loading machinery.
+
 ## [0.1.6] - 2026-07-23
 
 ### Added
@@ -91,6 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.2.0]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.0
 [0.1.6]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.6
 [0.1.5]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.5
 [0.1.4]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.4
