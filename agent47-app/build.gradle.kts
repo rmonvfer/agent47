@@ -208,5 +208,10 @@ val jvmDistArchive by tasks.registering(Tar::class) {
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
     into("agent47") {
         from(distDirectory)
+        eachFile {
+            if (file.canExecute()) {
+                permissions { unix("rwxr-xr-x") }
+            }
+        }
     }
 }
