@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-04
+
+### Added
+
+- Compiled extension bytecode is cached under `~/.agent47/cache/kotlin-extensions/`, so unchanged scripts skip the
+  Kotlin compiler on later launches while still being evaluated with current flag values on every load.
+
 ## [0.2.0] - 2026-08-04
 
 ### Changed
@@ -105,6 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.2.1]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.1
 [0.2.0]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.0
 [0.1.6]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.6
 [0.1.5]: https://github.com/rmonvfer/agent47/releases/tag/v0.1.5
