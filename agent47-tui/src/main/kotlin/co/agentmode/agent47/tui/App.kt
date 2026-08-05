@@ -20,6 +20,8 @@ import co.agentmode.agent47.tui.input.DoubleEscapeDetector
 import co.agentmode.agent47.tui.input.KeyBindings
 import co.agentmode.agent47.tui.input.KeyContext
 import co.agentmode.agent47.tui.input.KeyboardEvent
+import co.agentmode.agent47.tui.input.PasteAccumulatorResult
+import co.agentmode.agent47.tui.input.PasteMarkerAccumulator
 import co.agentmode.agent47.tui.input.SubmitDispatcher
 import co.agentmode.agent47.tui.input.TuiIntent
 import co.agentmode.agent47.tui.input.resetsCtrlCArm
@@ -366,6 +368,7 @@ private fun Agent47AppContent(
         )
     }
     val doubleEscapeDetector = remember { DoubleEscapeDetector() }
+    val pasteAccumulator = remember { PasteMarkerAccumulator() }
     LaunchedEffect(slashCommands) {
         editor.setSlashCommands(
             slashCommands.map { it.command },
@@ -660,6 +663,15 @@ private fun Agent47AppContent(
                     return@onKeyEvent false
                 }
                 val keyboardEvent = event.toKeyboardEvent()
+                when (val pasteResult = pasteAccumulator.feed(keyboardEvent)) {
+                    PasteAccumulatorResult.Buffering -> return@onKeyEvent true
+                    is PasteAccumulatorResult.Complete -> {
+                        editor.insertPastedText(pasteResult.text)
+                        editorVersion++
+                        return@onKeyEvent true
+                    }
+                    PasteAccumulatorResult.PassThrough -> Unit
+                }
                 val context = KeyContext(
                     isStreaming = isStreaming,
                     isViewingAgent = viewingAgentId != null,

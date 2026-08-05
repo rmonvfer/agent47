@@ -117,6 +117,24 @@ public class Editor(
         resetNavigationState()
     }
 
+    /**
+     * Inserts [text] atomically at the cursor as a single edit: one undo step and one autocomplete
+     * update, regardless of how many characters or lines it spans. Used for pasted text so it never
+     * goes through per-character handling, which would risk applying an open autocomplete selection
+     * on an embedded newline or reacting to a slash/@ trigger midway through the paste.
+     */
+    public fun insertPastedText(text: String) {
+        val normalized = normalizePastedText(text)
+        if (normalized.isEmpty()) return
+
+        state.insertText(normalized)
+        pushUndo(null)
+        resetNavigationState()
+        resetEditState()
+        preferredColumn = null
+        updateAutocomplete()
+    }
+
     public fun handle(event: KeyboardEvent): Boolean {
         if (handleAutocompleteNavigation(event)) {
             if (event.key != Key.Escape) {
@@ -601,6 +619,25 @@ public class Editor(
 
     private fun pageJumpRows(): Int {
         return (lastRenderHeight - 1).coerceAtLeast(1)
+    }
+
+    /**
+     * Normalizes line endings to `\n` and drops control characters a pasted string should never
+     * carry into the buffer (a literal Escape or Backspace byte, for instance). Tabs expand to the
+     * same four spaces [Key.Tab] inserts.
+     */
+    private fun normalizePastedText(text: String): String {
+        val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
+        return buildString(normalized.length) {
+            for (char in normalized) {
+                when {
+                    char == '\n' -> append(char)
+                    char == '\t' -> append("    ")
+                    char.code >= 32 -> append(char)
+                    else -> Unit
+                }
+            }
+        }
     }
 
     private fun eventCharacter(event: KeyboardEvent): Char? {

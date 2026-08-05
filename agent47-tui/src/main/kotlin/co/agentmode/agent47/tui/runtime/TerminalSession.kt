@@ -21,8 +21,11 @@ internal object TerminalSession {
      */
     private val activeResumeSession = AtomicReference<SessionManager?>(null)
 
-    private const val RESTORE_TERMINAL = "\u001b[<u\u001b[?25h\u001b[?1049l"
-    private const val ENTER_TERMINAL = "\u001b[?1049h\u001b[?25l\u001b[>1u"
+    // `\u001b[?2004l`/`\u001b[?2004h` disable/enable bracketed paste, so the terminal wraps a
+    // paste in `ESC[200~ ... ESC[201~` and sends embedded newlines literally instead of translating
+    // them into Enter keystrokes that would submit the input mid-paste.
+    private const val RESTORE_TERMINAL = "\u001b[?2004l\u001b[<u\u001b[?25h\u001b[?1049l"
+    private const val ENTER_TERMINAL = "\u001b[?1049h\u001b[?25l\u001b[>1u\u001b[?2004h"
     private const val RGB_SCALE = 255
 
     /** Records the active session so the shutdown hook can print a resume hint on exit. */
@@ -52,7 +55,8 @@ internal object TerminalSession {
         }, "terminal-restore")
         Runtime.getRuntime().addShutdownHook(shutdownHook)
 
-        // Enter alternate screen buffer, hide cursor, and enable kitty keyboard protocol.
+        // Enter alternate screen buffer, hide cursor, enable kitty keyboard protocol, and enable
+        // bracketed paste.
         // Kitty keyboard flags=1 (disambiguate) makes the terminal encode modifier keys
         // on Enter, Tab, Escape, and Backspace via CSI u sequences, allowing Shift+Enter
         // to be distinguished from bare Enter.
