@@ -4,6 +4,8 @@ import androidx.compose.runtime.*
 import co.agentmode.agent47.tui.input.Key
 import co.agentmode.agent47.tui.input.KeyboardEvent
 import co.agentmode.agent47.tui.input.toKeyboardEvent
+import co.agentmode.agent47.tui.overlays.formatRelativeAge
+import java.time.Instant
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import com.jakewharton.mosaic.layout.*
@@ -942,12 +944,12 @@ public fun TreeSelectorDialog(
 
 private fun renderUserMessageLine(item: UserMessageItem, isSelected: Boolean, width: Int, theme: ThemeConfig) = buildAnnotatedString {
     val bg = if (isSelected) theme.overlaySelectedBg else theme.overlayBg
-    val cursor = "  "
+    val cursor = if (isSelected) "› " else "  "
     val normalized = item.text.replace('\n', ' ').trim()
     val maxWidth = (width - cursor.length).coerceAtLeast(0)
     val truncated = normalized.take(maxWidth)
 
-    withStyle(SpanStyle(background = bg)) { append(cursor) }
+    withStyle(SpanStyle(color = theme.colors.accent, background = bg)) { append(cursor) }
     withStyle(rowSpanStyle(theme.markdownText, bg, isSelected)) { append(truncated) }
     val padding = (width - cursor.length - truncated.length).coerceAtLeast(0)
     if (padding > 0) {
@@ -955,9 +957,10 @@ private fun renderUserMessageLine(item: UserMessageItem, isSelected: Boolean, wi
     }
 }
 
-private fun renderUserMessageMeta(index: Int, total: Int, isSelected: Boolean, width: Int, theme: ThemeConfig) = buildAnnotatedString {
+private fun renderUserMessageAge(item: UserMessageItem, isSelected: Boolean, width: Int, theme: ThemeConfig) = buildAnnotatedString {
     val bg = if (isSelected) theme.overlaySelectedBg else theme.overlayBg
-    val text = "  Message ${index + 1} of $total"
+    val age = item.timestamp?.let { formatRelativeAge(Instant.ofEpochMilli(it)) }.orEmpty()
+    val text = if (age.isEmpty()) "" else "  $age"
     withStyle(SpanStyle(color = theme.colors.muted, background = bg)) {
         append(text.take(width).padEnd(width))
     }
@@ -999,6 +1002,9 @@ private fun handleUserMessageDialogKey(
  * The `/fork` message picker: user messages in chronological order, two lines each (text plus a
  * "Message N of M" caption), newest preselected.
  */
+/** Rows per `/fork` list item: the message line, its age line, and a separator. */
+private const val USER_MESSAGE_ROW_HEIGHT = 3
+
 @Composable
 public fun UserMessageSelectorDialog(
     listState: UserMessageListState,
@@ -1018,8 +1024,8 @@ public fun UserMessageSelectorDialog(
     val footerHeight = 1
     val bottomPadding = 1
     val chrome = topPadding + titleHeight + spacer1 + spacerBeforeFooter + footerHeight + bottomPadding
-    val bodyHeight = (height - chrome).coerceAtLeast(2)
-    val maxVisibleItems = (bodyHeight / 2).coerceAtLeast(1)
+    val bodyHeight = (height - chrome).coerceAtLeast(USER_MESSAGE_ROW_HEIGHT)
+    val maxVisibleItems = (bodyHeight / USER_MESSAGE_ROW_HEIGHT).coerceAtLeast(1)
 
     val items = listState.items
     val scrollTop = if (items.isEmpty()) {
@@ -1043,19 +1049,29 @@ public fun UserMessageSelectorDialog(
             if (items.isEmpty()) {
                 Text(renderSelectLine("No user messages found", false, width, theme))
             } else {
+                // Every body row is painted, item or not, so the surface never exposes the
+                // transcript behind it.
                 for (i in 0 until maxVisibleItems) {
                     val itemIndex = scrollTop + i
                     if (itemIndex < items.size) {
                         val item = items[itemIndex]
                         val isSelected = itemIndex == listState.selectedIndex
                         Text(renderUserMessageLine(item, isSelected, width, theme))
-                        Text(renderUserMessageMeta(itemIndex, items.size, isSelected, width, theme))
+                        Text(renderUserMessageAge(item, isSelected, width, theme))
+                        Text(renderOverlayBlankRow(width, theme))
+                    } else {
+                        repeat(USER_MESSAGE_ROW_HEIGHT) { Text(renderOverlayBlankRow(width, theme)) }
                     }
                 }
             }
 
+            val footer = if (items.size > maxVisibleItems) {
+                "↑/↓ navigate  enter select  (${listState.selectedIndex + 1}/${items.size})"
+            } else {
+                "↑/↓ navigate  enter select"
+            }
             Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayFooterRow("↑/↓ navigate  enter select", width, theme))
+            Text(renderOverlayFooterRow(footer, width, theme))
             Text(renderOverlayBlankRow(width, theme))
         }
     }
@@ -1102,12 +1118,17 @@ private fun UserMessageOverlayHostEntry(
     val listState = entry.listState
         ?: UserMessageListState(entry.items, entry.initialSelectedId).also { entry.listState = it }
 
+    // The dialog is sized to its list instead of the generic dialog height so a short
+    // history does not open a mostly empty panel; the offset shift keeps it centered.
+    val chromeRows = 6
+    val fitHeight = (chromeRows + entry.items.size.coerceIn(1, 10) * USER_MESSAGE_ROW_HEIGHT)
+        .coerceAtMost(dialogHeight)
     UserMessageSelectorDialog(
         listState = listState,
         width = dialogWidth,
-        height = dialogHeight,
+        height = fitHeight,
         offsetX = offsetX,
-        offsetY = offsetY,
+        offsetY = offsetY + ((dialogHeight - fitHeight) / 2).coerceAtLeast(0),
         onSubmit = { id ->
             state.stack.removeLastOrNull()
             entry.onSelect(id)

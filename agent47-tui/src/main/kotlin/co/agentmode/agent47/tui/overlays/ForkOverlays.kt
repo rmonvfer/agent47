@@ -31,7 +31,7 @@ internal fun OverlayNavigator.openForkOverlay() {
         .mapNotNull { entry ->
             val message = entry.message as? UserMessage ?: return@mapNotNull null
             val text = extractMessageText(message.content)
-            if (text.isBlank()) null else UserMessageItem(entry.id, text)
+            if (text.isBlank()) null else UserMessageItem(entry.id, text, message.timestamp)
         }
     if (messages.isEmpty()) {
         feed.appendCommandResult("No messages to fork from")

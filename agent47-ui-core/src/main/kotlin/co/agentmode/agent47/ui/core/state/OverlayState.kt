@@ -238,7 +238,7 @@ public class TreeOverlayEntry(
 }
 
 /** One user message offered by the `/fork` overlay, in chronological order. */
-public data class UserMessageItem(val id: String, val text: String)
+public data class UserMessageItem(val id: String, val text: String, val timestamp: Long? = null)
 
 /**
  * State for the `/fork` overlay's message list: chronological order, newest preselected, no
