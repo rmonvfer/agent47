@@ -30,15 +30,20 @@ internal fun OverlayNavigator.openTreeOverlay(initialSelectedId: String? = null)
 }
 
 private fun OverlayNavigator.handleTreeSelection(activeSession: SessionManager, entryId: String) {
-    if (entryId == activeSession.getLeafId()) {
-        feed.appendCommandResult("Already at this point")
-        return
+    when {
+        entryId == activeSession.getLeafId() -> feed.appendCommandResult("Already at this point")
+        state.branchSummarySkipPrompt ->
+            scope.launch { performTreeNavigation(activeSession, entryId, summarize = false, customInstructions = null) }
+        // Summarization needs a model; without one the navigation still happens, it is
+        // just recorded without a summary instead of failing mid-flight.
+        state.currentModel == null -> {
+            feed.appendSystemMessage(
+                "No model selected — branch summary skipped; use /provider to connect a provider",
+            )
+            scope.launch { performTreeNavigation(activeSession, entryId, summarize = false, customInstructions = null) }
+        }
+        else -> promptBranchSummaryChoice(activeSession, entryId)
     }
-    if (state.branchSummarySkipPrompt) {
-        scope.launch { performTreeNavigation(activeSession, entryId, summarize = false, customInstructions = null) }
-        return
-    }
-    promptBranchSummaryChoice(activeSession, entryId)
 }
 
 private fun OverlayNavigator.promptBranchSummaryChoice(activeSession: SessionManager, entryId: String) {
