@@ -66,13 +66,13 @@ public fun ChatHistory(
     val theme = LocalThemeConfig.current
     val viewportHeight = height.coerceAtLeast(1)
 
-    // Flatten all entries into rendered lines
+    // Flatten all entries into rendered lines. Each rendered entry owns one leading blank
+    // line; entries that render no lines contribute no spacing either, so invisible entries
+    // (an assistant round that only carried tool calls, a hidden custom message) can never
+    // widen the gap between their neighbors.
     val allLines = buildList {
         addAll(introLines)
-        if (introLines.isNotEmpty() && state.entries.isNotEmpty()) {
-            add(annotated(""))
-        }
-        state.entries.forEachIndexed { index, entry ->
+        state.entries.forEach { entry ->
             val entryLines = renderEntry(
                 entry,
                 width,
@@ -82,14 +82,12 @@ public fun ChatHistory(
                 toolRenderers,
                 messageRenderers,
             )
-            addAll(entryLines)
-            if (index != state.entries.lastIndex) {
-                val nextEntry = state.entries[index + 1]
-                val nextIsCommandResult = (nextEntry.message as? CustomMessage)?.customType == "command_result"
-                if (!nextIsCommandResult) {
-                    add(annotated(""))
-                }
+            if (entryLines.isEmpty()) return@forEach
+            val isCommandResult = (entry.message as? CustomMessage)?.customType == "command_result"
+            if (isNotEmpty() && !isCommandResult) {
+                add(annotated(""))
             }
+            addAll(entryLines)
         }
     }
 
@@ -263,7 +261,7 @@ private fun renderEntry(
             ),
             width,
         )
-        custom?.map(::annotated)
+        custom?.trimBlankEdges()?.map(::annotated)
             ?: renderToolExecutionLines(toolExec.copy(collapsed = collapsed), width, theme)
     } else {
         when (val msg = entry.message) {
@@ -282,12 +280,19 @@ private fun renderEntry(
                         ?.renderer
                         ?.render(msg, width)
                 }.getOrNull()
-                custom?.map(::annotated) ?: renderCustomMessageLines(msg, width, theme)
+                custom?.trimBlankEdges()?.map(::annotated) ?: renderCustomMessageLines(msg, width, theme)
             }
             else -> emptyList()
         }
     }
 }
+
+/**
+ * Blank lines at the edges of extension-rendered output would stack onto the
+ * transcript's own entry spacing, so only the interior lines are kept.
+ */
+private fun List<String>.trimBlankEdges(): List<String> =
+    dropWhile(String::isBlank).dropLastWhile(String::isBlank)
 
 internal fun renderWithExtension(
     renderer: RegisteredToolRenderer?,
@@ -490,51 +495,54 @@ private fun renderRegularToolLines(
 }
 
 // ---------------------------------------------------------------------------
-// Bash rendering (ohm frames shell commands with green horizontal rules)
+// Bash tool rendering (a tinted card like every other tool; the green
+// rule framing belongs to user-typed bash-mode executions only)
 // ---------------------------------------------------------------------------
+
+private const val BASH_COLLAPSED_LINES = 5
+private const val BASH_EXPANDED_LINES = 80
 
 private fun renderBashToolLines(
     execution: ToolExecutionView,
     width: Int,
     theme: ThemeConfig,
-): List<AnnotatedString> = buildList {
-    // ohm frames bash with full-width green rules; the command and output are inset by
-    // CONTENT_PAD_X so they line up with the tinted blocks above and below.
-    val ruleColor = theme.bashModeBorder
-    val rule = annotated("─".repeat(width.coerceAtLeast(1)), SpanStyle(color = ruleColor))
-    val pad = " ".repeat(CONTENT_PAD_X)
-    val contentWidth = (width - 2 * CONTENT_PAD_X).coerceAtLeast(1)
+): List<AnnotatedString> {
+    val innerWidth = (width - 2).coerceAtLeast(1)
     val command = if (execution.arguments.isNotBlank()) {
-        summarizeToolArguments("bash", execution.arguments, (contentWidth - 2).coerceAtLeast(1))
+        summarizeToolArguments("bash", execution.arguments, (innerWidth - 2).coerceAtLeast(1))
     } else ""
 
-    add(rule)
-    add(buildAnnotatedString {
-        append(pad)
-        withStyle(SpanStyle(color = ruleColor, textStyle = TextStyle.Bold)) {
-            append("$ ")
-            append(command.take((contentWidth - 2).coerceAtLeast(1)))
-        }
-    })
-    when {
-        execution.pending -> add(
-            annotated("$pad${pendingActivityLabel("bash")}${elapsedSuffix(execution.startedAt)}", SpanStyle(color = theme.colors.muted)),
-        )
-        execution.output.isNotBlank() -> {
-            add(annotated(""))
-            val lines = execution.output.split("\n")
-            val shown = lines.takeLast(20)
-            val hidden = lines.size - shown.size
-            shown.forEach { line ->
-                add(annotated(pad + line.take(contentWidth), SpanStyle(color = theme.colors.muted)))
+    val content = buildList {
+        add(buildAnnotatedString {
+            withStyle(SpanStyle(color = theme.toolTitle, textStyle = TextStyle.Bold)) {
+                append("$ ")
+                append(command)
             }
-            if (hidden > 0) {
-                add(annotated("$pad… $hidden more lines", SpanStyle(color = theme.colors.muted)))
+        })
+        when {
+            execution.pending -> add(
+                annotated(
+                    "${pendingActivityLabel("bash")}${elapsedSuffix(execution.startedAt)}",
+                    SpanStyle(color = theme.colors.muted),
+                ),
+            )
+            execution.output.isNotBlank() -> {
+                add(annotated(""))
+                val lines = execution.output.split("\n")
+                val limit = if (execution.collapsed) BASH_COLLAPSED_LINES else BASH_EXPANDED_LINES
+                val shown = lines.takeLast(limit)
+                val hidden = lines.size - shown.size
+                if (hidden > 0) {
+                    add(annotated("… $hidden earlier lines", SpanStyle(color = theme.colors.muted)))
+                }
+                shown.forEach { line ->
+                    add(annotated(line.take(innerWidth), SpanStyle(color = theme.toolOutput)))
+                }
             }
+            execution.isError -> add(annotated("Error", SpanStyle(color = theme.colors.error)))
         }
-        execution.isError -> add(annotated("${pad}Error", SpanStyle(color = theme.colors.error)))
     }
-    add(rule)
+    return bgBlock(width, toolBg(execution, theme), content)
 }
 
 // ---------------------------------------------------------------------------
