@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-05
+
+### Added
+
+- The session is navigable as a tree: `/tree` moves the conversation to any earlier point (with filtering, search,
+  and folding), optionally recording an LLM-generated summary of the branch being left; `/fork` starts a new session
+  from an earlier user message, `/clone` duplicates the active branch, and `/resume` picks a session interactively.
+  Extensions can observe and steer navigation through `session_before_tree` and `session_tree` events, and branch
+  summarization is configurable under `branchSummary` in settings.
+- Background agents have a runtime surface under the editor: an agent list with live activity, arrow-key selection
+  into a focused per-agent transcript, `@agentname` messages that steer a specific agent, and direct steering of the
+  focused agent by typing plainly while viewing it.
+- The terminal window title follows the application, session name, and working directory.
+
+### Changed
+
+- Tool calls render with uniform spacing and per-tool collapsed previews; edit tools always show their diff, the
+  bash tool renders as a tinted card, and Ctrl+E toggles all tool output.
+- Model, thinking-level, and provider status changes render as spaced status lines, and status/error lines are
+  transcript-only instead of assistant messages.
+- The editor input starts flush at the left edge, and the fork dialog fits its list and shows message ages.
+
+### Fixed
+
+- Task cards for background agent launches show the launch summary instead of a fabricated completion count.
+- Focused agent transcripts stay pinned to the bottom and surface the agent's in-flight tool activity.
+
 ## [0.2.2] - 2026-08-04
 
 ### Fixed
@@ -120,6 +147,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.3.0]: https://github.com/rmonvfer/agent47/releases/tag/v0.3.0
 [0.2.2]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.2
 [0.2.1]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.1
 [0.2.0]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.0
