@@ -193,6 +193,32 @@ public fun interface AfterCompactionHook {
     public suspend fun run(event: AfterCompactionEvent, context: ExtensionContext)
 }
 
+public data class SessionBeforeTreeEvent(
+    val targetId: String,
+    val oldLeafId: String?,
+    val entries: List<SessionEntry>,
+)
+
+public data class TreeHookResult(
+    val cancel: Boolean = false,
+    val summary: String? = null,
+    val customInstructions: String? = null,
+)
+
+public data class SessionTreeEvent(
+    val newLeafId: String?,
+    val oldLeafId: String?,
+    val summaryEntryId: String? = null,
+)
+
+public fun interface BeforeTreeHook {
+    public suspend fun run(event: SessionBeforeTreeEvent, context: ExtensionContext): TreeHookResult?
+}
+
+public fun interface AfterTreeHook {
+    public suspend fun run(event: SessionTreeEvent, context: ExtensionContext)
+}
+
 public enum class SessionStartReason {
     STARTUP,
     RELOAD,
@@ -490,6 +516,8 @@ public data class ExtensionDefinition(
     val agentEventHandlers: List<RegisteredAgentEventHandler> = emptyList(),
     val beforeCompaction: BeforeCompactionHook? = null,
     val afterCompaction: AfterCompactionHook? = null,
+    val beforeTree: BeforeTreeHook? = null,
+    val afterTree: AfterTreeHook? = null,
     val providers: List<ExtensionProvider> = emptyList(),
     val toolCallHooks: List<ToolCallHook> = emptyList(),
     val toolResultHooks: List<ToolResultHook> = emptyList(),
@@ -701,6 +729,50 @@ public class ExtensionRunner(
                     ExtensionErrorEvent(
                         extension.id,
                         "afterCompaction",
+                        error.message ?: error.toString(),
+                    ),
+                )
+            }
+        }
+    }
+
+    public suspend fun prepareTree(
+        event: SessionBeforeTreeEvent,
+        context: ExtensionContext,
+    ): TreeHookResult? {
+        for (extension in extensions) {
+            val hook = extension.beforeTree ?: continue
+            val result = try {
+                hook.run(event, context)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                eventBus.emit(
+                    ExtensionErrorEvent(
+                        extension.id,
+                        "beforeTree",
+                        error.message ?: error.toString(),
+                    ),
+                )
+                null
+            }
+            if (result?.cancel == true || result?.summary != null || result?.customInstructions != null) return result
+        }
+        return null
+    }
+
+    public suspend fun completeTree(event: SessionTreeEvent, context: ExtensionContext) {
+        for (extension in extensions) {
+            val hook = extension.afterTree ?: continue
+            try {
+                hook.run(event, context)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                eventBus.emit(
+                    ExtensionErrorEvent(
+                        extension.id,
+                        "afterTree",
                         error.message ?: error.toString(),
                     ),
                 )

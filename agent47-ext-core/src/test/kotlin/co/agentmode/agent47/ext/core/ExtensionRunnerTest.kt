@@ -145,6 +145,51 @@ class ExtensionRunnerTest {
     }
 
     @Test
+    fun `tree hooks can provide a summary and observe completion`() = runTest {
+        val runner = ExtensionRunner()
+        var completed: SessionTreeEvent? = null
+        runner.load(
+            ExtensionDefinition(
+                id = "summarizer",
+                beforeTree = { event, _ ->
+                    assertEquals("target-1", event.targetId)
+                    TreeHookResult(summary = "extension summary")
+                },
+                afterTree = { event, _ -> completed = event },
+            ),
+        )
+        val context = testExtensionContext()
+
+        val hookResult = runner.prepareTree(
+            SessionBeforeTreeEvent(targetId = "target-1", oldLeafId = "old-leaf", entries = emptyList()),
+            context,
+        )
+        assertEquals("extension summary", hookResult?.summary)
+
+        val event = SessionTreeEvent(newLeafId = "new-leaf", oldLeafId = "old-leaf", summaryEntryId = "summary-1")
+        runner.completeTree(event, context)
+        assertEquals(event, completed)
+    }
+
+    @Test
+    fun `tree hooks can cancel navigation`() = runTest {
+        val runner = ExtensionRunner()
+        runner.load(
+            ExtensionDefinition(
+                id = "blocker",
+                beforeTree = { _, _ -> TreeHookResult(cancel = true) },
+            ),
+        )
+
+        val hookResult = runner.prepareTree(
+            SessionBeforeTreeEvent(targetId = "target-1", oldLeafId = "old-leaf", entries = emptyList()),
+            testExtensionContext(),
+        )
+
+        assertEquals(true, hookResult?.cancel)
+    }
+
+    @Test
     fun `tool hooks chain input changes and result patches`() = runTest {
         val runner = ExtensionRunner()
         runner.load(

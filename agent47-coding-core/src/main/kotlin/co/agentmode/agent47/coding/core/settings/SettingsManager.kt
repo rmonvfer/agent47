@@ -2,6 +2,7 @@ package co.agentmode.agent47.coding.core.settings
 
 import co.agentmode.agent47.ai.types.Agent47Json
 import co.agentmode.agent47.coding.core.compaction.CompactionSettings
+import co.agentmode.agent47.coding.core.session.BranchSummarySettings
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -67,6 +68,7 @@ public class SettingsManager private constructor(
                 defaultModel = project?.defaultModel ?: global?.defaultModel,
                 defaultThinkingLevel = project?.defaultThinkingLevel ?: global?.defaultThinkingLevel,
                 compaction = mergeCompaction(global?.compaction, project?.compaction),
+                branchSummary = mergeBranchSummary(global?.branchSummary, project?.branchSummary),
                 retry = mergeRetry(global?.retry, project?.retry),
                 updates = mergeUpdates(global?.updates, project?.updates),
                 shellPath = project?.shellPath ?: global?.shellPath,
@@ -93,6 +95,17 @@ public class SettingsManager private constructor(
                 prune = project?.prune ?: global?.prune ?: d.prune,
                 reserveTokens = project?.reserveTokens ?: global?.reserveTokens ?: d.reserveTokens,
                 keepRecentTokens = project?.keepRecentTokens ?: global?.keepRecentTokens ?: d.keepRecentTokens,
+            )
+        }
+
+        private fun mergeBranchSummary(
+            global: BranchSummarySettingsPatch?,
+            project: BranchSummarySettingsPatch?,
+        ): BranchSummarySettings {
+            val d = BranchSummarySettings()
+            return BranchSummarySettings(
+                reserveTokens = project?.reserveTokens ?: global?.reserveTokens ?: d.reserveTokens,
+                skipPrompt = project?.skipPrompt ?: global?.skipPrompt ?: d.skipPrompt,
             )
         }
 

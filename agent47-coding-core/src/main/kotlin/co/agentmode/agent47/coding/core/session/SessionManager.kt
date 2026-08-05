@@ -237,6 +237,92 @@ public class SessionManager(
         save()
     }
 
+    /**
+     * Moves the leaf pointer to [branchFromId]. Entries are append-only, so branching never
+     * deletes anything: the next appended entry becomes a child of the new leaf and the
+     * abandoned subtree stays in the file.
+     */
+    public fun branch(branchFromId: String) {
+        require(byId.containsKey(branchFromId)) { "Unknown session entry: $branchFromId" }
+        leafId = branchFromId
+    }
+
+    /** Clears the leaf pointer so the next appended entry starts a new root. */
+    public fun resetLeaf() {
+        leafId = null
+    }
+
+    /**
+     * Moves the leaf to [branchFromId] (or a new root when null) and records a branch summary
+     * of the abandoned branch at the new position.
+     */
+    public fun branchWithSummary(branchFromId: String?, summary: String): BranchSummaryEntry {
+        val fromId = leafId ?: "root"
+        if (branchFromId != null) branch(branchFromId) else resetLeaf()
+        val entry = BranchSummaryEntry(
+            id = generateId(),
+            parentId = leafId,
+            timestamp = Instant.now().toString(),
+            fromId = fromId,
+            summary = summary,
+        )
+        append(entry)
+        return entry
+    }
+
+    /** The active conversation: the entry path from the root to [fromId], oldest first. */
+    public fun getBranch(fromId: String? = leafId): List<SessionEntry> = resolvePathToRoot(fromId)
+
+    /** Sets or clears the label on [targetId]; labels are ordinary tree entries. */
+    public fun appendLabelChange(targetId: String, label: String?): LabelEntry {
+        require(byId.containsKey(targetId)) { "Unknown session entry: $targetId" }
+        val entry = LabelEntry(
+            id = generateId(),
+            parentId = leafId,
+            timestamp = Instant.now().toString(),
+            targetId = targetId,
+            label = label,
+        )
+        append(entry)
+        return entry
+    }
+
+    /**
+     * Writes the root-to-[fromLeafId] path into [targetFile] as a standalone session whose
+     * header records this session as its parent. Label entries are dropped and the retained
+     * path is re-chained so the copy contains no references to abandoned subtrees.
+     */
+    public fun createBranchedSession(fromLeafId: String?, targetFile: Path): Path {
+        val path = resolvePathToRoot(fromLeafId ?: leafId).filterNot { it is LabelEntry }
+        val branchedHeader = SessionHeader(
+            id = UUID.randomUUID().toString(),
+            timestamp = Instant.now().toString(),
+            cwd = header.cwd,
+            parentSession = sessionFile.toString(),
+        )
+        var previousId: String? = null
+        val rechained = path.map { entry ->
+            val copy = when (entry) {
+                is SessionMessageEntry -> entry.copy(parentId = previousId)
+                is ThinkingLevelChangeEntry -> entry.copy(parentId = previousId)
+                is ModelChangeEntry -> entry.copy(parentId = previousId)
+                is CompactionEntry -> entry.copy(parentId = previousId)
+                is BranchSummaryEntry -> entry.copy(parentId = previousId)
+                is CustomEntry -> entry.copy(parentId = previousId)
+                is CustomMessageEntry -> entry.copy(parentId = previousId)
+                is LabelEntry -> entry.copy(parentId = previousId)
+                is SessionInfoEntry -> entry.copy(parentId = previousId)
+            }
+            previousId = entry.id
+            copy
+        }
+        Files.createDirectories(targetFile.parent)
+        val lines = mutableListOf(Agent47Json.encodeToString(SessionHeader.serializer(), branchedHeader))
+        rechained.forEach { entry -> lines += encodeSessionEntry(entry) }
+        targetFile.writeText(lines.joinToString("\n") + "\n")
+        return targetFile
+    }
+
     public fun buildContext(targetLeafId: String? = leafId): SessionContext {
         if (entries.isEmpty()) {
             return SessionContext(messages = emptyList(), thinkingLevel = "off", model = null)
@@ -345,8 +431,10 @@ public class SessionManager(
     }
 
     private fun resolvePathToRoot(targetLeafId: String?): List<SessionEntry> {
+        // A null leaf is a position before any root: the branch is empty. Entries all carry
+        // ids after migration, so there is no linear-history fallback to preserve.
         if (targetLeafId == null) {
-            return entries.toList()
+            return emptyList()
         }
 
         val collected = mutableListOf<SessionEntry>()

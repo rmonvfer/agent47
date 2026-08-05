@@ -34,6 +34,7 @@ import co.agentmode.agent47.app.extensions.CliExtensionSessionControl
 import co.agentmode.agent47.app.extensions.ExtensionContextBinding
 import co.agentmode.agent47.app.extensions.ExtensionReloader
 import co.agentmode.agent47.app.extensions.HeadlessExtensionUi
+import co.agentmode.agent47.app.extensions.SessionTreeService
 import co.agentmode.agent47.coding.core.agents.AgentRegistry
 import co.agentmode.agent47.coding.core.agents.BackgroundAgents
 import co.agentmode.agent47.coding.core.agents.Worktree
@@ -234,6 +235,15 @@ internal class AgentRuntimeBuilder(
             aiRuntime = aiRuntime,
             modelRegistry = registries.modelRegistry,
         )
+        val sessionTreeService = SessionTreeService(
+            sessionTracker = sessionTracker,
+            client = surface.client,
+            extensionRuntime = extensions.runtime,
+            extensionContext = surface.extensionContext,
+            settings = registries.settings,
+            aiRuntime = aiRuntime,
+            modelRegistry = registries.modelRegistry,
+        )
         return AgentRuntime(
             terminal = terminal, client = surface.client, config = config,
             settings = registries.settings, modelRegistry = registries.modelRegistry,
@@ -242,6 +252,7 @@ internal class AgentRuntimeBuilder(
             subagentsSettings = registries.subagentsSettings, sessionTracker = sessionTracker,
             extensionRuntime = extensions.runtime, extensionContext = surface.extensionContext,
             reloader = surface.reloader, compactionService = compactionService,
+            sessionTreeService = sessionTreeService,
             fileCommands = tools.fileCommands, instructionLoader = tools.instructionLoader,
             availableThemes = extensions.availableThemes, todoState = tools.todoState,
             resolvedModel = resolvedModel, thinkingLevel = thinkingLevel,

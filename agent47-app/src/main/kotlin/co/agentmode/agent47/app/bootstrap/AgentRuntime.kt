@@ -6,6 +6,7 @@ import co.agentmode.agent47.ai.types.UserMessage
 import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.app.compaction.CompactionService
 import co.agentmode.agent47.app.extensions.ExtensionReloader
+import co.agentmode.agent47.app.extensions.SessionTreeService
 import co.agentmode.agent47.coding.core.agents.AgentRegistry
 import co.agentmode.agent47.coding.core.agents.BackgroundAgents
 import co.agentmode.agent47.coding.core.agents.schedule.SubagentScheduler
@@ -44,6 +45,7 @@ internal class AgentRuntime(
     val extensionContext: ExtensionContext,
     val reloader: ExtensionReloader,
     val compactionService: CompactionService,
+    val sessionTreeService: SessionTreeService,
     val fileCommands: List<SlashCommand>,
     val instructionLoader: InstructionLoader,
     val availableThemes: List<NamedTheme>,

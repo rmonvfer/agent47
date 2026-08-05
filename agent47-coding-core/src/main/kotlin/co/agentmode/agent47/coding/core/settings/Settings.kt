@@ -1,6 +1,7 @@
 package co.agentmode.agent47.coding.core.settings
 
 import co.agentmode.agent47.coding.core.compaction.CompactionSettings
+import co.agentmode.agent47.coding.core.session.BranchSummarySettings
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -23,6 +24,7 @@ public data class Settings(
     val defaultModel: String? = null,
     val defaultThinkingLevel: String? = null,
     val compaction: CompactionSettings = CompactionSettings(),
+    val branchSummary: BranchSummarySettings = BranchSummarySettings(),
     val retry: RetrySettings = RetrySettings(),
     val updates: UpdateSettings = UpdateSettings(),
     val shellPath: String? = null,
@@ -50,6 +52,12 @@ public data class CompactionSettingsPatch(
 )
 
 @Serializable
+public data class BranchSummarySettingsPatch(
+    val reserveTokens: Int? = null,
+    val skipPrompt: Boolean? = null,
+)
+
+@Serializable
 public data class RetrySettingsPatch(
     val enabled: Boolean? = null,
     val maxRetries: Int? = null,
@@ -69,6 +77,7 @@ public data class SettingsPatch(
     val defaultModel: String? = null,
     val defaultThinkingLevel: String? = null,
     val compaction: CompactionSettingsPatch? = null,
+    val branchSummary: BranchSummarySettingsPatch? = null,
     val retry: RetrySettingsPatch? = null,
     val updates: UpdateSettingsPatch? = null,
     val shellPath: String? = null,
