@@ -702,6 +702,13 @@ private fun renderTaskToolLines(
             add(SubAgentEntry.Active(results.size + i, p))
         }
     }
+    // A settled task card with no sub-agent entries is a launch receipt: the agents run in
+    // the background registry and report through the agents panel and check_inbox, so the
+    // card shows the tool's own summary instead of inventing a completion count.
+    if (!execution.pending && entries.isEmpty()) {
+        return renderRegularToolLines(execution, width, theme)
+    }
+
     val total = entries.size.coerceAtLeast(1)
     val innerWidth = (width - 2).coerceAtLeast(1)
     // Align the agent-name column to the widest name (clamped to a sane range).
