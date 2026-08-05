@@ -3,6 +3,7 @@ package co.agentmode.agent47.tui.theme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import co.agentmode.agent47.ui.core.util.identityPaletteIndex
 import com.jakewharton.mosaic.ui.Color
 import com.jakewharton.mosaic.ui.isSpecifiedColor
 import kotlinx.serialization.json.Json
@@ -210,6 +211,29 @@ public fun Color.washOut(factor: Float): Color {
  */
 public fun Color.scrimmed(factor: Float, appearance: ThemeAppearance): Color =
     if (appearance.isLight) washOut(factor) else darken(factor)
+
+/**
+ * The small, fixed set of theme tokens a background agent's identity color is drawn from. Never
+ * includes [MosaicThemeColors.error] (reserved for error states) or [MosaicThemeColors.muted]
+ * (reserved for main's idle state), so an agent's color is never mistaken for either.
+ */
+private fun ThemeConfig.agentIdentityPalette(): List<Color> = listOf(
+    colors.accent,
+    colors.success,
+    colors.warning,
+    colors.accentBright,
+    colors.dim,
+)
+
+/**
+ * The stable, per-agent color for [id]: the same color identifies that agent everywhere it shows
+ * up — its dot in the runtime agent list and the marker in its focus-mode transcript header.
+ * Derived deterministically from [id] (see [identityPaletteIndex]), never hardcoded.
+ */
+public fun agentIdentityColor(id: String, theme: ThemeConfig): Color {
+    val palette = theme.agentIdentityPalette()
+    return palette[identityPaletteIndex(id, palette.size)]
+}
 
 /** Uniformly darkens every semantic color by [factor]. */
 public fun MosaicThemeColors.dimmed(

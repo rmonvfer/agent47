@@ -21,10 +21,16 @@ import co.agentmode.agent47.tui.state.AgentListRow
 import co.agentmode.agent47.tui.state.TuiAppState
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
+import co.agentmode.agent47.tui.theme.agentIdentityColor
 import com.jakewharton.mosaic.layout.padding
 import com.jakewharton.mosaic.modifier.Modifier
+import com.jakewharton.mosaic.text.AnnotatedString
+import com.jakewharton.mosaic.text.SpanStyle
+import com.jakewharton.mosaic.text.buildAnnotatedString
+import com.jakewharton.mosaic.text.withStyle
 import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Text
+import com.jakewharton.mosaic.ui.TextStyle
 import java.nio.file.Path
 
 /**
@@ -62,7 +68,6 @@ internal fun Agent47Screen(
         AgentListPanel(
             rows = agentListRows,
             width = width,
-            spinnerFrame = state.spinnerFrame,
             selectionMode = state.agentSelectionMode,
             selectedIndex = state.selectedAgentIndex,
         )
@@ -82,14 +87,15 @@ private fun ChatPane(
     val theme = LocalThemeConfig.current
     val cwdDisplay = cwd.toString().replace(System.getProperty("user.home"), "~")
     // Chat history viewport - the conversation, or a background agent's transcript in focus mode.
-    // Which one is showing is now conveyed by the agent list below the editor (the focused agent's
-    // row is hidden there while `main` and the rest remain selectable), not by a banner here.
     val viewing = state.viewingAgentId
     if (viewing != null) {
+        // A fixed header names which agent is in focus, colored by that agent's identity — the
+        // same color as its dot in the agent list below — so it stays recognizable at a glance.
+        Text(renderFocusHeader(viewing, theme, width))
         ChatHistory(
             state = state.viewingChat,
             width = width,
-            height = historyHeight,
+            height = (historyHeight - 1).coerceAtLeast(1),
             markdownRenderer = markdownRenderer,
             diffRenderer = diffRenderer,
             version = state.viewingChat.version,
@@ -118,6 +124,18 @@ private fun ChatPane(
             ),
         )
     }
+}
+
+/** "● name" in the agent's identity color, followed by a muted "esc to return" hint, right-aligned. */
+private fun renderFocusHeader(agentId: String, theme: ThemeConfig, width: Int): AnnotatedString = buildAnnotatedString {
+    val marker = "● $agentId"
+    val hint = "esc to return"
+    val gap = (width - marker.length - hint.length).coerceAtLeast(1)
+    withStyle(SpanStyle(color = agentIdentityColor(agentId, theme), textStyle = TextStyle.Bold)) {
+        append(marker.take(width))
+    }
+    append(" ".repeat(gap))
+    withStyle(SpanStyle(color = theme.colors.muted)) { append(hint) }
 }
 
 @Composable

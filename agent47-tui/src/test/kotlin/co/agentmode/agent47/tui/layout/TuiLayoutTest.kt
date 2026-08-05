@@ -79,14 +79,14 @@ class TuiLayoutTest {
     }
 
     @Test
-    fun `the agent list reserves exactly one row per visible agent, with no header or blank-line chrome`() {
+    fun `the agent list reserves one row per visible agent plus a leading blank line, and nothing when empty`() {
         assertEquals(0, computeTuiLayout(80, 40, inputs(agentListRowCount = 0)).agentListHeight)
-        assertEquals(1, computeTuiLayout(80, 40, inputs(agentListRowCount = 1)).agentListHeight)
-        assertEquals(4, computeTuiLayout(80, 40, inputs(agentListRowCount = 4)).agentListHeight)
+        assertEquals(2, computeTuiLayout(80, 40, inputs(agentListRowCount = 1)).agentListHeight)
+        assertEquals(5, computeTuiLayout(80, 40, inputs(agentListRowCount = 4)).agentListHeight)
         assertEquals(
-            30,
+            29,
             computeTuiLayout(80, 40, inputs(agentListRowCount = 4)).historyHeight,
-            "the agent list's rows come straight out of the history budget",
+            "the agent list's rows (plus its leading blank line) come straight out of the history budget",
         )
     }
 

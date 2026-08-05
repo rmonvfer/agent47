@@ -30,10 +30,12 @@ class AgentListRowsTest {
         aborted = false,
     )
 
-    private fun awaitDone(bg: BackgroundAgents, id: String, timeoutMs: Long = 5_000) {
+    private fun awaitInboxCount(bg: BackgroundAgents, expected: Int, timeoutMs: Long = 5_000) {
         val deadline = System.currentTimeMillis() + timeoutMs
-        while (bg.visibleAgents().none { it.id == id && it.done } && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10)
+        var seen = 0
+        while (seen < expected && System.currentTimeMillis() < deadline) {
+            seen += bg.drainInbox().size
+            if (seen < expected) Thread.sleep(10)
         }
     }
 
@@ -120,24 +122,30 @@ class AgentListRowsTest {
     }
 
     @Test
-    fun `a completed agent freezes its elapsed time and reports done or failed`() {
+    fun `a finished agent never produces a row, whether it succeeded or failed`() {
         val bg = BackgroundAgents()
+        val gate = CompletableDeferred<Unit>()
+        bg.launch("still-running", "explore", "desc", "task") { gate.await(); subAgentResult("still-running") }
         bg.launch("ok", "explore", "desc", "task") { subAgentResult("ok") }
         bg.launch("bad", "explore", "desc", "task") { subAgentResult("bad", exitCode = 1, error = "boom") }
-        awaitDone(bg, "ok")
-        awaitDone(bg, "bad")
+        awaitInboxCount(bg, 2)
 
-        val early = buildAgentListRows(bg.visibleAgents(), null, mainRunning = false, mainActivity = "", now = 1_000)
-        val muchLater = buildAgentListRows(bg.visibleAgents(), null, mainRunning = false, mainActivity = "", now = 999_999)
+        val rows = buildAgentListRows(bg.visibleAgents(), null, mainRunning = true, mainActivity = "Thinking", now = 1_000)
 
-        val ok = early.first { it.id == "ok" }
-        assertEquals(AgentRowState.DONE, ok.state)
-        assertEquals("done", ok.activity)
-        assertEquals(ok.elapsedMs, muchLater.first { it.id == "ok" }.elapsedMs, "a done agent's elapsed time must not depend on `now`")
+        // ok/bad finished (success and failure) and are gone; only main and the one still running remain.
+        assertEquals(listOf(MAIN_AGENT_ROW_ID, "still-running"), rows.map { it.id })
+        gate.complete(Unit)
+    }
 
-        val bad = early.first { it.id == "bad" }
-        assertEquals(AgentRowState.DONE, bad.state)
-        assertEquals("failed", bad.activity)
+    @Test
+    fun `no agents running or queued means no rows, not even main`() {
+        val bg = BackgroundAgents()
+        bg.launch("ok", "explore", "desc", "task") { subAgentResult("ok") }
+        awaitInboxCount(bg, 1)
+
+        val rows = buildAgentListRows(bg.visibleAgents(), null, mainRunning = true, mainActivity = "Thinking", now = 1_000)
+
+        assertEquals(emptyList(), rows)
     }
 
     @Test

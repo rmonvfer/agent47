@@ -431,6 +431,11 @@ private fun Agent47AppContent(
             now = System.currentTimeMillis(),
         )
     }
+    // A row can disappear out from under the highlight (its agent finished) between one frame and
+    // the next; leaving selection mode is the graceful response rather than an out-of-range index.
+    if (agentSelectionMode && agentListRows.isEmpty()) {
+        agentSelectionMode = false
+    }
     val editorContentWidth = tuiEditorContentWidth(width)
     val visualLineCount = WordWrap.createMapping(editor.state.lines, editorContentWidth).visualLines.size
     val layout = computeTuiLayout(
@@ -560,22 +565,20 @@ private fun Agent47AppContent(
 
     fun moveAgentSelection(direction: Int) {
         if (agentListRows.isEmpty()) return
+        // Clamp first: a row can vanish between key presses (its agent finished), leaving a stale
+        // index that agentSelectionMoveUp/Down would otherwise walk further out of range.
+        val current = selectedAgentIndex.coerceIn(0, agentListRows.lastIndex)
         selectedAgentIndex = if (direction < 0) {
-            agentSelectionMoveUp(selectedAgentIndex, agentListRows.size)
+            agentSelectionMoveUp(current, agentListRows.size)
         } else {
-            agentSelectionMoveDown(selectedAgentIndex, agentListRows.size)
+            agentSelectionMoveDown(current, agentListRows.size)
         }
     }
 
     fun openSelectedAgent() {
         agentSelectionMode = false
         val row = agentListRows.getOrNull(selectedAgentIndex) ?: return
-        if (row.isMain) {
-            viewingAgentId = null
-        } else {
-            backgroundAgents?.markRead(row.id)
-            viewingAgentId = row.id
-        }
+        viewingAgentId = if (row.isMain) null else row.id
     }
 
     fun applyIntent(intent: TuiIntent?, event: KeyboardEvent): Boolean {
@@ -669,6 +672,7 @@ private fun Agent47AppContent(
                     hasExtensionContext = extensionContext != null,
                     agentSelectionMode = agentSelectionMode,
                     hasSelectableAgents = agentListRows.isNotEmpty(),
+                    chatPinnedToBottom = activeChat().pinnedToBottom,
                 )
                 applyIntent(KeyBindings.resolve(keyboardEvent, context), keyboardEvent)
             },

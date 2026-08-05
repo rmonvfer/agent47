@@ -20,6 +20,8 @@ internal data class KeyContext(
     val agentSelectionMode: Boolean = false,
     /** True when the runtime agent list has at least one row, so Down can enter selection mode. */
     val hasSelectableAgents: Boolean = false,
+    /** True when the active chat is scrolled to its bottom; a bare Down only enters agent selection then. */
+    val chatPinnedToBottom: Boolean = true,
 )
 
 internal object KeyBindings {
@@ -76,11 +78,16 @@ internal object KeyBindings {
         else -> null
     }
 
-    /** A bare Down with an empty editor enters agent-selection mode when there is a row to select. */
+    /**
+     * A bare Down with an empty editor enters agent-selection mode, but only once the active chat
+     * is already pinned to its bottom — otherwise Down is scrolling the user back down to it, and
+     * entering selection mode out from under them would steal that scroll.
+     */
     private fun resolveAgentSelectionEntry(event: KeyboardEvent, ctx: KeyContext): TuiIntent? {
         if (event.key != Key.ArrowDown) return null
         val bareDown = !event.ctrl && !event.alt && !event.shift
-        return if (ctx.editorBlank && ctx.hasSelectableAgents && bareDown) TuiIntent.EnterAgentSelection else null
+        val canEnter = ctx.editorBlank && ctx.hasSelectableAgents && ctx.chatPinnedToBottom
+        return if (canEnter && bareDown) TuiIntent.EnterAgentSelection else null
     }
 
     @Suppress("CyclomaticComplexMethod")

@@ -46,8 +46,9 @@ internal fun computeTuiLayout(width: Int, height: Int, inputs: LayoutInputs): Tu
     val editorTopMarginHeight =
         if (inputs.taskBarVisible || inputs.isStreaming || !inputs.chatPinnedToBottom) 0 else 1
     val borderHeight = 2
-    // One line per row, no header or blank-line chrome: a tight Claude-Code-style list.
-    val agentListHeight = inputs.agentListRowCount.coerceAtLeast(0)
+    // One line per row plus a leading blank line separating the list from the status bar above it;
+    // zero when there are no rows, so the widget reserves no space while it isn't shown at all.
+    val agentListHeight = if (inputs.agentListRowCount > 0) inputs.agentListRowCount + 1 else 0
     val historyHeight = max(
         1,
         height - statusHeight - borderHeight - popupHeight - baseInputHeight -

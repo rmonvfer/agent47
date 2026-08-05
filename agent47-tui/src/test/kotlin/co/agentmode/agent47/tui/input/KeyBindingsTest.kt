@@ -19,6 +19,7 @@ class KeyBindingsTest {
         hasExtensionContext: Boolean = false,
         agentSelectionMode: Boolean = false,
         hasSelectableAgents: Boolean = false,
+        chatPinnedToBottom: Boolean = true,
     ) = KeyContext(
         isStreaming = isStreaming,
         isViewingAgent = isViewingAgent,
@@ -31,6 +32,7 @@ class KeyBindingsTest {
         hasExtensionContext = hasExtensionContext,
         agentSelectionMode = agentSelectionMode,
         hasSelectableAgents = hasSelectableAgents,
+        chatPinnedToBottom = chatPinnedToBottom,
     )
 
     private fun char(value: Char, ctrl: Boolean = false, alt: Boolean = false, shift: Boolean = false) =
@@ -205,6 +207,25 @@ class KeyBindingsTest {
         assertEquals(
             TuiIntent.ScrollDown(3),
             KeyBindings.resolve(KeyboardEvent(Key.ArrowDown, shift = true), ctx(editorBlank = true, hasSelectableAgents = true)),
+        )
+    }
+
+    @Test
+    fun `a bare down arrow only enters agent selection once the chat is already pinned to bottom`() {
+        assertEquals(
+            TuiIntent.EnterAgentSelection,
+            KeyBindings.resolve(
+                KeyboardEvent(Key.ArrowDown),
+                ctx(editorBlank = true, hasSelectableAgents = true, chatPinnedToBottom = true),
+            ),
+        )
+        // Scrolled up: Down keeps scrolling the user back down instead of stealing the key for selection.
+        assertEquals(
+            TuiIntent.ScrollDown(3),
+            KeyBindings.resolve(
+                KeyboardEvent(Key.ArrowDown),
+                ctx(editorBlank = true, hasSelectableAgents = true, chatPinnedToBottom = false),
+            ),
         )
     }
 

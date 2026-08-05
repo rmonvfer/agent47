@@ -2,8 +2,8 @@ package co.agentmode.agent47.tui.state
 
 import co.agentmode.agent47.coding.core.agents.RunningAgent
 
-/** Where a row's state dot lands on the running/idle/done spectrum. */
-internal enum class AgentRowState { RUNNING, IDLE, DONE }
+/** Where a row's state dot lands: actively running, or idle (queued, or main between turns). */
+internal enum class AgentRowState { RUNNING, IDLE }
 
 /** One row of the runtime agent list: the orchestrator ("main") or a background agent. */
 internal data class AgentListRow(
@@ -21,8 +21,9 @@ internal const val MAIN_AGENT_ROW_ID: String = "main"
 
 /**
  * Builds the rows for the runtime agent list: a `main` row for the orchestrator, followed by
- * every visible background agent (running, queued, or completed-unread) except [focusedAgentId],
- * which is hidden because its own transcript already fills the screen in focus mode.
+ * every running or queued background agent except [focusedAgentId], which is hidden because its
+ * own transcript already fills the screen in focus mode. A finished agent (completed, failed, or
+ * cancelled) is never in [agents] — the registry drops it the moment it stops running.
  */
 internal fun buildAgentListRows(
     agents: List<RunningAgent>,
@@ -57,25 +58,14 @@ private fun RunningAgent.toRow(now: Long): AgentListRow = AgentListRow(
     isMain = false,
 )
 
-private fun RunningAgent.rowState(): AgentRowState = when {
-    done -> AgentRowState.DONE
-    status == RunningAgent.Status.RUNNING -> AgentRowState.RUNNING
-    else -> AgentRowState.IDLE
-}
+private fun RunningAgent.rowState(): AgentRowState =
+    if (status == RunningAgent.Status.RUNNING) AgentRowState.RUNNING else AgentRowState.IDLE
 
-private fun RunningAgent.rowElapsedMs(now: Long): Long? = when {
-    startedAt <= 0L -> null
-    done -> (completedAt - startedAt).coerceAtLeast(0)
-    else -> (now - startedAt).coerceAtLeast(0)
-}
+private fun RunningAgent.rowElapsedMs(now: Long): Long? =
+    if (startedAt <= 0L) null else (now - startedAt).coerceAtLeast(0)
 
-private fun RunningAgent.rowActivity(): String = when {
-    done -> if (rowFailed()) "failed" else "done"
-    status == RunningAgent.Status.QUEUED -> "queued"
-    else -> activityOf(progress?.currentTool, progress?.streamingText)
-}
-
-private fun RunningAgent.rowFailed(): Boolean = result?.let { it.aborted || it.error != null || it.exitCode != 0 } ?: true
+private fun RunningAgent.rowActivity(): String =
+    if (status == RunningAgent.Status.QUEUED) "queued" else activityOf(progress?.currentTool, progress?.streamingText)
 
 /** Prefer the running tool, else the text the agent is currently streaming, else a starting hint. */
 internal fun activityOf(currentTool: String?, streamingText: String?): String = when {

@@ -190,31 +190,25 @@ class BackgroundAgentsTest {
     }
 
     @Test
-    fun `a finished agent stays visible as unread until marked read`() {
+    fun `a finished agent disappears from visibleAgents immediately`() {
         val bg = BackgroundAgents()
         bg.launch("a1", "explore", "desc", "task") { result("a1") }
         awaitInbox(bg, 1)
 
-        assertTrue(bg.runningStatus().isEmpty(), "finished agent drops out of runningStatus")
-        assertTrue(bg.visibleAgents().any { it.id == "a1" }, "finished agent stays visible while unread")
-
-        bg.markRead("a1")
-        assertTrue(bg.visibleAgents().isEmpty(), "read agent drops out of visibleAgents")
+        assertTrue(bg.visibleAgents().none { it.id == "a1" }, "finished agents are gone, not lingering as unread")
     }
 
     @Test
-    fun `a failed agent stays visible as unread until marked read`() {
+    fun `a failed agent disappears from visibleAgents immediately`() {
         val bg = BackgroundAgents()
         bg.launch("a2", "explore", "desc", "task") { result("a2", exitCode = 1, error = "boom") }
         awaitInbox(bg, 1)
 
-        assertTrue(bg.visibleAgents().any { it.id == "a2" })
-        bg.markRead("a2")
-        assertTrue(bg.visibleAgents().isEmpty())
+        assertTrue(bg.visibleAgents().none { it.id == "a2" })
     }
 
     @Test
-    fun `a cancelled agent never becomes visible as unread`() {
+    fun `a cancelled agent disappears from visibleAgents immediately`() {
         val bg = BackgroundAgents(maxConcurrent = 1)
         val gate = CompletableDeferred<Unit>()
         val started = AtomicInteger(0)
@@ -228,7 +222,7 @@ class BackgroundAgentsTest {
     }
 
     @Test
-    fun `running and queued agents are always visible regardless of unread state`() {
+    fun `running and queued agents are visible`() {
         val bg = BackgroundAgents(maxConcurrent = 1)
         val gate = CompletableDeferred<Unit>()
         bg.launch("run", "explore", "desc", "task") { gate.await(); result("run") }
