@@ -33,6 +33,8 @@ public class ChatHistoryState {
     public var scrollTopLine: Int by mutableIntStateOf(0)
     public val toolCollapsedState: SnapshotStateMap<String, Boolean> = mutableStateMapOf()
     public val thinkingCollapsedState: SnapshotStateMap<String, Boolean> = mutableStateMapOf()
+    public var toolsExpanded: Boolean by mutableStateOf(false)
+        private set
 
     private var activeAssistantKey: String? = null
     private var assistantSequence by mutableLongStateOf(0L)
@@ -110,7 +112,10 @@ public class ChatHistoryState {
 
     public fun appendToolExecution(execution: ToolExecutionView) {
         val key = "tool:${execution.toolCallId}"
-        toolCollapsedState.putIfAbsent(key, defaultToolCollapsed(execution.toolName))
+        toolCollapsedState.putIfAbsent(
+            key,
+            if (toolsExpanded) false else defaultToolCollapsed(execution.toolName),
+        )
         entries += ChatHistoryEntry(key = key, toolExecution = execution)
         version++
         if (pinnedToBottom) scrollToBottom = true
@@ -163,11 +168,21 @@ public class ChatHistoryState {
         version++
     }
 
-    public fun toggleLatestToolCollapsed(): Boolean {
-        val entry = entries.asReversed().firstOrNull { it.toolExecution != null } ?: return false
-        val key = entry.key
-        val current = toolCollapsedState[key] ?: false
-        toolCollapsedState[key] = !current
+    /**
+     * Cycles all tool output between fully expanded and the per-tool default collapse
+     * states. The expanded mode also applies to tool executions appended later.
+     */
+    public fun toggleToolOutputExpanded(): Boolean {
+        if (entries.none { it.toolExecution != null }) return false
+        toolsExpanded = !toolsExpanded
+        if (toolsExpanded) {
+            entries.forEach { entry ->
+                if (entry.toolExecution != null) toolCollapsedState[entry.key] = false
+            }
+        } else {
+            toolCollapsedState.clear()
+        }
+        version++
         return true
     }
 

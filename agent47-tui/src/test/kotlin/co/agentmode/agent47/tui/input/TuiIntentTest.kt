@@ -34,7 +34,7 @@ class TuiIntentTest {
             TuiIntent.CycleModel(-1),
             TuiIntent.ToggleStartupDetails,
             TuiIntent.ToggleThinkingBlock,
-            TuiIntent.ToggleToolBlock,
+            TuiIntent.ToggleToolOutput,
             TuiIntent.ScrollUp(3),
             TuiIntent.ScrollDown(3),
             TuiIntent.RunExtensionShortcut(shortcut),

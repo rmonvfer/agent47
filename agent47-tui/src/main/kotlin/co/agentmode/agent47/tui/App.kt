@@ -260,7 +260,7 @@ private fun Agent47AppContent(
     var selectedModelIndex by state::selectedModelIndex
     var activeSessionManager by state::activeSessionManager
 
-    val feed = remember { TranscriptFeed(chatHistoryState, client) { state.currentModel } }
+    val feed = remember { TranscriptFeed(chatHistoryState) }
     val modelController = remember {
         ModelController(state, client, feed, onSettingsChanged, refreshModels)
     }
@@ -551,9 +551,9 @@ private fun Agent47AppContent(
                     appendSystemMessage("No thinking block available to toggle.")
                 }
             }
-            TuiIntent.ToggleToolBlock -> {
-                if (!chatHistoryState.toggleLatestToolCollapsed()) {
-                    appendSystemMessage("No tool execution available to toggle.")
+            TuiIntent.ToggleToolOutput -> {
+                if (!chatHistoryState.toggleToolOutputExpanded()) {
+                    appendSystemMessage("No tool executions to expand.")
                 }
             }
             is TuiIntent.ScrollUp -> activeChat().scrollUp(intent.lines)

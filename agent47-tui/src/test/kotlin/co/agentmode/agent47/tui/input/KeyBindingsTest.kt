@@ -90,7 +90,7 @@ class KeyBindingsTest {
 
     @Test
     fun `ctrl+e and ctrl+u act globally only when the editor is empty`() {
-        assertEquals(TuiIntent.ToggleToolBlock, KeyBindings.resolve(char('e', ctrl = true), ctx(editorBlank = true)))
+        assertEquals(TuiIntent.ToggleToolOutput, KeyBindings.resolve(char('e', ctrl = true), ctx(editorBlank = true)))
         assertEquals(TuiIntent.PassToEditor, KeyBindings.resolve(char('e', ctrl = true), ctx(editorBlank = false)))
         assertEquals(TuiIntent.ScrollUp(12), KeyBindings.resolve(char('u', ctrl = true), ctx(editorBlank = true)))
         assertEquals(TuiIntent.PassToEditor, KeyBindings.resolve(char('u', ctrl = true), ctx(editorBlank = false)))

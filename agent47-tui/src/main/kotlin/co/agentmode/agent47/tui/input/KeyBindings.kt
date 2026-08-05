@@ -68,7 +68,7 @@ internal object KeyBindings {
             'g' -> TuiIntent.ToggleThinkingBlock
             // With text in the editor, Ctrl+E is move-to-end-of-line; only act globally
             // when the editor is empty so the line-editing shortcut isn't shadowed.
-            'e' -> if (ctx.editorBlank) TuiIntent.ToggleToolBlock else null
+            'e' -> if (ctx.editorBlank) TuiIntent.ToggleToolOutput else null
             // With text in the editor, Ctrl+U is kill-to-start-of-line; only scroll the
             // chat globally when the editor is empty.
             'u' -> if (ctx.editorBlank) TuiIntent.ScrollUp(12) else null

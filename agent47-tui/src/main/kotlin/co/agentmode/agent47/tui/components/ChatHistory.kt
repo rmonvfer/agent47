@@ -30,6 +30,12 @@ import co.agentmode.agent47.ui.core.util.formatDuration
 import co.agentmode.agent47.ext.core.RegisteredMessageRenderer
 import co.agentmode.agent47.ext.core.RegisteredToolRenderer
 import co.agentmode.agent47.ext.core.ToolRenderData
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Creates and remembers a [ChatHistoryState] across recompositions.
@@ -78,6 +84,7 @@ public fun ChatHistory(
                 width,
                 state,
                 markdownRenderer,
+                diffRenderer,
                 theme,
                 toolRenderers,
                 messageRenderers,
@@ -235,11 +242,13 @@ private fun indentLines(lines: List<AnnotatedString>, spaces: Int = CONTENT_PAD_
     return lines.map { pad + it }
 }
 
+@Suppress("LongParameterList")
 private fun renderEntry(
     entry: ChatHistoryEntry,
     width: Int,
     state: ChatHistoryState,
     markdownRenderer: MarkdownRenderer,
+    diffRenderer: DiffRenderer,
     theme: ThemeConfig,
     toolRenderers: List<RegisteredToolRenderer>,
     messageRenderers: List<RegisteredMessageRenderer>,
@@ -262,7 +271,7 @@ private fun renderEntry(
             width,
         )
         custom?.trimBlankEdges()?.map(::annotated)
-            ?: renderToolExecutionLines(toolExec.copy(collapsed = collapsed), width, theme)
+            ?: renderToolExecutionLines(toolExec.copy(collapsed = collapsed), width, theme, diffRenderer)
     } else {
         when (val msg = entry.message) {
             is UserMessage -> renderUserMessageLines(msg, width, markdownRenderer, theme)
@@ -412,6 +421,18 @@ private fun elapsedSuffix(startedAt: Long): String {
     return if (seconds > 0) " (${seconds}s)" else ""
 }
 
+/**
+ * Collapsed body budget per tool: 0 keeps the header alone, null falls back to the
+ * one-line output summary.
+ */
+private fun collapsedPreviewLines(toolName: String): Int? = when (toolName.lowercase()) {
+    "read" -> 0
+    "ls", "find", "glob" -> 20
+    "grep" -> 15
+    "write" -> 10
+    else -> null
+}
+
 /** Background tint of a tool panel, keyed to its execution state. */
 private fun toolBg(execution: ToolExecutionView, theme: ThemeConfig): Color = when {
     execution.pending -> theme.toolPendingBg
@@ -427,18 +448,104 @@ private fun renderToolExecutionLines(
     execution: ToolExecutionView,
     width: Int,
     theme: ThemeConfig,
+    diffRenderer: DiffRenderer,
 ): List<AnnotatedString> {
     val details = execution.details
     val name = execution.toolName.lowercase()
 
-    if (details is ToolDetails.SubAgent || name == "task") return renderTaskToolLines(execution, width, theme)
-    if (details is ToolDetails.Batch || name == "batch") return renderBatchToolLines(execution, width, theme)
-    if (details is ToolDetails.Todo || name in listOf("todocreate", "todoupdate", "todowrite", "todoread")) {
-        return renderTodoToolLines(execution, width, theme)
+    return when {
+        details is ToolDetails.SubAgent || name == "task" -> renderTaskToolLines(execution, width, theme)
+        details is ToolDetails.Batch || name == "batch" -> renderBatchToolLines(execution, width, theme)
+        details is ToolDetails.Todo || name in listOf("todocreate", "todoupdate", "todowrite", "todoread") ->
+            renderTodoToolLines(execution, width, theme)
+        name == "bash" -> renderBashToolLines(execution, width, theme)
+        name == "edit" || name == "multiedit" ->
+            renderEditToolLines(execution, width, theme, diffRenderer)
+                ?: renderRegularToolLines(execution, width, theme)
+        else -> renderRegularToolLines(execution, width, theme)
     }
-    if (name == "bash") return renderBashToolLines(execution, width, theme)
+}
 
-    return renderRegularToolLines(execution, width, theme)
+// ---------------------------------------------------------------------------
+// Edit tool rendering (the diff is always visible, computed from the call
+// arguments so it shows while the edit is still executing)
+// ---------------------------------------------------------------------------
+
+private const val EDIT_DIFF_LINE_LIMIT = 120
+
+private fun renderEditToolLines(
+    execution: ToolExecutionView,
+    width: Int,
+    theme: ThemeConfig,
+    diffRenderer: DiffRenderer,
+): List<AnnotatedString>? {
+    val innerWidth = (width - 2).coerceAtLeast(1)
+    val arguments = runCatching { Json.parseToJsonElement(execution.arguments).jsonObject }.getOrNull()
+        ?: return null
+    val diffLines = editDiffLines(execution.toolName, arguments, innerWidth, diffRenderer)
+    return if (diffLines.isEmpty()) null else renderEditToolBlock(execution, arguments, diffLines, width, theme)
+}
+
+@Suppress("LongParameterList")
+private fun renderEditToolBlock(
+    execution: ToolExecutionView,
+    arguments: JsonObject,
+    diffLines: List<AnnotatedString>,
+    width: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> {
+    val innerWidth = (width - 2).coerceAtLeast(1)
+    val path = arguments["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val content = buildList {
+        add(buildAnnotatedString {
+            withStyle(SpanStyle(color = theme.toolTitle, textStyle = TextStyle.Bold)) { append(execution.toolName) }
+            if (path.isNotEmpty()) {
+                append(" ")
+                withStyle(SpanStyle(color = theme.colors.muted)) { append(path.take((innerWidth - execution.toolName.length - 1).coerceAtLeast(8))) }
+            }
+        })
+        add(annotated(""))
+        addAll(diffLines.take(EDIT_DIFF_LINE_LIMIT))
+        if (diffLines.size > EDIT_DIFF_LINE_LIMIT) {
+            add(annotated("… ${diffLines.size - EDIT_DIFF_LINE_LIMIT} more diff lines", SpanStyle(color = theme.colors.muted)))
+        }
+        when {
+            execution.pending -> add(annotated("Editing…${elapsedSuffix(execution.startedAt)}", SpanStyle(color = theme.colors.muted)))
+            execution.isError -> {
+                val error = execution.output.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: "Error"
+                add(annotated(error.take(innerWidth), SpanStyle(color = theme.colors.error)))
+            }
+        }
+    }
+    return bgBlock(width, toolBg(execution, theme), content)
+}
+
+private fun editDiffLines(
+    toolName: String,
+    arguments: JsonObject,
+    width: Int,
+    diffRenderer: DiffRenderer,
+): List<AnnotatedString> = when (toolName.lowercase()) {
+    "edit" -> {
+        val oldText = arguments["oldText"]?.jsonPrimitive?.contentOrNull
+        val newText = arguments["newText"]?.jsonPrimitive?.contentOrNull
+        if (oldText != null && newText != null) diffRenderer.render(oldText, newText, width) else emptyList()
+    }
+
+    "multiedit" -> {
+        val edits = runCatching { arguments["edits"]?.jsonArray }.getOrNull().orEmpty()
+        buildList {
+            edits.forEachIndexed { index, edit ->
+                val fields = runCatching { edit.jsonObject }.getOrNull() ?: return@forEachIndexed
+                val oldText = fields["oldText"]?.jsonPrimitive?.contentOrNull ?: return@forEachIndexed
+                val newText = fields["newText"]?.jsonPrimitive?.contentOrNull ?: return@forEachIndexed
+                if (index > 0 && isNotEmpty()) add(annotated(""))
+                addAll(diffRenderer.render(oldText, newText, width))
+            }
+        }
+    }
+
+    else -> emptyList()
 }
 
 // ---------------------------------------------------------------------------
@@ -485,13 +592,43 @@ private fun renderRegularToolLines(
                     }
                 }
             }
-            else -> {
-                val summary = summarizeToolOutput(execution.toolName, execution.output, execution.details, execution.isError)
-                add(annotated(summary, SpanStyle(color = if (execution.isError) theme.colors.error else theme.colors.muted)))
-            }
+            else -> addAll(collapsedToolBody(execution, innerWidth, theme))
         }
     }
     return bgBlock(width, toolBg(execution, theme), content)
+}
+
+/**
+ * Collapsed body of a regular tool: an error summary, a per-tool output preview, or a
+ * one-line output summary for tools without a preview budget.
+ */
+private fun collapsedToolBody(
+    execution: ToolExecutionView,
+    innerWidth: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> = buildList {
+    if (execution.isError) {
+        val summary = summarizeToolOutput(execution.toolName, execution.output, execution.details, true)
+        add(annotated(summary, SpanStyle(color = theme.colors.error)))
+        return@buildList
+    }
+    val preview = collapsedPreviewLines(execution.toolName)
+    when {
+        preview == null -> {
+            val summary = summarizeToolOutput(execution.toolName, execution.output, execution.details, false)
+            add(annotated(summary, SpanStyle(color = theme.colors.muted)))
+        }
+        preview == 0 || execution.output.isBlank() -> {}
+        else -> {
+            val lines = execution.output.split("\n")
+            lines.take(preview).forEach { line ->
+                add(annotated(line.take(innerWidth), SpanStyle(color = theme.toolOutput)))
+            }
+            if (lines.size > preview) {
+                add(annotated("… ${lines.size - preview} more lines", SpanStyle(color = theme.colors.muted)))
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -855,10 +992,28 @@ private fun renderCustomMessageLines(
     theme: ThemeConfig,
 ): List<AnnotatedString> {
     if (!message.display) return emptyList()
-    if (message.customType == "command_result") return renderCommandResultLines(message, width, theme)
+    if (message.customType == "command_result" || message.customType == "system_note") {
+        return renderCommandResultLines(message, width, theme)
+    }
+    if (message.customType == "system_error") return renderSystemErrorLines(message, width, theme)
 
     val text = message.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
     return labeledBlock(message.customType, bodyLines(text, width, theme), width, theme)
+}
+
+private fun renderSystemErrorLines(
+    message: CustomMessage,
+    width: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> {
+    val contentWidth = (width - 2 * CONTENT_PAD_X).coerceAtLeast(1)
+    val text = message.content.filterIsInstance<TextContent>().joinToString("\n") { it.text }
+    val raw = buildList {
+        "Error: $text".split("\n").forEach { line ->
+            wrapAnnotated(annotated(line, SpanStyle(color = theme.colors.error)), contentWidth).forEach { add(it) }
+        }
+    }
+    return indentLines(raw)
 }
 
 private fun renderCommandResultLines(

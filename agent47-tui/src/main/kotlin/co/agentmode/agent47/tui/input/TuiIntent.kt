@@ -37,8 +37,8 @@ internal sealed interface TuiIntent {
     /** Collapse or expand the latest thinking block. */
     data object ToggleThinkingBlock : TuiIntent
 
-    /** Collapse or expand the latest tool execution. */
-    data object ToggleToolBlock : TuiIntent
+    /** Expand all tool output, or restore the default collapse states. */
+    data object ToggleToolOutput : TuiIntent
 
     /** Scroll the active chat up by [lines]. */
     data class ScrollUp(val lines: Int) : TuiIntent

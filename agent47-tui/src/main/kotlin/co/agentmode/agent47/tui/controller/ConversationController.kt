@@ -59,7 +59,7 @@ internal class ConversationController(
             runCatching {
                 client.followUp(message)
             }.onFailure { error ->
-                feed.appendSystemMessage("Failed to queue follow-up: ${error.message ?: error::class.simpleName}")
+                feed.appendErrorMessage("Failed to queue follow-up: ${error.message ?: error::class.simpleName}")
             }
             return
         }
@@ -69,7 +69,7 @@ internal class ConversationController(
                 client.prompt(listOf(message))
             } catch (_: CancellationException) {
             } catch (error: Throwable) {
-                feed.appendSystemMessage("Failed to submit message: ${error.message ?: error::class.simpleName}")
+                feed.appendErrorMessage("Failed to submit message: ${error.message ?: error::class.simpleName}")
             } finally {
                 state.currentPromptJob = null
             }
