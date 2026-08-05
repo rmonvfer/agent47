@@ -48,7 +48,7 @@ internal class ModelController(
             )
         }
         if (announce) {
-            feed.appendCommandResult("Model set to ${model.provider.value}/${model.id}")
+            feed.appendSystemMessage("Model set to ${model.provider.value}/${model.id}")
         }
         onSettingsChanged { it.copy(defaultModel = model.id, defaultProvider = model.provider.value) }
     }
@@ -84,7 +84,7 @@ internal class ModelController(
             )
         }
         if (announce) {
-            feed.appendCommandResult("Thinking set to ${level.name.lowercase()}")
+            feed.appendSystemMessage("Thinking set to ${level.name.lowercase()}")
         }
         onSettingsChanged { it.copy(defaultThinkingLevel = level.name.lowercase()) }
     }
@@ -99,7 +99,7 @@ internal class ModelController(
         if (newIndex != null && (previousIndex < 0 || previousModel == null)) {
             applyModel(state.currentModels[newIndex])
         }
-        feed.appendCommandResult(
+        feed.appendSystemMessage(
             "Connected ${info.name} — ${state.currentModels.count { it.provider.value == info.id }} models available",
         )
     }
