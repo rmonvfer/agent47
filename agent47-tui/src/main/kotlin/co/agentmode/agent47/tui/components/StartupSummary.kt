@@ -165,6 +165,7 @@ private fun expandedStartupHints(theme: ThemeConfig): List<AnnotatedString> =
         "ctrl+p/ctrl+n" to "cycle models",
         "ctrl+g" to "toggle the latest thinking block",
         "ctrl+e" to "toggle tool output",
+        "left" to "browse background agents",
         "ctrl+o" to "collapse startup help and loaded resources",
         "/" to "show commands",
         "!" to "run a local shell command",

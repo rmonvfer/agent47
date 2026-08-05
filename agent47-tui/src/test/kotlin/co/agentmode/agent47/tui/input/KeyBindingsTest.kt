@@ -19,7 +19,6 @@ class KeyBindingsTest {
         hasExtensionContext: Boolean = false,
         agentSelectionMode: Boolean = false,
         hasSelectableAgents: Boolean = false,
-        chatPinnedToBottom: Boolean = true,
     ) = KeyContext(
         isStreaming = isStreaming,
         isViewingAgent = isViewingAgent,
@@ -32,7 +31,6 @@ class KeyBindingsTest {
         hasExtensionContext = hasExtensionContext,
         agentSelectionMode = agentSelectionMode,
         hasSelectableAgents = hasSelectableAgents,
-        chatPinnedToBottom = chatPinnedToBottom,
     )
 
     private fun char(value: Char, ctrl: Boolean = false, alt: Boolean = false, shift: Boolean = false) =
@@ -190,23 +188,23 @@ class KeyBindingsTest {
     }
 
     @Test
-    fun `a bare down arrow enters agent selection only when the editor is empty and a row exists`() {
+    fun `a bare left arrow enters agent selection only when the editor is empty and a row exists`() {
         assertEquals(
             TuiIntent.EnterAgentSelection,
-            KeyBindings.resolve(KeyboardEvent(Key.ArrowDown), ctx(editorBlank = true, hasSelectableAgents = true)),
-        )
-        assertEquals(
-            TuiIntent.ScrollDown(3),
-            KeyBindings.resolve(KeyboardEvent(Key.ArrowDown), ctx(editorBlank = true, hasSelectableAgents = false)),
+            KeyBindings.resolve(KeyboardEvent(Key.ArrowLeft), ctx(editorBlank = true, hasSelectableAgents = true)),
         )
         assertEquals(
             TuiIntent.PassToEditor,
-            KeyBindings.resolve(KeyboardEvent(Key.ArrowDown), ctx(editorBlank = false, hasSelectableAgents = true)),
+            KeyBindings.resolve(KeyboardEvent(Key.ArrowLeft), ctx(editorBlank = true, hasSelectableAgents = false)),
         )
-        // A modified down-arrow keeps its existing scroll meaning rather than entering selection.
         assertEquals(
-            TuiIntent.ScrollDown(3),
-            KeyBindings.resolve(KeyboardEvent(Key.ArrowDown, shift = true), ctx(editorBlank = true, hasSelectableAgents = true)),
+            TuiIntent.PassToEditor,
+            KeyBindings.resolve(KeyboardEvent(Key.ArrowLeft), ctx(editorBlank = false, hasSelectableAgents = true)),
+        )
+        // A modified left-arrow stays with the editor rather than entering selection.
+        assertEquals(
+            TuiIntent.PassToEditor,
+            KeyBindings.resolve(KeyboardEvent(Key.ArrowLeft, shift = true), ctx(editorBlank = true, hasSelectableAgents = true)),
         )
     }
 
@@ -215,16 +213,17 @@ class KeyBindingsTest {
         assertEquals(
             TuiIntent.EnterAgentSelection,
             KeyBindings.resolve(
-                KeyboardEvent(Key.ArrowDown),
-                ctx(editorBlank = true, hasSelectableAgents = true, chatPinnedToBottom = true),
+                KeyboardEvent(Key.ArrowLeft),
+                ctx(editorBlank = true, hasSelectableAgents = true),
             ),
         )
-        // Scrolled up: Down keeps scrolling the user back down instead of stealing the key for selection.
+        // Bare Down always scrolls: the terminal translates mouse-wheel ticks into bare
+        // vertical arrows, so selection entry must never claim them.
         assertEquals(
             TuiIntent.ScrollDown(3),
             KeyBindings.resolve(
                 KeyboardEvent(Key.ArrowDown),
-                ctx(editorBlank = true, hasSelectableAgents = true, chatPinnedToBottom = false),
+                ctx(editorBlank = true, hasSelectableAgents = true),
             ),
         )
     }

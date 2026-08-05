@@ -672,7 +672,6 @@ private fun Agent47AppContent(
                     hasExtensionContext = extensionContext != null,
                     agentSelectionMode = agentSelectionMode,
                     hasSelectableAgents = agentListRows.isNotEmpty(),
-                    chatPinnedToBottom = activeChat().pinnedToBottom,
                 )
                 applyIntent(KeyBindings.resolve(keyboardEvent, context), keyboardEvent)
             },

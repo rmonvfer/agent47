@@ -18,10 +18,8 @@ internal data class KeyContext(
     val hasExtensionContext: Boolean,
     /** True while Up/Down highlight rows in the runtime agent list instead of their usual action. */
     val agentSelectionMode: Boolean = false,
-    /** True when the runtime agent list has at least one row, so Down can enter selection mode. */
+    /** True when the runtime agent list has at least one row, so Left can enter selection mode. */
     val hasSelectableAgents: Boolean = false,
-    /** True when the active chat is scrolled to its bottom; a bare Down only enters agent selection then. */
-    val chatPinnedToBottom: Boolean = true,
 )
 
 internal object KeyBindings {
@@ -70,24 +68,26 @@ internal object KeyBindings {
     }
 
     /** Up/Down/Enter/Escape while [KeyContext.agentSelectionMode] is active; null defers to the rest of the keymap. */
-    private fun resolveAgentSelection(event: KeyboardEvent): TuiIntent? = when {
-        event.key is Key.Escape -> TuiIntent.ExitAgentSelection
-        event.key == Key.ArrowUp && !event.ctrl && !event.alt -> TuiIntent.MoveAgentSelection(-1)
-        event.key == Key.ArrowDown && !event.ctrl && !event.alt -> TuiIntent.MoveAgentSelection(1)
-        event.key == Key.Enter && !event.shift && !event.ctrl && !event.alt -> TuiIntent.OpenSelectedAgent
-        else -> null
+    private fun resolveAgentSelection(event: KeyboardEvent): TuiIntent? {
+        val bare = !event.ctrl && !event.alt && !event.shift
+        return when {
+            event.key is Key.Escape -> TuiIntent.ExitAgentSelection
+            bare && event.key == Key.ArrowUp -> TuiIntent.MoveAgentSelection(-1)
+            bare && event.key == Key.ArrowDown -> TuiIntent.MoveAgentSelection(1)
+            bare && event.key == Key.Enter -> TuiIntent.OpenSelectedAgent
+            else -> null
+        }
     }
 
     /**
-     * A bare Down with an empty editor enters agent-selection mode, but only once the active chat
-     * is already pinned to its bottom — otherwise Down is scrolling the user back down to it, and
-     * entering selection mode out from under them would steal that scroll.
+     * A bare Left with an empty editor enters agent-selection mode. Left is deliberate: terminals
+     * translate mouse-wheel ticks into bare Up/Down arrows in the alternate screen, so any
+     * vertical key would put wheel scrolling into the agent list; the wheel never emits Left.
      */
     private fun resolveAgentSelectionEntry(event: KeyboardEvent, ctx: KeyContext): TuiIntent? {
-        if (event.key != Key.ArrowDown) return null
-        val bareDown = !event.ctrl && !event.alt && !event.shift
-        val canEnter = ctx.editorBlank && ctx.hasSelectableAgents && ctx.chatPinnedToBottom
-        return if (canEnter && bareDown) TuiIntent.EnterAgentSelection else null
+        if (event.key != Key.ArrowLeft) return null
+        val bareLeft = !event.ctrl && !event.alt && !event.shift
+        return if (ctx.editorBlank && ctx.hasSelectableAgents && bareLeft) TuiIntent.EnterAgentSelection else null
     }
 
     @Suppress("CyclomaticComplexMethod")
