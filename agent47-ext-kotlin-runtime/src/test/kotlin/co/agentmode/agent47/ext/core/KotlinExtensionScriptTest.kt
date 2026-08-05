@@ -172,6 +172,7 @@ class KotlinExtensionScriptTest {
             script,
             """
             import co.agentmode.agent47.ext.core.CompactionHookResult
+            import co.agentmode.agent47.ext.core.TreeHookResult
             import co.agentmode.agent47.ext.core.InputHookResult
             import co.agentmode.agent47.ext.core.MessageRenderer
             import co.agentmode.agent47.ext.core.ToolCallHookResult
@@ -184,6 +185,8 @@ class KotlinExtensionScriptTest {
             on("*") { _, _ -> }
             beforeCompaction { _, _ -> CompactionHookResult() }
             afterCompaction { _, _ -> }
+            beforeTree { _, _ -> TreeHookResult() }
+            afterTree { _, _ -> }
             onToolCall { _, _ -> ToolCallHookResult() }
             onToolResult { _, _ -> ToolResultHookResult() }
             onInput { _, _ -> InputHookResult.Continue }

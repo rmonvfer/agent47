@@ -71,6 +71,16 @@ public abstract class Agent47Script(
         api.builder.afterCompaction(hook)
     }
 
+    public fun beforeTree(
+        hook: suspend (SessionBeforeTreeEvent, ExtensionContext) -> TreeHookResult?,
+    ) {
+        api.builder.beforeTree(hook)
+    }
+
+    public fun afterTree(hook: suspend (SessionTreeEvent, ExtensionContext) -> Unit) {
+        api.builder.afterTree(hook)
+    }
+
     public fun registerProvider(
         provider: ApiProvider,
         models: List<Model>,
@@ -161,6 +171,8 @@ public class Agent47ExtensionBuilder internal constructor(
     private val agentEventHandlers: MutableList<RegisteredAgentEventHandler> = mutableListOf()
     private var beforeCompaction: BeforeCompactionHook? = null
     private var afterCompaction: AfterCompactionHook? = null
+    private var beforeTree: BeforeTreeHook? = null
+    private var afterTree: AfterTreeHook? = null
     private val providers: MutableList<ExtensionProvider> = mutableListOf()
     private val toolCallHooks: MutableList<ToolCallHook> = mutableListOf()
     private val toolResultHooks: MutableList<ToolResultHook> = mutableListOf()
@@ -211,6 +223,16 @@ public class Agent47ExtensionBuilder internal constructor(
 
     public fun afterCompaction(hook: suspend (AfterCompactionEvent, ExtensionContext) -> Unit) {
         afterCompaction = AfterCompactionHook(hook)
+    }
+
+    public fun beforeTree(
+        hook: suspend (SessionBeforeTreeEvent, ExtensionContext) -> TreeHookResult?,
+    ) {
+        beforeTree = BeforeTreeHook(hook)
+    }
+
+    public fun afterTree(hook: suspend (SessionTreeEvent, ExtensionContext) -> Unit) {
+        afterTree = AfterTreeHook(hook)
     }
 
     public fun registerProvider(
@@ -316,6 +338,8 @@ public class Agent47ExtensionBuilder internal constructor(
         agentEventHandlers = agentEventHandlers.toList(),
         beforeCompaction = beforeCompaction,
         afterCompaction = afterCompaction,
+        beforeTree = beforeTree,
+        afterTree = afterTree,
         providers = providers.toList(),
         toolCallHooks = toolCallHooks.toList(),
         toolResultHooks = toolResultHooks.toList(),

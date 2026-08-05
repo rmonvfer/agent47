@@ -123,6 +123,11 @@ against the old session context; start runs against the selected session context
 `beforeCompaction` may cancel compaction or supply a `CompactionResult`. `afterCompaction` receives the result, reason,
 and whether an extension supplied it.
 
+`beforeTree` runs before `/tree` navigation moves the session to another point: it receives the target entry, the
+current leaf, and the entries being left behind, and may cancel the navigation or supply a `TreeHookResult` with its
+own branch summary or custom summarization instructions. `afterTree` observes the completed move, including the new
+leaf and the recorded summary entry, if any.
+
 ## UI, shortcuts, and rendering
 
 `context.ui` provides notifications, selection and confirmation dialogs, single-line input, a multiline editor, status
@@ -260,6 +265,8 @@ registerTool(tool)
 on("event_type") { event, context -> }
 beforeCompaction { event, context -> CompactionHookResult() }
 afterCompaction { event, context -> }
+beforeTree { event, context -> TreeHookResult() }
+afterTree { event, context -> }
 registerProvider(provider, models, apiKey = null, requiresAuth = true)
 onToolCall { event, context -> ToolCallHookResult() }
 onToolResult { event, context -> ToolResultHookResult() }
