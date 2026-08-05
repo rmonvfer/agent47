@@ -23,9 +23,13 @@ import co.agentmode.agent47.tui.overlays.openCommandsOverlay
 import co.agentmode.agent47.tui.overlays.openMemoryOverlay
 import co.agentmode.agent47.tui.overlays.openModelOverlay
 import co.agentmode.agent47.tui.overlays.openProviderOverlay
+import co.agentmode.agent47.tui.overlays.cloneSession
+import co.agentmode.agent47.tui.overlays.openForkOverlay
+import co.agentmode.agent47.tui.overlays.openResumeOverlay
 import co.agentmode.agent47.tui.overlays.openSessionOverlay
 import co.agentmode.agent47.tui.overlays.openSettingsOverlay
 import co.agentmode.agent47.tui.overlays.openThemeOverlay
+import co.agentmode.agent47.tui.overlays.openTreeOverlay
 import co.agentmode.agent47.tui.state.TranscriptFeed
 import co.agentmode.agent47.tui.state.TuiAppState
 import co.agentmode.agent47.tui.theme.ThemeAppearance
@@ -192,6 +196,22 @@ internal class SubmitDispatcher(
                 } else {
                     feed.appendCommandResult("Use /session without arguments to open the session picker.")
                 }
+            }
+            "/tree" -> {
+                feed.showCommandInput(raw)
+                navigator.openTreeOverlay()
+            }
+            "/fork" -> {
+                feed.showCommandInput(raw)
+                navigator.openForkOverlay()
+            }
+            "/clone" -> {
+                feed.showCommandInput(raw)
+                navigator.cloneSession()
+            }
+            "/resume" -> {
+                feed.showCommandInput(raw)
+                navigator.openResumeOverlay()
             }
         }
     }

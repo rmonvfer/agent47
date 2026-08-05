@@ -12,8 +12,10 @@ import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.text.withStyle
 import com.jakewharton.mosaic.ui.Box
+import com.jakewharton.mosaic.ui.Color
 import com.jakewharton.mosaic.ui.Column
 import com.jakewharton.mosaic.ui.Text
+import com.jakewharton.mosaic.ui.TextStyle
 import co.agentmode.agent47.ui.core.state.*
 import co.agentmode.agent47.ui.core.util.fuzzyMatch
 import kotlin.math.max
@@ -688,6 +690,435 @@ public fun ScrollableTextDialog(
     }
 }
 
+private fun treeRoleColor(role: TreeTextRole, theme: ThemeConfig): Color = when (role) {
+    TreeTextRole.ACCENT -> theme.colors.accent
+    TreeTextRole.SUCCESS -> theme.colors.success
+    TreeTextRole.WARNING -> theme.colors.warning
+    TreeTextRole.MUTED -> theme.colors.muted
+    TreeTextRole.DIM -> theme.colors.dim
+    TreeTextRole.ERROR -> theme.colors.error
+    TreeTextRole.CUSTOM_LABEL -> theme.customMessageLabel
+    TreeTextRole.PLAIN -> theme.markdownText
+}
+
+/** A [SpanStyle] with bold applied only when [bold], since there is no explicit "not bold" textStyle value. */
+private fun rowSpanStyle(color: Color, background: Color, bold: Boolean): SpanStyle =
+    if (bold) SpanStyle(color = color, background = background, textStyle = TextStyle.Bold) else SpanStyle(color = color, background = background)
+
+/** Where a row's own connector sits, if it has one: the char to draw and the level it occupies. */
+private data class TreeConnector(val char: Char?, val level: Int)
+
+/** The character at ([level], [posInLevel]) of a row's indentation prefix. */
+private fun treePrefixChar(
+    level: Int,
+    posInLevel: Int,
+    gutters: List<TreeGutter>,
+    connector: TreeConnector,
+    folded: Boolean,
+    hasVisibleChildren: Boolean,
+): Char {
+    val gutter = gutters.firstOrNull { it.level == level }
+    return when {
+        gutter != null -> if (posInLevel == 0) (if (gutter.show) '│' else ' ') else ' '
+        connector.char != null && level == connector.level -> when (posInLevel) {
+            0 -> connector.char
+            1 -> if (folded) '⊞' else if (hasVisibleChildren) '⊟' else '─'
+            else -> ' '
+        }
+        else -> ' '
+    }
+}
+
+/**
+ * Builds the indentation prefix for one tree row: `│` gutters at each ancestor branch point, plus
+ * this row's own `├─`/`└─` connector with a fold indicator (`⊟`/`⊞`) spliced into its dash.
+ */
+private fun buildTreeRowPrefix(row: TreeRow, multipleRoots: Boolean, folded: Boolean): String {
+    val displayIndent = if (multipleRoots) max(0, row.indent - 1) else row.indent
+    val totalChars = displayIndent * 3
+    if (totalChars <= 0) return ""
+
+    val hasConnector = row.showConnector && !row.isVirtualRootChild
+    val connector = TreeConnector(
+        char = if (hasConnector) (if (row.isLast) '└' else '├') else null,
+        level = if (hasConnector) displayIndent - 1 else -1,
+    )
+
+    val chars = CharArray(totalChars) { i ->
+        treePrefixChar(i / 3, i % 3, row.gutters, connector, folded, row.hasVisibleChildren)
+    }
+    return String(chars)
+}
+
+/** Truncates display segments to fit [maxWidth] columns, dropping or clipping whatever overflows. */
+private fun truncateTreeSegments(segments: List<TreeTextSegment>, maxWidth: Int): List<TreeTextSegment> {
+    if (maxWidth <= 0) return emptyList()
+    val result = mutableListOf<TreeTextSegment>()
+    var used = 0
+    var truncated = false
+    for (segment in segments) {
+        if (truncated) continue
+        val remaining = maxWidth - used
+        when {
+            remaining <= 0 -> truncated = true
+            segment.text.length <= remaining -> {
+                result += segment
+                used += segment.text.length
+            }
+            else -> {
+                result += segment.copy(text = segment.text.take(remaining))
+                used = maxWidth
+                truncated = true
+            }
+        }
+    }
+    return result
+}
+
+private fun renderTreeRow(
+    row: TreeRow,
+    selectorState: TreeSelectorState,
+    isSelected: Boolean,
+    width: Int,
+    theme: ThemeConfig,
+) = buildAnnotatedString {
+    val bg = if (isSelected) theme.overlaySelectedBg else theme.overlayBg
+    val folded = selectorState.isFolded(row.id)
+    val prefix = buildTreeRowPrefix(row, selectorState.multipleRoots, folded)
+    val showsFoldInConnector = row.showConnector && !row.isVirtualRootChild
+    val foldMarker = if (folded && !showsFoldInConnector) "⊞ " else ""
+    val pathMarker = if (row.id in selectorState.activePathIds) "• " else ""
+    val leadIn = "  $prefix$foldMarker$pathMarker"
+
+    withStyle(rowSpanStyle(theme.colors.dim, bg, isSelected)) {
+        append("  ")
+        append(prefix)
+    }
+    if (foldMarker.isNotEmpty()) {
+        withStyle(rowSpanStyle(theme.colors.accent, bg, isSelected)) { append(foldMarker) }
+    }
+    if (pathMarker.isNotEmpty()) {
+        withStyle(rowSpanStyle(theme.colors.accent, bg, isSelected)) { append(pathMarker) }
+    }
+
+    val bodyBudget = (width - leadIn.length).coerceAtLeast(0)
+    val segments = truncateTreeSegments(buildEntryDisplaySegments(row.node, selectorState.toolCalls), bodyBudget)
+    var used = leadIn.length
+    for (segment in segments) {
+        withStyle(rowSpanStyle(treeRoleColor(segment.role, theme), bg, isSelected)) { append(segment.text) }
+        used += segment.text.length
+    }
+    val padding = (width - used).coerceAtLeast(0)
+    if (padding > 0) {
+        withStyle(SpanStyle(background = bg)) { append(" ".repeat(padding)) }
+    }
+}
+
+private fun renderTreeSearchRow(selectorState: TreeSelectorState, width: Int, theme: ThemeConfig) = buildAnnotatedString {
+    if (selectorState.searchQuery.isEmpty()) {
+        val hint = "  Type to search  ·  ←/→ fold/unfold  ·  tab cycle filter"
+        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
+            append(hint.take(width).padEnd(width))
+        }
+    } else {
+        val label = "  Search: "
+        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) { append(label) }
+        val queryPart = selectorState.searchQuery.take((width - label.length).coerceAtLeast(0))
+        withStyle(SpanStyle(color = theme.markdownText, background = theme.overlayBg)) { append(queryPart) }
+        val remaining = (width - label.length - queryPart.length).coerceAtLeast(0)
+        if (remaining > 0) {
+            withStyle(SpanStyle(background = theme.overlayBg)) { append(" ".repeat(remaining)) }
+        }
+    }
+}
+
+private fun treeFilterSuffix(mode: TreeFilterMode): String = when (mode) {
+    TreeFilterMode.DEFAULT -> ""
+    TreeFilterMode.NO_TOOLS -> " [no-tools]"
+    TreeFilterMode.USER_ONLY -> " [user]"
+    TreeFilterMode.ALL -> " [all]"
+}
+
+/** Escape clears an active search first (matching the popup-dismiss convention), then closes. */
+private fun handleTreeEscape(selectorState: TreeSelectorState, onClose: () -> Unit) {
+    if (!selectorState.clearSearch()) onClose()
+}
+
+/** A plain, unmodified character appends to the type-to-search query. */
+private fun handleTreeCharacter(event: KeyboardEvent, character: Key.Character, selectorState: TreeSelectorState) {
+    if (!event.ctrl && !event.alt) {
+        selectorState.appendSearchChar(character.value)
+    }
+}
+
+private fun handleTreeDialogKey(
+    event: KeyEvent,
+    selectorState: TreeSelectorState,
+    onSubmit: (String) -> Unit,
+    onClose: () -> Unit,
+): Boolean {
+    val keyboardEvent = event.toKeyboardEvent()
+    when (val key = keyboardEvent.key) {
+        Key.ArrowUp -> selectorState.moveUp()
+        Key.ArrowDown -> selectorState.moveDown()
+        Key.ArrowLeft -> selectorState.foldOrMoveToParent()
+        Key.ArrowRight -> selectorState.unfoldOrMoveToChild()
+        Key.Tab -> selectorState.cycleFilter()
+        Key.Backspace -> selectorState.backspaceSearch()
+        Key.Enter -> selectorState.selectedRow()?.let { row -> onSubmit(row.id) }
+        Key.Escape -> handleTreeEscape(selectorState, onClose)
+        is Key.Character -> handleTreeCharacter(keyboardEvent, key, selectorState)
+        else -> Unit
+    }
+    return true
+}
+
+/**
+ * The `/tree` session navigator: a scrollable, foldable, searchable view of [selectorState]'s
+ * flattened rows. Selecting a row hands its entry id to [onSubmit]; the caller decides what
+ * navigating there means (including the current-leaf no-op and the branch-summary prompt).
+ */
+@Composable
+public fun TreeSelectorDialog(
+    selectorState: TreeSelectorState,
+    width: Int,
+    height: Int,
+    offsetX: Int,
+    offsetY: Int,
+    onSubmit: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    val theme = LocalThemeConfig.current
+
+    val topPadding = 1
+    val titleHeight = 1
+    val spacer1 = 1
+    val searchHeight = 1
+    val spacer2 = 1
+    val spacerBeforeFooter = 1
+    val footerHeight = 1
+    val bottomPadding = 1
+    val chrome = topPadding + titleHeight + spacer1 + searchHeight + spacer2 + spacerBeforeFooter + footerHeight + bottomPadding
+    val bodyHeight = (height - chrome).coerceAtLeast(1)
+
+    val rows = selectorState.rows
+    val scrollTop = if (rows.isEmpty()) {
+        0
+    } else {
+        max(0, min(selectorState.selectedIndex - bodyHeight / 2, rows.size - bodyHeight))
+    }
+
+    ModalSurface(
+        width = width,
+        height = height,
+        offsetX = offsetX,
+        offsetY = offsetY,
+        modifier = Modifier.onKeyEvent { event -> handleTreeDialogKey(event, selectorState, onSubmit, onClose) },
+    ) {
+        Column {
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderOverlayTitleRow("Session Tree", width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderTreeSearchRow(selectorState, width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+
+            for (i in 0 until bodyHeight) {
+                val rowIndex = scrollTop + i
+                when {
+                    rowIndex < rows.size ->
+                        Text(renderTreeRow(rows[rowIndex], selectorState, rowIndex == selectorState.selectedIndex, width, theme))
+                    rows.isEmpty() && i == 0 -> Text(renderSelectLine("No entries found", false, width, theme))
+                    else -> Text(renderSelectLine("", false, width, theme))
+                }
+            }
+
+            Text(renderOverlayBlankRow(width, theme))
+            val counter = if (rows.isEmpty()) "(0/0)" else "(${selectorState.selectedIndex + 1}/${rows.size})"
+            Text(renderOverlayFooterRow("$counter${treeFilterSuffix(selectorState.filterMode)}", width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+        }
+    }
+}
+
+private fun renderUserMessageLine(item: UserMessageItem, isSelected: Boolean, width: Int, theme: ThemeConfig) = buildAnnotatedString {
+    val bg = if (isSelected) theme.overlaySelectedBg else theme.overlayBg
+    val cursor = "  "
+    val normalized = item.text.replace('\n', ' ').trim()
+    val maxWidth = (width - cursor.length).coerceAtLeast(0)
+    val truncated = normalized.take(maxWidth)
+
+    withStyle(SpanStyle(background = bg)) { append(cursor) }
+    withStyle(rowSpanStyle(theme.markdownText, bg, isSelected)) { append(truncated) }
+    val padding = (width - cursor.length - truncated.length).coerceAtLeast(0)
+    if (padding > 0) {
+        withStyle(SpanStyle(background = bg)) { append(" ".repeat(padding)) }
+    }
+}
+
+private fun renderUserMessageMeta(index: Int, total: Int, isSelected: Boolean, width: Int, theme: ThemeConfig) = buildAnnotatedString {
+    val bg = if (isSelected) theme.overlaySelectedBg else theme.overlayBg
+    val text = "  Message ${index + 1} of $total"
+    withStyle(SpanStyle(color = theme.colors.muted, background = bg)) {
+        append(text.take(width).padEnd(width))
+    }
+}
+
+private fun handleUserMessageDialogKey(
+    event: KeyEvent,
+    listState: UserMessageListState,
+    onSubmit: (String) -> Unit,
+    onClose: () -> Unit,
+): Boolean {
+    val keyboardEvent = event.toKeyboardEvent()
+    return when (keyboardEvent.key) {
+        Key.ArrowUp -> {
+            listState.moveUp()
+            true
+        }
+
+        Key.ArrowDown -> {
+            listState.moveDown()
+            true
+        }
+
+        Key.Enter -> {
+            listState.selected()?.let { item -> onSubmit(item.id) }
+            true
+        }
+
+        Key.Escape -> {
+            onClose()
+            true
+        }
+
+        else -> true
+    }
+}
+
+/**
+ * The `/fork` message picker: user messages in chronological order, two lines each (text plus a
+ * "Message N of M" caption), newest preselected.
+ */
+@Composable
+public fun UserMessageSelectorDialog(
+    listState: UserMessageListState,
+    width: Int,
+    height: Int,
+    offsetX: Int,
+    offsetY: Int,
+    onSubmit: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    val theme = LocalThemeConfig.current
+
+    val topPadding = 1
+    val titleHeight = 1
+    val spacer1 = 1
+    val spacerBeforeFooter = 1
+    val footerHeight = 1
+    val bottomPadding = 1
+    val chrome = topPadding + titleHeight + spacer1 + spacerBeforeFooter + footerHeight + bottomPadding
+    val bodyHeight = (height - chrome).coerceAtLeast(2)
+    val maxVisibleItems = (bodyHeight / 2).coerceAtLeast(1)
+
+    val items = listState.items
+    val scrollTop = if (items.isEmpty()) {
+        0
+    } else {
+        max(0, min(listState.selectedIndex - maxVisibleItems / 2, items.size - maxVisibleItems))
+    }
+
+    ModalSurface(
+        width = width,
+        height = height,
+        offsetX = offsetX,
+        offsetY = offsetY,
+        modifier = Modifier.onKeyEvent { event -> handleUserMessageDialogKey(event, listState, onSubmit, onClose) },
+    ) {
+        Column {
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderOverlayTitleRow("Fork from Message", width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+
+            if (items.isEmpty()) {
+                Text(renderSelectLine("No user messages found", false, width, theme))
+            } else {
+                for (i in 0 until maxVisibleItems) {
+                    val itemIndex = scrollTop + i
+                    if (itemIndex < items.size) {
+                        val item = items[itemIndex]
+                        val isSelected = itemIndex == listState.selectedIndex
+                        Text(renderUserMessageLine(item, isSelected, width, theme))
+                        Text(renderUserMessageMeta(itemIndex, items.size, isSelected, width, theme))
+                    }
+                }
+            }
+
+            Text(renderOverlayBlankRow(width, theme))
+            Text(renderOverlayFooterRow("↑/↓ navigate  enter select", width, theme))
+            Text(renderOverlayBlankRow(width, theme))
+        }
+    }
+}
+
+@Composable
+private fun TreeOverlayHostEntry(
+    entry: TreeOverlayEntry,
+    state: OverlayHostState,
+    dialogWidth: Int,
+    dialogHeight: Int,
+    offsetX: Int,
+    offsetY: Int,
+) {
+    val selectorState = entry.selectorState
+        ?: TreeSelectorState(entry.session, entry.initialSelectedId).also { entry.selectorState = it }
+
+    TreeSelectorDialog(
+        selectorState = selectorState,
+        width = dialogWidth,
+        height = dialogHeight,
+        offsetX = offsetX,
+        offsetY = offsetY,
+        onSubmit = { id ->
+            state.stack.removeLastOrNull()
+            entry.onSelect(id)
+        },
+        onClose = {
+            state.stack.removeLastOrNull()
+            entry.onClose()
+        },
+    )
+}
+
+@Composable
+private fun UserMessageOverlayHostEntry(
+    entry: UserMessageOverlayEntry,
+    state: OverlayHostState,
+    dialogWidth: Int,
+    dialogHeight: Int,
+    offsetX: Int,
+    offsetY: Int,
+) {
+    val listState = entry.listState
+        ?: UserMessageListState(entry.items, entry.initialSelectedId).also { entry.listState = it }
+
+    UserMessageSelectorDialog(
+        listState = listState,
+        width = dialogWidth,
+        height = dialogHeight,
+        offsetX = offsetX,
+        offsetY = offsetY,
+        onSubmit = { id ->
+            state.stack.removeLastOrNull()
+            entry.onSelect(id)
+        },
+        onClose = {
+            state.stack.removeLastOrNull()
+            entry.onClose()
+        },
+    )
+}
+
 /**
  * Renders the topmost overlay in the [OverlayHostState] stack as a centered dialog.
  * The overlay intercepts all key events when visible, preventing them from reaching
@@ -809,5 +1240,9 @@ public fun OverlayHost(
                 },
             )
         }
+
+        is TreeOverlayEntry -> TreeOverlayHostEntry(entry, state, dialogWidth, dialogHeight, offsetX, offsetY)
+
+        is UserMessageOverlayEntry -> UserMessageOverlayHostEntry(entry, state, dialogWidth, dialogHeight, offsetX, offsetY)
     }
 }

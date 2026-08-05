@@ -41,6 +41,7 @@ internal class TuiAppState(
     initialExtensionShortcuts: List<RegisteredShortcut>,
     initialExtensionToolRenderers: List<RegisteredToolRenderer>,
     initialExtensionMessageRenderers: List<RegisteredMessageRenderer>,
+    initialBranchSummarySkipPrompt: Boolean = false,
 ) {
     val chatHistory: ChatHistoryState = ChatHistoryState()
     val viewingChat: ChatHistoryState = ChatHistoryState()
@@ -78,6 +79,13 @@ internal class TuiAppState(
     var extensionStatuses: Map<String, String> by mutableStateOf(emptyMap())
     var extensionWidgets: Map<String, List<String>> by mutableStateOf(emptyMap())
     var extensionTitle: String? by mutableStateOf(null)
+    var branchSummarySkipPrompt: Boolean by mutableStateOf(initialBranchSummarySkipPrompt)
+
+    /**
+     * Set while a `/tree` branch summary is generating; non-null redirects the interrupt
+     * shortcut (Ctrl+C / Esc while "streaming") to cancel the summary instead of the agent client.
+     */
+    var treeSummaryAbort: (() -> Unit)? by mutableStateOf(null)
 
     val currentModel: Model?
         get() = currentModels.getOrNull(selectedModelIndex) ?: initialModel
@@ -105,6 +113,7 @@ internal fun rememberTuiAppState(
     initialExtensionShortcuts: List<RegisteredShortcut>,
     initialExtensionToolRenderers: List<RegisteredToolRenderer>,
     initialExtensionMessageRenderers: List<RegisteredMessageRenderer>,
+    initialBranchSummarySkipPrompt: Boolean = false,
 ): TuiAppState = remember {
     TuiAppState(
         initialModels = initialModels,
@@ -117,5 +126,6 @@ internal fun rememberTuiAppState(
         initialExtensionShortcuts = initialExtensionShortcuts,
         initialExtensionToolRenderers = initialExtensionToolRenderers,
         initialExtensionMessageRenderers = initialExtensionMessageRenderers,
+        initialBranchSummarySkipPrompt = initialBranchSummarySkipPrompt,
     )
 }

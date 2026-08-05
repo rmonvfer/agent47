@@ -5,6 +5,7 @@ import co.agentmode.agent47.ai.types.Model
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.UserMessage
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.coding.core.session.SessionContext
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.session.SessionMessageEntry
 import co.agentmode.agent47.ui.core.state.ChatHistoryState
@@ -52,9 +53,28 @@ internal fun loadSession(
             appendSystemMessage("Failed to open session: ${it.message ?: it::class.simpleName}")
             return
         }
-    val context = loadedManager.buildContext()
 
     activeSessionManagerSetter(loadedManager)
+    rebuildTranscriptFrom(loadedManager, availableModels, client, chatHistoryState, applyModel, setThinkingLevel)
+
+    appendSystemMessage("Loaded session ${resolvedPath.fileName}")
+}
+
+/**
+ * Rebuilds the client and chat-history transcript from [session]'s active branch, and restores
+ * whichever model and thinking level were in effect at that point. Shared by session resume,
+ * tree navigation, fork, and clone, since all four land on a (possibly different) point in a
+ * session's history and need the UI to reflect exactly that point.
+ */
+internal fun rebuildTranscriptFrom(
+    session: SessionManager,
+    availableModels: List<Model>,
+    client: AgentClient,
+    chatHistoryState: ChatHistoryState,
+    applyModel: (Model) -> Unit,
+    setThinkingLevel: (AgentThinkingLevel) -> Unit,
+): SessionContext {
+    val context = session.buildContext()
     client.replaceMessages(context.messages)
     chatHistoryState.entries.clear()
     context.messages.forEach { chatHistoryState.appendMessage(it) }
@@ -70,7 +90,7 @@ internal fun loadSession(
         setThinkingLevel(it)
     }
 
-    appendSystemMessage("Loaded session ${resolvedPath.fileName}")
+    return context
 }
 
 internal fun parseThinkingLevelOrNull(value: String?): AgentThinkingLevel? {

@@ -60,6 +60,19 @@ public data class TuiLaunchConfiguration(
     val skills: List<Skill> = emptyList(),
     val extensionIds: List<String> = emptyList(),
     val compactionSettings: CompactionSettings = CompactionSettings(),
+    val initialBranchSummarySkipPrompt: Boolean = false,
+)
+
+/**
+ * The outcome of a `/tree` navigation attempt, mirroring the app layer's own result so the TUI
+ * doesn't need to depend on it: [newLeafId] is where the session ended up (unchanged on abort or
+ * cancellation), [editorText] is prefilled into the editor when non-null and it's currently empty.
+ */
+public data class TreeNavigationOutcome(
+    val newLeafId: String?,
+    val editorText: String? = null,
+    val aborted: Boolean = false,
+    val cancelled: Boolean = false,
 )
 
 public data class TuiProviderServices(
@@ -82,6 +95,9 @@ public data class TuiConversationServices(
     val onSessionChanged: (SessionManager?) -> Unit = {},
     val onSessionTransition: suspend (SessionManager?, SessionManager?, SessionStartReason) -> Unit = { _, _, _ -> },
     val processInput: suspend (InputEvent) -> InputHookResult = { InputHookResult.Continue },
+    val navigateTree: suspend (targetId: String, summarize: Boolean, customInstructions: String?) -> TreeNavigationOutcome =
+        { targetId, _, _ -> TreeNavigationOutcome(newLeafId = targetId) },
+    val abortTreeNavigation: () -> Unit = {},
 )
 
 public data class TuiSubagentServices(

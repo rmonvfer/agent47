@@ -1,6 +1,7 @@
 package co.agentmode.agent47.ui.core.state
 
 import androidx.compose.runtime.*
+import co.agentmode.agent47.coding.core.session.SessionManager
 
 /**
  * Data class for items in a select dialog.
@@ -222,6 +223,60 @@ public class ScrollableTextOverlayEntry(
 }
 
 /**
+ * The session-tree navigator overlay (`/tree`). Wraps a [TreeSelectorState] built lazily by the
+ * renderer, matching how [SelectOverlayEntry] defers its [SelectDialogState] the same way.
+ */
+@Stable
+public class TreeOverlayEntry(
+    override val id: Int,
+    public val session: SessionManager,
+    public val initialSelectedId: String?,
+    public val onSelect: (String) -> Unit,
+    public val onClose: () -> Unit,
+) : OverlayEntry {
+    public var selectorState: TreeSelectorState? = null
+}
+
+/** One user message offered by the `/fork` overlay, in chronological order. */
+public data class UserMessageItem(val id: String, val text: String)
+
+/**
+ * State for the `/fork` overlay's message list: chronological order, newest preselected, no
+ * search — just up/down navigation over a short list of user messages.
+ */
+@Stable
+public class UserMessageListState(public val items: List<UserMessageItem>, initialSelectedId: String? = null) {
+    public var selectedIndex: Int by mutableIntStateOf(
+        (initialSelectedId?.let { id -> items.indexOfFirst { it.id == id } } ?: -1)
+            .let { found -> if (found >= 0) found else (items.size - 1).coerceAtLeast(0) },
+    )
+
+    public fun moveUp() {
+        if (items.isEmpty()) return
+        selectedIndex = if (selectedIndex <= 0) items.lastIndex else selectedIndex - 1
+    }
+
+    public fun moveDown() {
+        if (items.isEmpty()) return
+        selectedIndex = if (selectedIndex >= items.lastIndex) 0 else selectedIndex + 1
+    }
+
+    public fun selected(): UserMessageItem? = items.getOrNull(selectedIndex)
+}
+
+/** The `/fork` overlay: pick a user message to branch a new session from. */
+@Stable
+public class UserMessageOverlayEntry(
+    override val id: Int,
+    public val items: List<UserMessageItem>,
+    public val initialSelectedId: String?,
+    public val onSelect: (String) -> Unit,
+    public val onClose: () -> Unit,
+) : OverlayEntry {
+    public var listState: UserMessageListState? = null
+}
+
+/**
  * State holder for the overlay host. Manages a stack of overlay entries and provides
  * push/dismiss operations.
  */
@@ -317,6 +372,42 @@ public class OverlayHostState {
     }
 
     /**
+     * Pushes a session-tree navigator overlay (`/tree`) onto the stack.
+     */
+    public fun pushTree(
+        session: SessionManager,
+        initialSelectedId: String? = null,
+        onSelect: (String) -> Unit = {},
+        onClose: () -> Unit = {},
+    ) {
+        stack += TreeOverlayEntry(
+            id = nextId++,
+            session = session,
+            initialSelectedId = initialSelectedId,
+            onSelect = onSelect,
+            onClose = onClose,
+        )
+    }
+
+    /**
+     * Pushes a user-message picker overlay (`/fork`) onto the stack.
+     */
+    public fun pushUserMessages(
+        items: List<UserMessageItem>,
+        initialSelectedId: String? = null,
+        onSelect: (String) -> Unit = {},
+        onClose: () -> Unit = {},
+    ) {
+        stack += UserMessageOverlayEntry(
+            id = nextId++,
+            items = items,
+            initialSelectedId = initialSelectedId,
+            onSelect = onSelect,
+            onClose = onClose,
+        )
+    }
+
+    /**
      * Removes the topmost overlay from the stack, invoking its onClose callback.
      */
     public fun dismissTop() {
@@ -326,6 +417,8 @@ public class OverlayHostState {
             is PromptOverlayEntry -> entry.onClose()
             is InfoOverlayEntry -> entry.onClose()
             is ScrollableTextOverlayEntry -> entry.onClose()
+            is TreeOverlayEntry -> entry.onClose()
+            is UserMessageOverlayEntry -> entry.onClose()
         }
     }
 
@@ -346,6 +439,8 @@ public class OverlayHostState {
                 is PromptOverlayEntry -> entry.onClose()
                 is InfoOverlayEntry -> entry.onClose()
                 is ScrollableTextOverlayEntry -> entry.onClose()
+                is TreeOverlayEntry -> entry.onClose()
+                is UserMessageOverlayEntry -> entry.onClose()
             }
         }
     }

@@ -40,6 +40,7 @@ import co.agentmode.agent47.tui.commands.SlashCommandSpec
 import co.agentmode.agent47.tui.commands.builtinSlashCommands
 import co.agentmode.agent47.tui.commands.helpText
 import co.agentmode.agent47.tui.state.TranscriptFeed
+import co.agentmode.agent47.tui.state.TuiAppState
 import co.agentmode.agent47.tui.state.rememberTuiAppState
 import co.agentmode.agent47.tui.controller.CompactionController
 import co.agentmode.agent47.tui.controller.ConversationController
@@ -102,6 +103,21 @@ import kotlin.math.min
 
 /** How far the base layer is darkened toward black while a dialog is open (1 = unchanged). */
 private const val SCRIM_DIM_FACTOR = 0.5f
+
+/**
+ * Aborts whatever "streaming" currently means: a running branch summary if one is in flight
+ * (`state.treeSummaryAbort` redirects here while `/tree` is summarizing), else the agent client's
+ * in-flight response.
+ */
+private fun interruptStreaming(state: TuiAppState, client: AgentClient, appendSystemMessage: (String) -> Unit) {
+    val treeSummaryAbort = state.treeSummaryAbort
+    if (treeSummaryAbort != null) {
+        treeSummaryAbort()
+    } else {
+        client.abort()
+        appendSystemMessage("Interrupted current response.")
+    }
+}
 
 /**
  * Top-level Mosaic composable for the interactive TUI.
@@ -199,6 +215,8 @@ private fun Agent47AppContent(
     val onSessionTransition = conversationServices.onSessionTransition
     val processInput = conversationServices.processInput
     val reloadExtensions = conversationServices.reloadExtensions
+    val navigateTree = conversationServices.navigateTree
+    val abortTreeNavigation = conversationServices.abortTreeNavigation
     val backgroundAgents = subagentServices.backgroundAgents
     val subagentsSettings = subagentServices.settings
     val agentRegistry = subagentServices.agentRegistry
@@ -225,6 +243,7 @@ private fun Agent47AppContent(
         initialExtensionShortcuts = initialExtensionShortcuts,
         initialExtensionToolRenderers = initialExtensionToolRenderers,
         initialExtensionMessageRenderers = initialExtensionMessageRenderers,
+        initialBranchSummarySkipPrompt = configuration.initialBranchSummarySkipPrompt,
     )
 
     // Stable holder aliases keep the rest of the composable referencing familiar names.
@@ -452,6 +471,8 @@ private fun Agent47AppContent(
             fileSlashCommands = fileSlashCommands,
             getAllProviders = getAllProviders,
             onSettingsChanged = onSettingsChanged,
+            navigateTree = navigateTree,
+            abortTreeNavigation = abortTreeNavigation,
         )
     }
     val submitDispatcher = remember {
@@ -526,10 +547,7 @@ private fun Agent47AppContent(
         }
         when (intent) {
             null -> return false
-            TuiIntent.InterruptStreaming -> {
-                client.abort()
-                appendSystemMessage("Interrupted current response.")
-            }
+            TuiIntent.InterruptStreaming -> interruptStreaming(state, client, ::appendSystemMessage)
             TuiIntent.ArmCtrlC -> {
                 ctrlCArmed = true
                 appendSystemMessage("Press Ctrl+C again to exit.")

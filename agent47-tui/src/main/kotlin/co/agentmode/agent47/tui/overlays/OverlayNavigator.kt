@@ -9,6 +9,7 @@ import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.coding.core.instructions.InstructionFile
 import co.agentmode.agent47.coding.core.models.ProviderInfo
 import co.agentmode.agent47.coding.core.settings.Settings
+import co.agentmode.agent47.tui.TreeNavigationOutcome
 import co.agentmode.agent47.tui.commands.SlashCommandSpec
 import co.agentmode.agent47.tui.commands.builtinSlashCommands
 import co.agentmode.agent47.tui.controller.AgentPanelController
@@ -49,6 +50,8 @@ internal class OverlayNavigator(
     val fileSlashCommands: List<SlashCommand>,
     val getAllProviders: () -> List<ProviderInfo>,
     val onSettingsChanged: (transform: (Settings) -> Settings) -> Unit,
+    val navigateTree: suspend (targetId: String, summarize: Boolean, customInstructions: String?) -> TreeNavigationOutcome,
+    val abortTreeNavigation: () -> Unit,
 ) {
     val overlays: OverlayHostState get() = state.overlays
 

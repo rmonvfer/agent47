@@ -48,10 +48,20 @@ supports model, provider, theme, session, instruction, and subagent overlays. En
 line. File paths and slash commands have completion in the editor.
 
 Built-in slash commands are `/help`, `/commands`, `/new`, `/clear`, `/model`, `/provider`, `/theme`, `/session`,
-`/compact`, `/reload`, `/memory`, `/agents`, `/settings`, and `/exit`. `/reload` recompiles runtime extensions and
-atomically replaces their hooks, tools, and commands when every script is valid. `/memory` shows the instruction files loaded for the current
-session, while `/agents` exposes background-agent status, steering, types, schedules, and subagent settings. Files in
-the project or global `commands/` directories add custom slash commands; see [commands.md](commands.md).
+`/tree`, `/fork`, `/clone`, `/resume`, `/compact`, `/reload`, `/memory`, `/agents`, `/settings`, and `/exit`. `/reload`
+recompiles runtime extensions and atomically replaces their hooks, tools, and commands when every script is valid.
+`/memory` shows the instruction files loaded for the current session, while `/agents` exposes background-agent status,
+steering, types, schedules, and subagent settings. Files in the project or global `commands/` directories add custom
+slash commands; see [commands.md](commands.md).
+
+Every session is a tree, not a line: branching from an earlier point leaves the abandoned turns in place rather than
+discarding them. `/tree` opens a navigator over that tree — indentation and connectors show its shape, search filters
+by typing, arrow keys fold and unfold branches, and selecting an earlier point moves the session's active branch
+there, optionally summarizing what gets left behind. `/fork` picks a past user message and copies the branch up to it
+into a new session file, preserving the original tree structure rather than replaying messages; the message's text is
+left in the editor to revise and resend. `/clone` copies the current branch into a new session file at the point
+you're at now. `/resume` lists saved sessions for the project, most recently touched first, and switches to the one
+you pick.
 
 The main shortcuts are Escape twice to clear the input, Ctrl+C to interrupt and then exit on repeated presses, Ctrl+L
 to clear visible chat, Ctrl+T to toggle thinking, Ctrl+P/Ctrl+N to cycle models, Ctrl+O to expand startup help and

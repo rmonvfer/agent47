@@ -26,6 +26,14 @@ class SubmitParserTest {
     }
 
     @Test
+    fun `the session-tree commands parse to builtin`() {
+        assertEquals(Submission.Builtin("/tree", emptyList(), "/tree"), parseSubmission("/tree", emptyList(), emptyList()))
+        assertEquals(Submission.Builtin("/fork", emptyList(), "/fork"), parseSubmission("/fork", emptyList(), emptyList()))
+        assertEquals(Submission.Builtin("/clone", emptyList(), "/clone"), parseSubmission("/clone", emptyList(), emptyList()))
+        assertEquals(Submission.Builtin("/resume", emptyList(), "/resume"), parseSubmission("/resume", emptyList(), emptyList()))
+    }
+
+    @Test
     fun `an extension slash command parses to extension with its raw arguments`() {
         val result = parseSubmission("/myext do a thing", listOf(extensionCommand), emptyList())
         assertIs<Submission.Extension>(result)

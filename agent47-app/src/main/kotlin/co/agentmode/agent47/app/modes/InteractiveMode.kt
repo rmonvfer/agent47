@@ -10,6 +10,7 @@ import co.agentmode.agent47.coding.core.settings.SubagentsSettingsManager
 import co.agentmode.agent47.ext.core.SessionShutdownEvent
 import co.agentmode.agent47.ext.core.SessionShutdownReason
 import co.agentmode.agent47.ext.core.SessionStartEvent
+import co.agentmode.agent47.tui.TreeNavigationOutcome
 import co.agentmode.agent47.tui.TuiConversationServices
 import co.agentmode.agent47.tui.TuiLaunchConfiguration
 import co.agentmode.agent47.tui.TuiProviderServices
@@ -65,6 +66,7 @@ private fun buildLaunchConfiguration(
     skills = runtime.skillRegistry.getAll(),
     extensionIds = runtime.extensionRuntime.runner.loadedExtensionIds(),
     compactionSettings = runtime.settings.get().compaction,
+    initialBranchSummarySkipPrompt = runtime.settings.get().branchSummary.skipPrompt,
 )
 
 private fun buildProviderServices(runtime: AgentRuntime): TuiProviderServices {
@@ -108,6 +110,16 @@ private fun buildConversationServices(runtime: AgentRuntime): TuiConversationSer
     processInput = { event ->
         runtime.extensionRuntime.runner.processInput(event, runtime.extensionContext)
     },
+    navigateTree = { targetId, summarize, customInstructions ->
+        val result = runtime.sessionTreeService.navigateTree(targetId, summarize, customInstructions)
+        TreeNavigationOutcome(
+            newLeafId = result.newLeafId,
+            editorText = result.editorText,
+            aborted = result.aborted,
+            cancelled = result.cancelled,
+        )
+    },
+    abortTreeNavigation = { runtime.sessionTreeService.abort() },
 )
 
 private fun buildSubagentServices(runtime: AgentRuntime): TuiSubagentServices = TuiSubagentServices(
