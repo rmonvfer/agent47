@@ -31,16 +31,13 @@ public fun EditorView(
 ) {
     val theme = LocalThemeConfig.current
 
-    // ohm's editor draws no prompt marker/gutter, but the buffer is inset by one
-    // column on each side so it lines up with the tinted user/tool blocks in the
-    // transcript above. The border-rule color is the mode indicator; bash mode keeps
-    // the literal "!" prefix the user typed rather than hoisting it into a glyph.
+    // ohm's editor draws no prompt marker/gutter: input starts flush at the left edge.
+    // The border-rule color is the mode indicator; bash mode keeps the literal "!"
+    // prefix the user typed rather than hoisting it into a glyph.
     val textStyle = SpanStyle(
         color = theme.markdownText,
     )
-    val paddingX = if (width >= MIN_PADDED_EDITOR_WIDTH) 1 else 0
-    val pad = " ".repeat(paddingX)
-    val contentWidth = (width - 2 * paddingX).coerceAtLeast(1)
+    val contentWidth = width.coerceAtLeast(1)
 
     Column(modifier = Modifier.width(width).height(height)) {
         result.lines.forEachIndexed { rowIndex, lineText ->
@@ -49,7 +46,6 @@ public fun EditorView(
 
             Text(
                 buildAnnotatedString {
-                    append(pad)
                     if (hasCursor) {
                         val adjustedCursorCol = result.cursorColumn.coerceIn(0, displayText.length)
                         val before = displayText.substring(0, adjustedCursorCol)
@@ -72,7 +68,6 @@ public fun EditorView(
                     } else {
                         withStyle(textStyle) { append(displayText) }
                     }
-                    append(pad)
                 },
                 color = theme.markdownText,
             )
@@ -171,5 +166,3 @@ private fun renderCompletionItem(
         append(" ")
     }
 }
-
-private const val MIN_PADDED_EDITOR_WIDTH = 3
