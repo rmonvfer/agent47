@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import co.agentmode.agent47.agent.core.AgentThinkingLevel
 import co.agentmode.agent47.ai.types.Model
+import co.agentmode.agent47.ai.types.UserMessage
 import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.coding.core.session.SessionManager
 import co.agentmode.agent47.coding.core.settings.SubagentsSettings
@@ -52,6 +53,14 @@ internal class TuiAppState(
     val promptHistory: MutableList<String> = mutableListOf()
     val pushQueue: ConcurrentLinkedQueue<String> = ConcurrentLinkedQueue()
 
+    /**
+     * `@mention` echoes shown at the tail of a focused agent's mirrored transcript. That transcript
+     * is rebuilt from the agent's own messages on every poll, which would otherwise wipe out a
+     * directly-appended echo within 200ms; the mirror replays these after each rebuild instead.
+     * Cleared whenever the focus target changes.
+     */
+    val focusModeNotes: MutableList<UserMessage> = mutableListOf()
+
     var currentModels: List<Model> by mutableStateOf(initialModels)
     var selectedModelIndex: Int by mutableIntStateOf(
         initialModel?.let { model ->
@@ -69,6 +78,10 @@ internal class TuiAppState(
     var editorVersion: Int by mutableIntStateOf(0)
     var liveActivityLabel: String by mutableStateOf("Thinking")
     var viewingAgentId: String? by mutableStateOf(null)
+    /** True while Up/Down highlight rows in the runtime agent list instead of scrolling or editing. */
+    var agentSelectionMode: Boolean by mutableStateOf(false)
+    /** Highlighted row index while [agentSelectionMode] is active. */
+    var selectedAgentIndex: Int by mutableIntStateOf(0)
     var showUsageFooter: Boolean by mutableStateOf(initialShowUsageFooter)
     var startupExpanded: Boolean by mutableStateOf(false)
     var subagentsSettings: SubagentsSettings by mutableStateOf(initialSubagentsSettings)

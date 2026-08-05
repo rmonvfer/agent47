@@ -29,9 +29,16 @@ internal sealed interface Submission {
 
     /** A slash command that matches no builtin, extension, or file command. */
     data class UnknownSlash(val command: String, val raw: String) : Submission
+
+    /** An `@name message` mention routing the message to a background agent (or "main"/"orchestrator"). */
+    data class AgentMention(val target: String, val text: String, val raw: String) : Submission
 }
 
 private val builtinCommandNames: Set<String> = builtinSlashCommands.map { it.command }.toSet()
+
+// `@name` followed by at least one space and non-blank text; DOT_MATCHES_ALL lets the message span
+// multiple lines. A bare "@name" with nothing after it is not a mention — it falls through to Prompt.
+private val agentMentionPattern = Regex("^@(\\S+)\\s+(.+)$", RegexOption.DOT_MATCHES_ALL)
 
 internal fun parseSubmission(
     rawInput: String,
@@ -39,8 +46,15 @@ internal fun parseSubmission(
     fileSlashCommands: List<SlashCommand>,
 ): Submission = when {
     rawInput.startsWith("/") -> parseSlash(rawInput, extensionCommands, fileSlashCommands)
+    rawInput.startsWith("@") -> parseAgentMention(rawInput) ?: Submission.Prompt(rawInput)
     rawInput.startsWith("!") -> Submission.Bash(rawInput.removePrefix("!").trim())
     else -> Submission.Prompt(rawInput)
+}
+
+private fun parseAgentMention(rawInput: String): Submission.AgentMention? {
+    val match = agentMentionPattern.find(rawInput) ?: return null
+    val text = match.groupValues[2].trim()
+    return if (text.isBlank()) null else Submission.AgentMention(target = match.groupValues[1], text = text, raw = rawInput)
 }
 
 @Suppress("ReturnCount")

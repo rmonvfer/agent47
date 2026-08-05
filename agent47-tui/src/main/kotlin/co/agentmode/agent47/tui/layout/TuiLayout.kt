@@ -16,9 +16,8 @@ internal data class LayoutInputs(
     val taskBarLineCount: Int,
     val isStreaming: Boolean,
     val chatPinnedToBottom: Boolean,
-    val hasBackgroundAgents: Boolean,
-    val runningAgentCount: Int,
-    val queuedAgentCount: Int,
+    /** Rows in the runtime agent list below the editor (0 hides it entirely). */
+    val agentListRowCount: Int,
 )
 
 /** Resolved row/column budget for the interactive screen. */
@@ -28,7 +27,7 @@ internal data class TuiLayout(
     val editorContentWidth: Int,
     val baseInputHeight: Int,
     val popupHeight: Int,
-    val backgroundPanelHeight: Int,
+    val agentListHeight: Int,
     val editorTopMarginHeight: Int,
     val historyHeight: Int,
 )
@@ -47,16 +46,12 @@ internal fun computeTuiLayout(width: Int, height: Int, inputs: LayoutInputs): Tu
     val editorTopMarginHeight =
         if (inputs.taskBarVisible || inputs.isStreaming || !inputs.chatPinnedToBottom) 0 else 1
     val borderHeight = 2
-    val backgroundPanelHeight = if (!inputs.hasBackgroundAgents) {
-        0
-    } else {
-        // Leading blank line + header + running rows + optional queued line (matches the panel).
-        2 + inputs.runningAgentCount + if (inputs.queuedAgentCount > 0) 1 else 0
-    }
+    // One line per row, no header or blank-line chrome: a tight Claude-Code-style list.
+    val agentListHeight = inputs.agentListRowCount.coerceAtLeast(0)
     val historyHeight = max(
         1,
         height - statusHeight - borderHeight - popupHeight - baseInputHeight -
-            activityHeight - taskBarHeight - editorTopMarginHeight - backgroundPanelHeight,
+            activityHeight - taskBarHeight - editorTopMarginHeight - agentListHeight,
     )
     return TuiLayout(
         horizontalPadding = horizontalPadding,
@@ -64,7 +59,7 @@ internal fun computeTuiLayout(width: Int, height: Int, inputs: LayoutInputs): Tu
         editorContentWidth = editorContentWidth,
         baseInputHeight = baseInputHeight,
         popupHeight = popupHeight,
-        backgroundPanelHeight = backgroundPanelHeight,
+        agentListHeight = agentListHeight,
         editorTopMarginHeight = editorTopMarginHeight,
         historyHeight = historyHeight,
     )

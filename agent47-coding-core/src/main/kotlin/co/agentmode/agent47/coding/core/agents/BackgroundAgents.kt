@@ -44,6 +44,8 @@ public class RunningAgent(
     @Volatile public var status: Status = Status.QUEUED
     /** Wall-clock ms when the agent started running (0 while queued), for live elapsed display. */
     @Volatile public var startedAt: Long = 0L
+    /** Wall-clock ms when the agent reached a terminal state (0 while running), for a frozen elapsed display. */
+    @Volatile public var completedAt: Long = 0L
     @Volatile public var progress: SubAgentProgress? = null
     @Volatile public var result: SubAgentResult? = null
     @Volatile public var agentRef: Agent? = null
@@ -76,6 +78,9 @@ public class BackgroundAgents(
     private val agents = ConcurrentHashMap<String, RunningAgent>()
     private val order = CopyOnWriteArrayList<String>()
     private val inbox = ConcurrentLinkedQueue<InboxMessage>()
+    // Ids of agents that reached a terminal state (completed or failed, not cancelled) and whose
+    // completion has not yet been acknowledged via [markRead]; drives "completed-unread" visibility.
+    private val unread = ConcurrentHashMap.newKeySet<String>()
 
     private class QueuedLaunch(
         val running: RunningAgent,
@@ -180,6 +185,7 @@ public class BackgroundAgents(
                 val result = run(running)
                 running.result = result
                 running.complete(result)
+                markTerminal(running)
                 inbox.add(
                     InboxMessage(
                         from = running.id,
@@ -190,10 +196,11 @@ public class BackgroundAgents(
                 )
                 completionListener?.invoke(running)
             } catch (_: CancellationException) {
-                // Cancelled (abort / new session) — leave no inbox trace.
+                // Cancelled (abort / new session) — leave no inbox trace, and no unread completion.
                 running.complete(null)
             } catch (e: Throwable) {
                 running.complete(null)
+                markTerminal(running)
                 inbox.add(
                     InboxMessage(
                         from = running.id,
@@ -305,6 +312,24 @@ public class BackgroundAgents(
 
     public fun hasRunning(): Boolean = runningStatus().isNotEmpty()
 
+    /**
+     * Agents worth showing in a runtime UI: still running/queued, plus finished agents whose
+     * completion has not yet been acknowledged via [markRead]. Cancelled agents never appear here
+     * (their completion leaves no trace, matching [runningStatus]'s and the inbox's treatment).
+     */
+    public fun visibleAgents(): List<RunningAgent> = order.mapNotNull { agents[it] }.filter { !it.done || it.id in unread }
+
+    /** Acknowledges a finished agent's completion, dropping it out of [visibleAgents]. */
+    public fun markRead(id: String) {
+        unread.remove(id)
+    }
+
+    /** Records [running]'s terminal timestamp and marks it unread; called for completion and failure, never cancellation. */
+    private fun markTerminal(running: RunningAgent) {
+        running.completedAt = System.currentTimeMillis()
+        unread.add(running.id)
+    }
+
     /** Cancels all running agents and clears state, leaving the registry usable for new launches. */
     public fun cancelAll() {
         val queued = synchronized(lock) {
@@ -316,6 +341,7 @@ public class BackgroundAgents(
             agents.clear()
             order.clear()
             inbox.clear()
+            unread.clear()
             pending
         }
         queued.forEach { it.complete(null) }

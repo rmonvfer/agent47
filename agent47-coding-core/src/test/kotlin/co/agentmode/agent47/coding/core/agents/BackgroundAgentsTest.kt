@@ -189,6 +189,55 @@ class BackgroundAgentsTest {
         assertFalse(bg.abort("nope"))
     }
 
+    @Test
+    fun `a finished agent stays visible as unread until marked read`() {
+        val bg = BackgroundAgents()
+        bg.launch("a1", "explore", "desc", "task") { result("a1") }
+        awaitInbox(bg, 1)
+
+        assertTrue(bg.runningStatus().isEmpty(), "finished agent drops out of runningStatus")
+        assertTrue(bg.visibleAgents().any { it.id == "a1" }, "finished agent stays visible while unread")
+
+        bg.markRead("a1")
+        assertTrue(bg.visibleAgents().isEmpty(), "read agent drops out of visibleAgents")
+    }
+
+    @Test
+    fun `a failed agent stays visible as unread until marked read`() {
+        val bg = BackgroundAgents()
+        bg.launch("a2", "explore", "desc", "task") { result("a2", exitCode = 1, error = "boom") }
+        awaitInbox(bg, 1)
+
+        assertTrue(bg.visibleAgents().any { it.id == "a2" })
+        bg.markRead("a2")
+        assertTrue(bg.visibleAgents().isEmpty())
+    }
+
+    @Test
+    fun `a cancelled agent never becomes visible as unread`() {
+        val bg = BackgroundAgents(maxConcurrent = 1)
+        val gate = CompletableDeferred<Unit>()
+        val started = AtomicInteger(0)
+        bg.launch("run", "explore", "desc", "task") { started.incrementAndGet(); gate.await(); result("run") }
+
+        awaitCondition { started.get() == 1 }
+        assertTrue(bg.abort("run"))
+
+        awaitCondition { bg.runningCount() == 0 }
+        assertTrue(bg.visibleAgents().none { it.id == "run" })
+    }
+
+    @Test
+    fun `running and queued agents are always visible regardless of unread state`() {
+        val bg = BackgroundAgents(maxConcurrent = 1)
+        val gate = CompletableDeferred<Unit>()
+        bg.launch("run", "explore", "desc", "task") { gate.await(); result("run") }
+        bg.launch("wait", "explore", "desc", "task") { gate.await(); result("wait") }
+
+        assertEquals(setOf("run", "wait"), bg.visibleAgents().map { it.id }.toSet())
+        gate.complete(Unit)
+    }
+
     private fun awaitCondition(timeoutMs: Long = 5000, predicate: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (!predicate() && System.currentTimeMillis() < deadline) Thread.sleep(10)

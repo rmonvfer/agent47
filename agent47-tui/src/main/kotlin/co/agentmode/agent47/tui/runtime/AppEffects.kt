@@ -3,14 +3,19 @@ package co.agentmode.agent47.tui.runtime
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import co.agentmode.agent47.agent.core.AgentThinkingLevel
+import co.agentmode.agent47.ai.types.CustomMessage
 import co.agentmode.agent47.ai.types.Model
+import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.UserMessage
 import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.coding.core.agents.BackgroundAgents
+import co.agentmode.agent47.coding.core.agents.SubAgentProgress
 import co.agentmode.agent47.tui.controller.CompactionController
 import co.agentmode.agent47.tui.controller.ConversationController
 import co.agentmode.agent47.tui.state.TranscriptFeed
 import co.agentmode.agent47.tui.state.TuiAppState
+import co.agentmode.agent47.tui.state.activityOf
+import co.agentmode.agent47.ui.core.state.ChatHistoryState
 import java.nio.file.Path
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -87,23 +92,52 @@ internal fun SpinnerTicker(state: TuiAppState) {
 }
 
 /**
- * Rebuilds the focused agent's transcript from its live messages while focus mode is active.
+ * Rebuilds the focused agent's transcript from its live messages while focus mode is active. The
+ * registry exposes no live event stream for a background agent (only its message list and the
+ * latest [SubAgentProgress] snapshot), so this polls both: messages replay the conversation, and
+ * an activity line for the in-flight tool (if any) is appended at the tail for fidelity closer to
+ * the main transcript's tool cards.
  */
 @Composable
 internal fun AgentTranscriptMirror(state: TuiAppState, backgroundAgents: BackgroundAgents?) {
     LaunchedEffect(state.viewingAgentId) {
         val id = state.viewingAgentId ?: return@LaunchedEffect
+        // Reset scroll state once per focus target (not on every poll below): otherwise a stale
+        // scrollTopLine/pinnedToBottom carried over from viewing a different agent — or from this
+        // agent's own past scroll position — leaves the viewport anchored to the wrong place once
+        // entries are rebuilt. Once reset, the user's own scrolling during this focus session is
+        // respected exactly like the main transcript's.
+        state.viewingChat.clear()
+        state.focusModeNotes.clear()
         while (state.viewingAgentId == id) {
-            val ref = backgroundAgents?.runningStatus()?.firstOrNull { it.id == id }?.agentRef
+            val running = backgroundAgents?.runningStatus()?.firstOrNull { it.id == id }
+            val ref = running?.agentRef
             if (ref != null) {
                 state.viewingChat.entries.clear()
                 ref.state.messages.forEach { state.viewingChat.appendMessage(it) }
+                appendInFlightToolActivity(state.viewingChat, running.progress)
+                // @mention echoes: appended directly to viewingChat for instant feedback, but the
+                // rebuild above just wiped that append, so replay them at the tail every cycle.
+                state.focusModeNotes.forEach { state.viewingChat.appendMessage(it) }
             } else {
                 break
             }
             delay(200L)
         }
     }
+}
+
+/** Appends a transcript-tail note for the agent's in-flight tool, if it has one right now. */
+private fun appendInFlightToolActivity(chat: ChatHistoryState, progress: SubAgentProgress?) {
+    val currentTool = progress?.currentTool ?: return
+    chat.appendMessage(
+        CustomMessage(
+            customType = "system_note",
+            content = listOf(TextContent(text = activityOf(currentTool, progress.streamingText))),
+            display = true,
+            timestamp = System.currentTimeMillis(),
+        ),
+    )
 }
 
 /**

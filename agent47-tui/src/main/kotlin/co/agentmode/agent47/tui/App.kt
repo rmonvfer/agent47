@@ -5,7 +5,6 @@ import co.agentmode.agent47.agent.core.*
 import co.agentmode.agent47.ai.types.*
 import co.agentmode.agent47.api.AgentClient
 import co.agentmode.agent47.coding.core.agents.PushNotifier
-import co.agentmode.agent47.coding.core.agents.RunningAgent
 import co.agentmode.agent47.coding.core.compaction.estimateContextTokens
 import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.coding.core.commands.SlashCommandExpander
@@ -41,6 +40,9 @@ import co.agentmode.agent47.tui.commands.builtinSlashCommands
 import co.agentmode.agent47.tui.commands.helpText
 import co.agentmode.agent47.tui.state.TranscriptFeed
 import co.agentmode.agent47.tui.state.TuiAppState
+import co.agentmode.agent47.tui.state.agentSelectionMoveDown
+import co.agentmode.agent47.tui.state.agentSelectionMoveUp
+import co.agentmode.agent47.tui.state.buildAgentListRows
 import co.agentmode.agent47.tui.state.rememberTuiAppState
 import co.agentmode.agent47.tui.controller.CompactionController
 import co.agentmode.agent47.tui.controller.ConversationController
@@ -279,6 +281,8 @@ private fun Agent47AppContent(
     var thinkingLevel by state::thinkingLevel
     var selectedModelIndex by state::selectedModelIndex
     var activeSessionManager by state::activeSessionManager
+    var agentSelectionMode by state::agentSelectionMode
+    var selectedAgentIndex by state::selectedAgentIndex
 
     val feed = remember { TranscriptFeed(chatHistoryState) }
     val modelController = remember {
@@ -415,7 +419,18 @@ private fun Agent47AppContent(
         showUsage = showUsageFooter,
     )
 
-    val runningAgents = backgroundAgents?.runningStatus().orEmpty()
+    // "off" fully retires the runtime agent list, including the selection interaction it drives.
+    val agentListRows = if (subagentsSettingsState.widgetMode == "off") {
+        emptyList()
+    } else {
+        buildAgentListRows(
+            agents = backgroundAgents?.visibleAgents().orEmpty(),
+            focusedAgentId = viewingAgentId,
+            mainRunning = isStreaming,
+            mainActivity = liveActivityLabel,
+            now = System.currentTimeMillis(),
+        )
+    }
     val editorContentWidth = tuiEditorContentWidth(width)
     val visualLineCount = WordWrap.createMapping(editor.state.lines, editorContentWidth).visualLines.size
     val layout = computeTuiLayout(
@@ -428,9 +443,7 @@ private fun Agent47AppContent(
             taskBarLineCount = taskBarState.lineCount,
             isStreaming = isStreaming,
             chatPinnedToBottom = activeChat().pinnedToBottom,
-            hasBackgroundAgents = runningAgents.isNotEmpty(),
-            runningAgentCount = runningAgents.count { it.status == RunningAgent.Status.RUNNING },
-            queuedAgentCount = runningAgents.count { it.status == RunningAgent.Status.QUEUED },
+            agentListRowCount = agentListRows.size,
         ),
     )
 
@@ -540,6 +553,31 @@ private fun Agent47AppContent(
         }
     }
 
+    fun enterAgentSelection() {
+        agentSelectionMode = true
+        selectedAgentIndex = 0
+    }
+
+    fun moveAgentSelection(direction: Int) {
+        if (agentListRows.isEmpty()) return
+        selectedAgentIndex = if (direction < 0) {
+            agentSelectionMoveUp(selectedAgentIndex, agentListRows.size)
+        } else {
+            agentSelectionMoveDown(selectedAgentIndex, agentListRows.size)
+        }
+    }
+
+    fun openSelectedAgent() {
+        agentSelectionMode = false
+        val row = agentListRows.getOrNull(selectedAgentIndex) ?: return
+        if (row.isMain) {
+            viewingAgentId = null
+        } else {
+            backgroundAgents?.markRead(row.id)
+            viewingAgentId = row.id
+        }
+    }
+
     fun applyIntent(intent: TuiIntent?, event: KeyboardEvent): Boolean {
         if (intent != TuiIntent.HandleInputEscape) doubleEscapeDetector.reset()
         if (intent.resetsCtrlCArm()) {
@@ -554,6 +592,10 @@ private fun Agent47AppContent(
             }
             TuiIntent.Quit -> state.quit(client)
             TuiIntent.ExitFocusMode -> viewingAgentId = null
+            TuiIntent.EnterAgentSelection -> enterAgentSelection()
+            is TuiIntent.MoveAgentSelection -> moveAgentSelection(intent.direction)
+            TuiIntent.OpenSelectedAgent -> openSelectedAgent()
+            TuiIntent.ExitAgentSelection -> agentSelectionMode = false
             TuiIntent.HandleInputEscape -> handleInputEscape()
             TuiIntent.ClearChat -> chatHistoryState.clear()
             TuiIntent.ToggleThinking -> {
@@ -625,6 +667,8 @@ private fun Agent47AppContent(
                     slashPopupItemCount = editor.slashCommandPopupItemCount(),
                     extensionShortcuts = extensionShortcuts,
                     hasExtensionContext = extensionContext != null,
+                    agentSelectionMode = agentSelectionMode,
+                    hasSelectableAgents = agentListRows.isNotEmpty(),
                 )
                 applyIntent(KeyBindings.resolve(keyboardEvent, context), keyboardEvent)
             },
@@ -634,7 +678,7 @@ private fun Agent47AppContent(
                 state = state,
                 layout = layout,
                 width = layout.contentWidth,
-                runningAgents = runningAgents,
+                agentListRows = agentListRows,
                 cwd = cwd,
                 editor = editor,
                 editorResult = editorResult,

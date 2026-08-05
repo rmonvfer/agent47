@@ -16,6 +16,10 @@ internal data class KeyContext(
     val slashPopupItemCount: Int,
     val extensionShortcuts: List<RegisteredShortcut>,
     val hasExtensionContext: Boolean,
+    /** True while Up/Down highlight rows in the runtime agent list instead of their usual action. */
+    val agentSelectionMode: Boolean = false,
+    /** True when the runtime agent list has at least one row, so Down can enter selection mode. */
+    val hasSelectableAgents: Boolean = false,
 )
 
 internal object KeyBindings {
@@ -26,6 +30,12 @@ internal object KeyBindings {
      */
     @Suppress("CyclomaticComplexMethod", "ReturnCount")
     fun resolve(event: KeyboardEvent, ctx: KeyContext): TuiIntent? {
+        // Agent-selection mode claims Up/Down/Enter/Escape for itself before anything else (including
+        // submit), so an empty editor's Enter opens the highlighted row instead of submitting nothing.
+        if (ctx.agentSelectionMode) {
+            resolveAgentSelection(event)?.let { return it }
+        }
+
         val enterNoModifiers = event.key == Key.Enter && !event.shift && !event.ctrl && !event.alt
         if (enterNoModifiers && ctx.slashPopupItemCount > 0) return TuiIntent.SubmitAfterPopup
         if (enterNoModifiers && !ctx.hasAutocompletePopup) return TuiIntent.Submit
@@ -50,10 +60,27 @@ internal object KeyBindings {
 
         resolveCtrlShortcut(event, ctx)?.let { return it }
         resolveExtensionShortcut(event, ctx)?.let { return it }
+        resolveAgentSelectionEntry(event, ctx)?.let { return it }
         resolveScroll(event, ctx)?.let { return it }
 
         // Everything else, including Enter while a file-completion popup is open, goes to the editor.
         return TuiIntent.PassToEditor
+    }
+
+    /** Up/Down/Enter/Escape while [KeyContext.agentSelectionMode] is active; null defers to the rest of the keymap. */
+    private fun resolveAgentSelection(event: KeyboardEvent): TuiIntent? = when {
+        event.key is Key.Escape -> TuiIntent.ExitAgentSelection
+        event.key == Key.ArrowUp && !event.ctrl && !event.alt -> TuiIntent.MoveAgentSelection(-1)
+        event.key == Key.ArrowDown && !event.ctrl && !event.alt -> TuiIntent.MoveAgentSelection(1)
+        event.key == Key.Enter && !event.shift && !event.ctrl && !event.alt -> TuiIntent.OpenSelectedAgent
+        else -> null
+    }
+
+    /** A bare Down with an empty editor enters agent-selection mode when there is a row to select. */
+    private fun resolveAgentSelectionEntry(event: KeyboardEvent, ctx: KeyContext): TuiIntent? {
+        if (event.key != Key.ArrowDown) return null
+        val bareDown = !event.ctrl && !event.alt && !event.shift
+        return if (ctx.editorBlank && ctx.hasSelectableAgents && bareDown) TuiIntent.EnterAgentSelection else null
     }
 
     @Suppress("CyclomaticComplexMethod")

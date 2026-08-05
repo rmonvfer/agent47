@@ -76,4 +76,41 @@ class SubmitParserTest {
     fun `plain text parses to a prompt`() {
         assertEquals(Submission.Prompt("hello world"), parseSubmission("hello world", emptyList(), emptyList()))
     }
+
+    @Test
+    fun `an @mention with a message routes to its target`() {
+        assertEquals(
+            Submission.AgentMention("bob", "check the tests", "@bob check the tests"),
+            parseSubmission("@bob check the tests", emptyList(), emptyList()),
+        )
+    }
+
+    @Test
+    fun `an @mention to main reaches the orchestrator`() {
+        assertEquals(
+            Submission.AgentMention("main", "status?", "@main status?"),
+            parseSubmission("@main status?", emptyList(), emptyList()),
+        )
+    }
+
+    @Test
+    fun `an @mention spanning multiple lines keeps its full message`() {
+        val raw = "@bob line one\nline two"
+        assertEquals(
+            Submission.AgentMention("bob", "line one\nline two", raw),
+            parseSubmission(raw, emptyList(), emptyList()),
+        )
+    }
+
+    @Test
+    fun `a bare @name with no following message is not a mention`() {
+        assertEquals(Submission.Prompt("@bob"), parseSubmission("@bob", emptyList(), emptyList()))
+        assertEquals(Submission.Prompt("@bob   "), parseSubmission("@bob   ", emptyList(), emptyList()))
+        assertEquals(Submission.Prompt("@"), parseSubmission("@", emptyList(), emptyList()))
+    }
+
+    @Test
+    fun `an @ used mid-sentence is plain text, not a mention`() {
+        assertEquals(Submission.Prompt("email me @ noon"), parseSubmission("email me @ noon", emptyList(), emptyList()))
+    }
 }

@@ -17,6 +17,8 @@ class KeyBindingsTest {
         slashPopupItemCount: Int = 0,
         extensionShortcuts: List<RegisteredShortcut> = emptyList(),
         hasExtensionContext: Boolean = false,
+        agentSelectionMode: Boolean = false,
+        hasSelectableAgents: Boolean = false,
     ) = KeyContext(
         isStreaming = isStreaming,
         isViewingAgent = isViewingAgent,
@@ -27,6 +29,8 @@ class KeyBindingsTest {
         slashPopupItemCount = slashPopupItemCount,
         extensionShortcuts = extensionShortcuts,
         hasExtensionContext = hasExtensionContext,
+        agentSelectionMode = agentSelectionMode,
+        hasSelectableAgents = hasSelectableAgents,
     )
 
     private fun char(value: Char, ctrl: Boolean = false, alt: Boolean = false, shift: Boolean = false) =
@@ -181,5 +185,58 @@ class KeyBindingsTest {
     fun `unmapped characters pass to the editor`() {
         assertEquals(TuiIntent.PassToEditor, KeyBindings.resolve(char('a'), ctx()))
         assertEquals(TuiIntent.PassToEditor, KeyBindings.resolve(char('z', ctrl = true), ctx()))
+    }
+
+    @Test
+    fun `a bare down arrow enters agent selection only when the editor is empty and a row exists`() {
+        assertEquals(
+            TuiIntent.EnterAgentSelection,
+            KeyBindings.resolve(KeyboardEvent(Key.ArrowDown), ctx(editorBlank = true, hasSelectableAgents = true)),
+        )
+        assertEquals(
+            TuiIntent.ScrollDown(3),
+            KeyBindings.resolve(KeyboardEvent(Key.ArrowDown), ctx(editorBlank = true, hasSelectableAgents = false)),
+        )
+        assertEquals(
+            TuiIntent.PassToEditor,
+            KeyBindings.resolve(KeyboardEvent(Key.ArrowDown), ctx(editorBlank = false, hasSelectableAgents = true)),
+        )
+        // A modified down-arrow keeps its existing scroll meaning rather than entering selection.
+        assertEquals(
+            TuiIntent.ScrollDown(3),
+            KeyBindings.resolve(KeyboardEvent(Key.ArrowDown, shift = true), ctx(editorBlank = true, hasSelectableAgents = true)),
+        )
+    }
+
+    @Test
+    fun `agent selection mode claims up, down, enter, and escape`() {
+        val selecting = ctx(agentSelectionMode = true)
+        assertEquals(TuiIntent.MoveAgentSelection(-1), KeyBindings.resolve(KeyboardEvent(Key.ArrowUp), selecting))
+        assertEquals(TuiIntent.MoveAgentSelection(1), KeyBindings.resolve(KeyboardEvent(Key.ArrowDown), selecting))
+        assertEquals(TuiIntent.OpenSelectedAgent, KeyBindings.resolve(KeyboardEvent(Key.Enter), selecting))
+        assertEquals(TuiIntent.ExitAgentSelection, KeyBindings.resolve(KeyboardEvent(Key.Escape), selecting))
+    }
+
+    @Test
+    fun `agent selection mode's enter opens the row even though enter normally submits`() {
+        assertEquals(
+            TuiIntent.OpenSelectedAgent,
+            KeyBindings.resolve(KeyboardEvent(Key.Enter), ctx(agentSelectionMode = true, slashPopupItemCount = 3)),
+        )
+    }
+
+    @Test
+    fun `agent selection mode's escape wins over exiting focus mode`() {
+        assertEquals(
+            TuiIntent.ExitAgentSelection,
+            KeyBindings.resolve(KeyboardEvent(Key.Escape), ctx(agentSelectionMode = true, isViewingAgent = true)),
+        )
+    }
+
+    @Test
+    fun `agent selection mode still lets ctrl+c interrupt and quit`() {
+        val selecting = ctx(agentSelectionMode = true)
+        assertEquals(TuiIntent.ArmCtrlC, KeyBindings.resolve(char('c', ctrl = true), selecting))
+        assertEquals(TuiIntent.InterruptStreaming, KeyBindings.resolve(char('c', ctrl = true), ctx(agentSelectionMode = true, isStreaming = true)))
     }
 }

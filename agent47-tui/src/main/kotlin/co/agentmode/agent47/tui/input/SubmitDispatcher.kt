@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.UserMessage
 import co.agentmode.agent47.api.AgentClient
+import co.agentmode.agent47.coding.core.agents.BackgroundAgents
 import co.agentmode.agent47.coding.core.commands.SlashCommand
 import co.agentmode.agent47.ext.core.ExtensionCommandContext
 import co.agentmode.agent47.ext.core.ExtensionResources
@@ -111,6 +112,7 @@ internal class SubmitDispatcher(
             is Submission.FileExpansion -> conversation.submitMessage(userMessage(submission.expanded))
             is Submission.Bash -> dispatchBash(submission)
             is Submission.Prompt -> dispatchPrompt(submission)
+            is Submission.AgentMention -> dispatchAgentMention(submission)
             is Submission.UnknownSlash -> {
                 feed.showCommandInput(submission.raw)
                 feed.appendCommandResult("Unknown command: ${submission.command}")
@@ -272,7 +274,18 @@ internal class SubmitDispatcher(
         )
     }
 
+    /**
+     * A plain prompt reaches the orchestrator, except while focus mode is viewing a background
+     * agent's transcript — there, "interacting with it" means steering that agent instead, so a
+     * plain message is routed there. `@main` (or leaving focus mode) is how a focused user reaches
+     * the orchestrator again.
+     */
     private fun dispatchPrompt(prompt: Submission.Prompt) {
+        val focusedAgentId = state.viewingAgentId
+        if (focusedAgentId != null) {
+            steerAgent(navigator, feed, focusedAgentId, prompt.text)
+            return
+        }
         scope.launch {
             val behavior = if (state.isStreaming) InputStreamingBehavior.FOLLOW_UP else null
             when (val result = processInput(InputEvent(prompt.text, InputSource.INTERACTIVE, behavior))) {
@@ -281,6 +294,26 @@ internal class SubmitDispatcher(
                 is InputHookResult.Transform -> conversation.submitMessage(userMessage(result.text))
             }
         }
+    }
+
+    /**
+     * Routes an `@target message` submission. "main"/"orchestrator" reach the orchestrator exactly
+     * like a normal prompt; any other target steers that background agent through the registry's
+     * orchestrator→agent message path (the same one [co.agentmode.agent47.coding.core.tools.SendMessageTool]
+     * uses). The mention is echoed — with its `@target` prefix kept visible — into whichever
+     * transcript is currently on screen, since that is not necessarily the target's own transcript.
+     */
+    private fun dispatchAgentMention(mention: Submission.AgentMention) {
+        val echo = userMessage("@${mention.target} ${mention.text}")
+        if (isOrchestratorTarget(mention.target)) {
+            // A focused view is not the orchestrator's own transcript, so it needs the explicit
+            // echo; the main transcript already gets the (unprefixed) message via submitMessage.
+            if (state.viewingAgentId != null) echoIntoFocusedView(state, echo)
+            conversation.submitMessage(userMessage(mention.text))
+            return
+        }
+        if (!steerAgent(navigator, feed, mention.target, mention.text)) return
+        if (state.viewingAgentId != null) echoIntoFocusedView(state, echo) else state.chatHistory.appendMessage(echo)
     }
 
     private fun setModelById(modelId: String) {
@@ -309,4 +342,26 @@ internal class SubmitDispatcher(
         content = listOf(TextContent(text = text)),
         timestamp = System.currentTimeMillis(),
     )
+}
+
+private fun isOrchestratorTarget(target: String): Boolean =
+    target.equals("main", ignoreCase = true) || target.equals(BackgroundAgents.ORCHESTRATOR, ignoreCase = true)
+
+/** Steers a running background agent via the registry; reports an unknown/finished target. Returns success. */
+private fun steerAgent(navigator: OverlayNavigator, feed: TranscriptFeed, id: String, text: String): Boolean {
+    val delivered = navigator.backgroundAgents?.post(BackgroundAgents.ORCHESTRATOR, id, text) ?: false
+    if (!delivered) feed.appendErrorMessage("Agent '$id' is unknown or no longer running.")
+    return delivered
+}
+
+/**
+ * Echoes [echo] into the focused agent's mirrored transcript. That transcript is rebuilt from the
+ * agent's own messages on every 200ms poll (see [co.agentmode.agent47.tui.runtime.AgentTranscriptMirror]),
+ * which would wipe out a direct append, so the note also goes into [TuiAppState.focusModeNotes] for
+ * the mirror to replay after every rebuild; the direct append here is only for instant feedback
+ * before the next poll runs.
+ */
+private fun echoIntoFocusedView(state: TuiAppState, echo: UserMessage) {
+    state.viewingChat.appendMessage(echo)
+    state.focusModeNotes.add(echo)
 }

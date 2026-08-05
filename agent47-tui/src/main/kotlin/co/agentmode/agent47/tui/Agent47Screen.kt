@@ -1,10 +1,9 @@
 package co.agentmode.agent47.tui
 
 import androidx.compose.runtime.Composable
-import co.agentmode.agent47.coding.core.agents.RunningAgent
 import co.agentmode.agent47.tui.components.ActivityLine
+import co.agentmode.agent47.tui.components.AgentListPanel
 import co.agentmode.agent47.tui.components.AutocompletePopup
-import co.agentmode.agent47.tui.components.BackgroundAgentsPanel
 import co.agentmode.agent47.tui.components.ChatHistory
 import co.agentmode.agent47.tui.components.EditorBorder
 import co.agentmode.agent47.tui.components.EditorView
@@ -18,6 +17,7 @@ import co.agentmode.agent47.tui.editor.EditorRenderResult
 import co.agentmode.agent47.tui.layout.TuiLayout
 import co.agentmode.agent47.tui.rendering.DiffRenderer
 import co.agentmode.agent47.tui.rendering.MarkdownRenderer
+import co.agentmode.agent47.tui.state.AgentListRow
 import co.agentmode.agent47.tui.state.TuiAppState
 import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
@@ -36,7 +36,7 @@ internal fun Agent47Screen(
     state: TuiAppState,
     layout: TuiLayout,
     width: Int,
-    runningAgents: List<RunningAgent>,
+    agentListRows: List<AgentListRow>,
     cwd: Path,
     editor: Editor,
     editorResult: EditorRenderResult,
@@ -48,7 +48,7 @@ internal fun Agent47Screen(
 ) {
     Column(modifier = Modifier.padding(horizontal = layout.horizontalPadding, vertical = 0)) {
         ChatPane(state, width, layout.historyHeight, markdownRenderer, diffRenderer, cwd, startupSummary)
-        FooterPane(state, width, runningAgents)
+        FooterPane(state, width)
         EditorPane(
             state,
             editor,
@@ -58,6 +58,13 @@ internal fun Agent47Screen(
             layout.editorTopMarginHeight,
             baseTheme,
             statusBarState,
+        )
+        AgentListPanel(
+            rows = agentListRows,
+            width = width,
+            spinnerFrame = state.spinnerFrame,
+            selectionMode = state.agentSelectionMode,
+            selectedIndex = state.selectedAgentIndex,
         )
     }
 }
@@ -75,13 +82,14 @@ private fun ChatPane(
     val theme = LocalThemeConfig.current
     val cwdDisplay = cwd.toString().replace(System.getProperty("user.home"), "~")
     // Chat history viewport - the conversation, or a background agent's transcript in focus mode.
+    // Which one is showing is now conveyed by the agent list below the editor (the focused agent's
+    // row is hidden there while `main` and the rest remain selectable), not by a banner here.
     val viewing = state.viewingAgentId
     if (viewing != null) {
-        Text("▶ Viewing agent $viewing  ·  Esc to return", color = theme.markdownText)
         ChatHistory(
             state = state.viewingChat,
             width = width,
-            height = (historyHeight - 1).coerceAtLeast(1),
+            height = historyHeight,
             markdownRenderer = markdownRenderer,
             diffRenderer = diffRenderer,
             version = state.viewingChat.version,
@@ -116,7 +124,6 @@ private fun ChatPane(
 private fun FooterPane(
     state: TuiAppState,
     width: Int,
-    runningAgents: List<RunningAgent>,
 ) {
     val theme = LocalThemeConfig.current
     // Activity line (spinner while streaming, only when no task bar)
@@ -136,14 +143,6 @@ private fun FooterPane(
         isStreaming = state.isStreaming,
         spinnerFrame = state.spinnerFrame,
         activityLabel = state.liveActivityLabel,
-    )
-
-    // Live background sub-agents launched via the task tool
-    BackgroundAgentsPanel(
-        agents = runningAgents,
-        width = width,
-        spinnerFrame = state.spinnerFrame,
-        mode = state.subagentsSettings.widgetMode,
     )
 
     state.extensionWidgets.values.flatten().forEach { line ->

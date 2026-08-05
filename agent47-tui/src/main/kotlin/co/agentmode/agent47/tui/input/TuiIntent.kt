@@ -19,6 +19,18 @@ internal sealed interface TuiIntent {
     /** Leave background-agent transcript focus mode. */
     data object ExitFocusMode : TuiIntent
 
+    /** Enter agent-selection mode: Up/Down highlight rows in the runtime agent list. */
+    data object EnterAgentSelection : TuiIntent
+
+    /** Move the agent-selection highlight (negative up, positive down). */
+    data class MoveAgentSelection(val direction: Int) : TuiIntent
+
+    /** Open the highlighted row: focus that agent's transcript, or return to main. */
+    data object OpenSelectedAgent : TuiIntent
+
+    /** Leave agent-selection mode without changing focus. */
+    data object ExitAgentSelection : TuiIntent
+
     /** Register an idle Escape press for double-Escape input clearing. */
     data object HandleInputEscape : TuiIntent
 

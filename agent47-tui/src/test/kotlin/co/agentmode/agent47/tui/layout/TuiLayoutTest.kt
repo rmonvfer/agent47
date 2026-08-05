@@ -11,9 +11,7 @@ class TuiLayoutTest {
         taskBarLineCount: Int = 0,
         isStreaming: Boolean = false,
         chatPinnedToBottom: Boolean = true,
-        hasBackgroundAgents: Boolean = false,
-        runningAgentCount: Int = 0,
-        queuedAgentCount: Int = 0,
+        agentListRowCount: Int = 0,
     ) = LayoutInputs(
         visualLineCount = visualLineCount,
         popupItemCount = popupItemCount,
@@ -21,9 +19,7 @@ class TuiLayoutTest {
         taskBarLineCount = taskBarLineCount,
         isStreaming = isStreaming,
         chatPinnedToBottom = chatPinnedToBottom,
-        hasBackgroundAgents = hasBackgroundAgents,
-        runningAgentCount = runningAgentCount,
-        queuedAgentCount = queuedAgentCount,
+        agentListRowCount = agentListRowCount,
     )
 
     @Test
@@ -34,9 +30,9 @@ class TuiLayoutTest {
         assertEquals(76, layout.editorContentWidth)
         assertEquals(1, layout.baseInputHeight)
         assertEquals(0, layout.popupHeight)
-        assertEquals(0, layout.backgroundPanelHeight)
+        assertEquals(0, layout.agentListHeight)
         assertEquals(1, layout.editorTopMarginHeight)
-        // 40 - status(2) - border(2) - popup(0) - input(1) - activity(0) - taskbar(0) - margin(1) - panel(0)
+        // 40 - status(2) - border(2) - popup(0) - input(1) - activity(0) - taskbar(0) - margin(1) - agentList(0)
         assertEquals(34, layout.historyHeight)
     }
 
@@ -83,19 +79,14 @@ class TuiLayoutTest {
     }
 
     @Test
-    fun `the background panel reserves a blank line, header, running rows, and an optional queued line`() {
-        assertEquals(0, computeTuiLayout(80, 40, inputs(hasBackgroundAgents = false, runningAgentCount = 3)).backgroundPanelHeight)
+    fun `the agent list reserves exactly one row per visible agent, with no header or blank-line chrome`() {
+        assertEquals(0, computeTuiLayout(80, 40, inputs(agentListRowCount = 0)).agentListHeight)
+        assertEquals(1, computeTuiLayout(80, 40, inputs(agentListRowCount = 1)).agentListHeight)
+        assertEquals(4, computeTuiLayout(80, 40, inputs(agentListRowCount = 4)).agentListHeight)
         assertEquals(
-            4,
-            computeTuiLayout(80, 40, inputs(hasBackgroundAgents = true, runningAgentCount = 2)).backgroundPanelHeight,
-        )
-        assertEquals(
-            5,
-            computeTuiLayout(
-                80,
-                40,
-                inputs(hasBackgroundAgents = true, runningAgentCount = 2, queuedAgentCount = 1),
-            ).backgroundPanelHeight,
+            30,
+            computeTuiLayout(80, 40, inputs(agentListRowCount = 4)).historyHeight,
+            "the agent list's rows come straight out of the history budget",
         )
     }
 
