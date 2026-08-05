@@ -28,16 +28,27 @@ public class DiffRenderer(
         contextLines: Int = 3,
         fromFile: String = "a/content",
         toFile: String = "b/content",
+        firstChangedLine: Int? = null,
     ): List<AnnotatedString> {
         val oldLines = original.split("\n")
         val newLines = revised.split("\n")
         val patch = DiffUtils.diff(oldLines, newLines)
         val unified = UnifiedDiffUtils.generateUnifiedDiff(fromFile, toFile, oldLines, patch, contextLines)
 
+        // When the compared strings are a snippet of a larger file, the caller supplies the
+        // file position of the first change so line numbers reflect the file, not the snippet.
+        val numberOffset = firstChangedLine?.let { fileLine ->
+            fileLine - ((patch.deltas.firstOrNull()?.target?.position ?: 0) + 1)
+        } ?: 0
+
         if (unified.isEmpty()) {
             return listOf(annotated("(no changes)", SpanStyle(color = theme.colors.muted)))
         }
 
+        return styleUnified(unified, numberOffset, width)
+    }
+
+    private fun styleUnified(unified: List<String>, numberOffset: Int, width: Int): List<AnnotatedString> {
         val output = mutableListOf<AnnotatedString>()
         var oldLine = 0
         var newLine = 0
@@ -55,16 +66,11 @@ public class DiffRenderer(
                     }
                 }
                 line.startsWith("-") -> {
-                    val next = unified.getOrNull(i + 1)
-                    val prevIsRemoval = i > 0 && unified[i - 1].startsWith("-")
-                    val afterNext = unified.getOrNull(i + 2)
-                    val isolatedReplacement = next != null && next.startsWith("+") &&
-                        !prevIsRemoval && (afterNext == null || !afterNext.startsWith("+"))
-
-                    if (isolatedReplacement) {
+                    val replacement = isolatedReplacement(unified, i)
+                    if (replacement != null) {
                         val (removed, added) = wordDiffLines(
-                            oldLine, detab(line.substring(1)),
-                            newLine, detab(next!!.substring(1)),
+                            oldLine + numberOffset, detab(line.substring(1)),
+                            newLine + numberOffset, detab(replacement),
                         )
                         output += wrapMaybe(removed, width)
                         output += wrapMaybe(added, width)
@@ -74,16 +80,16 @@ public class DiffRenderer(
                         continue
                     }
 
-                    output += wrapMaybe(diffLine("-", oldLine, detab(line.substring(1)), theme.toolDiffRemoved), width)
+                    output += wrapMaybe(diffLine("-", oldLine + numberOffset, detab(line.substring(1)), theme.toolDiffRemoved), width)
                     oldLine++
                 }
                 line.startsWith("+") -> {
-                    output += wrapMaybe(diffLine("+", newLine, detab(line.substring(1)), theme.toolDiffAdded), width)
+                    output += wrapMaybe(diffLine("+", newLine + numberOffset, detab(line.substring(1)), theme.toolDiffAdded), width)
                     newLine++
                 }
                 else -> {
                     val raw = if (line.startsWith(" ")) line.substring(1) else line
-                    output += wrapMaybe(diffLine(" ", newLine, detab(raw), theme.toolDiffContext), width)
+                    output += wrapMaybe(diffLine(" ", newLine + numberOffset, detab(raw), theme.toolDiffContext), width)
                     oldLine++
                     newLine++
                 }
@@ -91,6 +97,18 @@ public class DiffRenderer(
             i++
         }
         return output
+    }
+
+    /**
+     * The exactly-one-line-replaced-by-one-line case gets word-level highlighting; returns
+     * the replacement content, or null when the removal is part of a larger change.
+     */
+    private fun isolatedReplacement(unified: List<String>, index: Int): String? {
+        val next = unified.getOrNull(index + 1)
+        val precededByRemoval = index > 0 && unified[index - 1].startsWith("-")
+        val followedByAddition = unified.getOrNull(index + 2)?.startsWith("+") == true
+        val isolated = next != null && next.startsWith("+") && !precededByRemoval && !followedByAddition
+        return if (isolated) next?.substring(1) else null
     }
 
     private fun diffLine(sign: String, num: Int, content: String, color: Color): AnnotatedString =

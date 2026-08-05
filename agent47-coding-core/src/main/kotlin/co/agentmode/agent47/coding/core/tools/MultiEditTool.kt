@@ -66,6 +66,7 @@ public class MultiEditTool(
             var currentContent = normalizeToLf(stripped.text)
 
             val diffs = mutableListOf<String>()
+            val firstChangedLines = mutableListOf<Int>()
 
             for ((index, editElement) in edits.withIndex()) {
                 val editObj = editElement.jsonObject
@@ -132,6 +133,7 @@ public class MultiEditTool(
 
                 val diff = generateDiffString(currentContent, edited)
                 diffs += diff.diff
+                diff.firstChangedLine?.let(firstChangedLines::add)
                 currentContent = edited
             }
 
@@ -143,6 +145,10 @@ public class MultiEditTool(
             val details = buildJsonObject {
                 put("editsApplied", edits.size)
                 put("diff", diffs.joinToString("\n---\n"))
+                put(
+                    "firstChangedLines",
+                    kotlinx.serialization.json.buildJsonArray { firstChangedLines.forEach(::add) },
+                )
             }
 
             AgentToolResult(

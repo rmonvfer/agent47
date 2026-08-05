@@ -36,6 +36,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 /**
  * Creates and remembers a [ChatHistoryState] across recompositions.
@@ -482,7 +483,8 @@ private fun renderEditToolLines(
     val innerWidth = (width - 2).coerceAtLeast(1)
     val arguments = runCatching { Json.parseToJsonElement(execution.arguments).jsonObject }.getOrNull()
         ?: return null
-    val diffLines = editDiffLines(execution.toolName, arguments, innerWidth, diffRenderer)
+    val details = (execution.details as? ToolDetails.Generic)?.json
+    val diffLines = editDiffLines(execution.toolName, arguments, details, innerWidth, diffRenderer)
     return if (diffLines.isEmpty()) null else renderEditToolBlock(execution, arguments, diffLines, width, theme)
 }
 
@@ -523,24 +525,40 @@ private fun renderEditToolBlock(
 private fun editDiffLines(
     toolName: String,
     arguments: JsonObject,
+    details: JsonObject?,
     width: Int,
     diffRenderer: DiffRenderer,
 ): List<AnnotatedString> = when (toolName.lowercase()) {
     "edit" -> {
         val oldText = arguments["oldText"]?.jsonPrimitive?.contentOrNull
         val newText = arguments["newText"]?.jsonPrimitive?.contentOrNull
-        if (oldText != null && newText != null) diffRenderer.render(oldText, newText, width) else emptyList()
+        val firstChangedLine = details?.get("firstChangedLine")?.jsonPrimitive?.intOrNull
+        if (oldText != null && newText != null) {
+            diffRenderer.render(oldText, newText, width, firstChangedLine = firstChangedLine)
+        } else {
+            emptyList()
+        }
     }
 
     "multiedit" -> {
         val edits = runCatching { arguments["edits"]?.jsonArray }.getOrNull().orEmpty()
+        val firstChangedLines = runCatching {
+            details?.get("firstChangedLines")?.jsonArray?.mapNotNull { it.jsonPrimitive.intOrNull }
+        }.getOrNull()
         buildList {
             edits.forEachIndexed { index, edit ->
                 val fields = runCatching { edit.jsonObject }.getOrNull() ?: return@forEachIndexed
                 val oldText = fields["oldText"]?.jsonPrimitive?.contentOrNull ?: return@forEachIndexed
                 val newText = fields["newText"]?.jsonPrimitive?.contentOrNull ?: return@forEachIndexed
                 if (index > 0 && isNotEmpty()) add(annotated(""))
-                addAll(diffRenderer.render(oldText, newText, width))
+                addAll(
+                    diffRenderer.render(
+                        oldText,
+                        newText,
+                        width,
+                        firstChangedLine = firstChangedLines?.getOrNull(index),
+                    ),
+                )
             }
         }
     }
