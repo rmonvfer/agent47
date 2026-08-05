@@ -30,6 +30,16 @@ internal object TerminalSession {
         activeResumeSession.set(session)
     }
 
+    /**
+     * Sets the terminal window title via OSC 0. Control characters are stripped so a title
+     * sourced from session names can never smuggle escape sequences into the terminal.
+     */
+    fun setTitle(title: String) {
+        val sanitized = title.filter { it >= ' ' }
+        System.out.write("\u001b]0;$sanitized\u0007".toByteArray())
+        System.out.flush()
+    }
+
     fun runInTerminalSession(theme: ThemeConfig, content: @Composable () -> Unit) {
         val out = System.out
 

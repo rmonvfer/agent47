@@ -33,6 +33,7 @@ import co.agentmode.agent47.tui.runtime.AgentTranscriptMirror
 import co.agentmode.agent47.tui.runtime.InitialAgentSetup
 import co.agentmode.agent47.tui.runtime.PushNotificationPump
 import co.agentmode.agent47.tui.runtime.ResumeHintTracker
+import co.agentmode.agent47.tui.runtime.TerminalTitleUpdater
 import co.agentmode.agent47.tui.runtime.SpinnerTicker
 import co.agentmode.agent47.tui.runtime.TerminalSession
 import co.agentmode.agent47.tui.commands.SlashCommandSpec
@@ -485,6 +486,7 @@ private fun Agent47AppContent(
     AgentTranscriptMirror(state, backgroundAgents)
     PushNotificationPump(state, backgroundAgents, conversationController)
     ResumeHintTracker(state)
+    TerminalTitleUpdater(state, cwd)
 
     // Read editorVersion to trigger recomposition when the editor state changes.
     @Suppress("UNUSED_EXPRESSION")

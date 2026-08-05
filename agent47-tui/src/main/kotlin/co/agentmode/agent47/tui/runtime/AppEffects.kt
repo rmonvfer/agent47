@@ -11,6 +11,7 @@ import co.agentmode.agent47.tui.controller.CompactionController
 import co.agentmode.agent47.tui.controller.ConversationController
 import co.agentmode.agent47.tui.state.TranscriptFeed
 import co.agentmode.agent47.tui.state.TuiAppState
+import java.nio.file.Path
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -130,5 +131,25 @@ internal fun PushNotificationPump(
 internal fun ResumeHintTracker(state: TuiAppState) {
     LaunchedEffect(state.activeSessionManager) {
         TerminalSession.trackResumeSession(state.activeSessionManager)
+    }
+}
+
+/**
+ * Keeps the terminal window title in sync with the active session: the application name,
+ * the session name when one is set, and the working directory's basename.
+ */
+@Composable
+internal fun TerminalTitleUpdater(state: TuiAppState, cwd: Path) {
+    LaunchedEffect(state.activeSessionManager) {
+        val cwdBasename = cwd.fileName?.toString() ?: cwd.toString()
+        val sessionName = state.activeSessionManager?.let { session ->
+            runCatching { session.getSessionName() }.getOrNull()
+        }
+        val title = if (sessionName.isNullOrBlank()) {
+            "agent47 - $cwdBasename"
+        } else {
+            "agent47 - $sessionName - $cwdBasename"
+        }
+        TerminalSession.setTitle(title)
     }
 }

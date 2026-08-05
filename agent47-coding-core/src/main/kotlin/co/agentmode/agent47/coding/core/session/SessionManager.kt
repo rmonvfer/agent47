@@ -205,6 +205,10 @@ public class SessionManager(
 
     public fun getHeader(): SessionHeader = header
 
+    /** The user-assigned session name: the most recent session_info entry's name, if any. */
+    public fun getSessionName(): String? =
+        entries.filterIsInstance<SessionInfoEntry>().lastOrNull()?.name
+
     public fun getSessionFile(): Path = sessionFile
 
     public fun getEntries(): List<SessionEntry> = entries.toList()
