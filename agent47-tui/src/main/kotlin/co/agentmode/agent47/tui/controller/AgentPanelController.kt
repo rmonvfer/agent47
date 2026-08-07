@@ -20,18 +20,18 @@ internal class AgentPanelController(
     fun applySubagentsSettings(updated: SubagentsSettings) {
         state.subagentsSettings = updated
         persistSubagentsSettings(updated)
-        feed.appendCommandResult("Updated subagent settings.")
+        feed.appendSystemMessage("Updated subagent settings")
     }
 
     fun steer(id: String, message: String) {
         val bg = backgroundAgents ?: return
         val ok = bg.post(BackgroundAgents.ORCHESTRATOR, id, message)
-        feed.appendCommandResult(if (ok) "Steered $id." else "Agent $id is no longer running.")
+        feed.appendSystemMessage(if (ok) "Sent steering message to $id" else "Agent $id is no longer running")
     }
 
     fun stop(id: String) {
         val bg = backgroundAgents ?: return
         val ok = bg.abort(id)
-        feed.appendCommandResult(if (ok) "Stopped $id." else "Agent $id could not be stopped.")
+        feed.appendSystemMessage(if (ok) "Stopped $id" else "Agent $id could not be stopped")
     }
 }

@@ -54,7 +54,9 @@ internal fun OverlayNavigator.openSettingsOverlay(
                 SettingsAction.Usage -> {
                     state.showUsageFooter = !state.showUsageFooter
                     onSettingsChanged { it.copy(showUsageFooter = state.showUsageFooter) }
-                    feed.appendCommandResult("Usage footer: ${if (state.showUsageFooter) "on" else "off"}")
+                    feed.appendSystemMessage(
+                        if (state.showUsageFooter) "Enabled the usage footer" else "Disabled the usage footer",
+                    )
                 }
                 SettingsAction.Session -> openSessionOverlay()
                 SettingsAction.Commands -> openCommandsOverlay()
