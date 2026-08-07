@@ -4,8 +4,8 @@ Contributions are welcome. This document covers the basics of getting set up, ma
 
 ## Prerequisites
 
-- **GraalVM Community 25.1.3** - the Gradle convention plugins select a JDK 25 toolchain, and GraalVM supplies
-  `native-image`. Kotlin and Java output target JVM 21.
+- **JDK 25** - any distribution. The Gradle convention plugins select a JDK 25 toolchain; Kotlin and Java output
+  target JVM 21. `mise.toml` pins the exact version the project is developed against.
 - **Git** - for cloning and version control.
 - The Gradle wrapper (`./gradlew`) handles everything else. You do not need to install Gradle separately.
 

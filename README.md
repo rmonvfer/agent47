@@ -62,6 +62,9 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # or OPENAI_API_KEY, GEMINI_API_KEY, etc.
 ```
 
+An interactive session also opens with no credentials at all. It starts without a model and points you at `/provider`
+to connect one.
+
 Run interactively:
 
 ```bash
@@ -83,8 +86,8 @@ available, agent47 automatically uses print mode.
 models at runtime. Configure custom model definitions, API keys, and provider overrides in `~/.agent47/models.yml`.
 Ollama models are discovered automatically.
 
-**Coding tools.** The primary agent starts with the full core set: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`,
-`multiedit`, todo tools, and `batch`. Use `--tools` to replace that set. Subagent coordination adds `task`, `check_inbox`,
+**Coding tools.** The primary agent starts with the full core set: `read`, `bash`, `edit`, `write`, `multiedit`, `grep`,
+`find`, `ls`, todo tools, and `batch`. Use `--tools` to replace that set. Subagent coordination adds `task`, `check_inbox`,
 and `send_message` unless tools are disabled.
 
 **Sub-agents and skills.** A top-level agent can spawn specialized sub-agents for exploration, planning, or isolated

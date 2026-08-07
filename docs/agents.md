@@ -46,7 +46,7 @@ Review the requested change and return only evidence-backed findings.
 changing the lookup name. `enabled: false` keeps a definition visible in listings but prevents it from being selected.
 
 `tools` accepts a YAML list or comma-separated names. If omitted, a subagent receives the core defaults: `read`, `bash`,
-`edit`, `write`, `grep`, `find`, `ls`, `multiedit`, `todowrite`, `todoread`, `todocreate`, `todoupdate`, and `batch`.
+`edit`, `write`, `multiedit`, `grep`, `find`, `ls`, `todowrite`, `todoread`, `todocreate`, `todoupdate`, and `batch`.
 `disallowed_tools` is accepted as metadata and currently affects whether persistent memory is writable; it does not
 remove tools from the execution set, so use `tools` to enforce tool availability.
 

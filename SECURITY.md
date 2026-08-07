@@ -17,7 +17,7 @@ references for credentials. The 10-second timeout limits duration; it does not s
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | Yes       |
+| 0.3.x   | Yes       |
 
 ## Reporting a Vulnerability
 

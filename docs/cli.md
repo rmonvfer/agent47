@@ -15,10 +15,12 @@ beginning with `@` loads a text file or supported image into the message.
 
 `--provider` and `--model` select the provider and model. A model may use `provider/id` and a thinking suffix such as
 `:high`. `--thinking` sets `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`; `--api-key` stores a credential for
-the selected provider. `--system-prompt` replaces the generated prompt and `--append-system-prompt` appends to it.
+the selected provider. `--system-prompt` replaces the generated persona; the tool list, guidelines, discovered
+instructions, and skills section are still appended to it, and `--append-system-prompt` adds text after the skills
+section.
 
 `--tools` replaces the primary core tool set with comma-separated names. The default is `read`, `bash`, `edit`, `write`,
-`grep`, `find`, `ls`, `multiedit`, `todowrite`, `todoread`, `todocreate`, `todoupdate`, and `batch`; `--no-tools`
+`multiedit`, `grep`, `find`, `ls`, `todowrite`, `todoread`, `todocreate`, `todoupdate`, and `batch`; `--no-tools`
 disables core and subagent coordination tools. `--models` limits the model cycle in the TUI using comma-separated glob
 patterns.
 
@@ -45,7 +47,14 @@ an SSH source, a `file://` Git source, or shorthand such as `git:github.com/owne
 
 The TUI streams assistant output, renders Markdown and diffs, displays tool activity, persists the conversation, and
 supports model, provider, theme, session, instruction, and subagent overlays. Enter submits a prompt; Shift+Enter adds a
-line. File paths and slash commands have completion in the editor.
+line. File paths and slash commands have completion in the editor. A session opens even when no credentials are
+configured: no model is selected, and the transcript points at `/provider` to connect one and `/model` to choose from
+what that provider offers.
+
+A paste longer than ten lines or a thousand characters collapses to a `[paste #N +L lines]` or `[paste #N C chars]`
+placeholder so a large block does not bury the editor. The placeholder behaves as one unit: Backspace or Delete beside
+it removes the whole marker along with the text it stands for, and what remains expands back to the full content when
+the message is submitted.
 
 Built-in slash commands are `/help`, `/commands`, `/new`, `/clear`, `/model`, `/provider`, `/theme`, `/session`,
 `/tree`, `/fork`, `/clone`, `/resume`, `/compact`, `/reload`, `/memory`, `/agents`, `/settings`, and `/exit`. `/reload`
@@ -63,7 +72,20 @@ left in the editor to revise and resend. `/clone` copies the current branch into
 you're at now. `/resume` lists saved sessions for the project, most recently touched first, and switches to the one
 you pick.
 
+While background agents are running, a list of them sits under the editor: a `main` row for the orchestrator followed
+by every running or queued agent, each with a state dot, the activity it is on, and the elapsed time and token count
+the registry has for it. The list is only there while at least one background agent exists. The Left arrow on an empty
+editor moves into it, Up and Down move the highlight, and Enter opens the highlighted agent's transcript in place of
+the conversation; the `main` row returns to the conversation. Escape leaves the list, and Escape with a transcript open
+returns to the conversation.
+
+A message goes wherever you are looking: with an agent's transcript on screen, plain text steers that agent rather than
+the orchestrator. `@name message` steers a named agent from anywhere, and `@main` reaches the orchestrator without
+leaving the transcript you are reading. The task bar follows the same rule and shows the todo list of the conversation
+on screen, since every agent keeps its own.
+
 The main shortcuts are Escape twice to clear the input, Ctrl+C to interrupt and then exit on repeated presses, Ctrl+L
 to clear visible chat, Ctrl+T to toggle thinking, Ctrl+P/Ctrl+N to cycle models, Ctrl+O to expand startup help and
-loaded resources, Ctrl+G to toggle the latest thinking block, Ctrl+E to toggle the latest tool details, Ctrl+R to view
-subagent results, and Ctrl+U/Ctrl+D to scroll history. Run `/help` for the current shortcut list.
+loaded resources, Ctrl+G to toggle the latest thinking block, Ctrl+E to toggle the latest tool details, and
+Ctrl+U/Ctrl+D to scroll history. Ctrl+E and Ctrl+U reach the chat only while the editor is empty; with text in it they
+are the usual line-editing keys. Run `/help` for the current shortcut list.

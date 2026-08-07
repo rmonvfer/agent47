@@ -9,7 +9,7 @@ Read an extension before installing it.
 ## Loading extensions
 
 Global extensions live in `~/.agent47/extensions/` and project extensions in `.agent47/extensions/`. A directory may
-contain individual `.kts` files or use `index.kts` as its entry point. Explicit paths load first, followed by project,
+contain individual `.kts` files or use `index.kts` as its entry point. Explicit paths load first, followed by
 project-installed repositories, global-installed repositories, project extensions, and global extensions.
 
 ```bash
@@ -48,9 +48,9 @@ registerCommand("hello", "Display a greeting") { args, context ->
 replace the model request context. Handlers run in extension load order; one failing lifecycle handler is reported
 without preventing later extensions from running.
 
-`on(eventType)` observes agent events such as `agent_start`, `agent_end`, `turn_start`, `turn_end`, `message_start`,
-`message_update`, `message_end`, `tool_execution_start`, `tool_execution_update`, and `tool_execution_end`. Use `"*"`
-to observe every agent event.
+`on(eventType)` observes agent events: `agent_start`, `agent_end`, `turn_start`, `turn_end`, `message_start`,
+`message_update`, `message_end`, `tool_execution_start`, `tool_execution_update`, `tool_execution_end`, and `retry`.
+Use `"*"` to observe every agent event.
 
 ```kotlin
 on("tool_execution_end") { event, context ->

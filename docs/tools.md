@@ -6,8 +6,8 @@ result back to the model.
 
 ## Built-in tools
 
-agent47 ships with core coding tools. The primary CLI enables `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`,
-`multiedit`, `todowrite`, `todoread`, `todocreate`, `todoupdate`, and `batch` by default, then adds the subagent
+agent47 ships with core coding tools. The primary CLI enables `read`, `bash`, `edit`, `write`, `multiedit`, `grep`,
+`find`, `ls`, `todowrite`, `todoread`, `todocreate`, `todoupdate`, and `batch` by default, then adds the subagent
 coordination tools `task`, `check_inbox`, and `send_message`. Pass `--tools` to replace the core set, or `--no-tools` to
 disable both core and coordination tools.
 

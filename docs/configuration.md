@@ -14,18 +14,32 @@ The global directory location can be changed by setting the `AGENT47_DIR` enviro
 ├── subagents.json      # Global subagent runtime settings
 ├── update-state.json   # Timestamp of the last automatic update check
 ├── models.yml          # Model and provider configuration
+├── extensions.json     # Installed global extension repository sources
+├── AGENTS.md           # Global instructions
 ├── sessions/           # Persisted conversation history
 ├── agents/             # Global agent definitions (.md files)
 ├── skills/             # Global skills (directories with SKILL.md)
-└── commands/           # Global slash commands (.md files)
+├── commands/           # Global slash commands (.md files)
+├── extensions/         # Global Kotlin extensions (.kts files)
+├── git/                # Managed global extension repository checkouts
+├── agent-memory/       # Persistent agent memory, user scope
+└── cache/              # Compiled Kotlin extension bytecode
 
 .agent47/
 ├── settings.json       # Project-level settings (overrides global)
 ├── subagents.json      # Project-level subagent runtime overrides
+├── extensions.json     # Installed project extension repository sources
 ├── agents/             # Project-level agent definitions
 ├── skills/             # Project-level skills
-└── commands/           # Project-level slash commands
+├── commands/           # Project-level slash commands
+├── extensions/         # Project-level Kotlin extensions
+├── git/                # Managed project extension repository checkouts
+├── agent-memory/       # Persistent agent memory, project scope
+├── agent-memory-local/ # Persistent agent memory, local scope
+└── subagent-schedules/ # Scheduled subagent tasks, one file per session
 ```
+
+Sessions live only under the global directory; there is no project-level `sessions/`.
 
 ## Settings
 
@@ -41,6 +55,7 @@ field: a project setting overrides the corresponding global setting when it is e
   "shellCommandPrefix": "set -e && ",
   "taskMaxRecursionDepth": 3,
   "theme": "dark",
+  "themeAppearance": "auto",
   "showUsageFooter": true,
   "updates": {
     "automatic": true,
@@ -52,8 +67,14 @@ field: a project setting overrides the corresponding global setting when it is e
   },
   "compaction": {
     "enabled": true,
+    "auto": true,
+    "prune": true,
     "reserveTokens": 16384,
     "keepRecentTokens": 20000
+  },
+  "branchSummary": {
+    "reserveTokens": 16384,
+    "skipPrompt": false
   },
   "retry": {
     "enabled": true,
@@ -65,7 +86,9 @@ field: a project setting overrides the corresponding global setting when it is e
 ```
 
 `defaultProvider` and `defaultModel` control which model agent47 uses when no CLI flags are passed.
-`defaultThinkingLevel` sets the extended thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`).
+`defaultThinkingLevel` sets the extended thinking level (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`). `theme`
+names the color theme and `themeAppearance` selects `auto`, `dark`, or `light`, where `auto` follows the terminal's
+detected background.
 
 `shellPath` and `shellCommandPrefix` are accepted settings fields but are not currently wired into the CLI's `bash`
 tool. Shell commands currently run through `/bin/bash -lc`.
@@ -77,9 +100,15 @@ maps are combined (union), so a project can add new roles without removing globa
 
 `taskMaxRecursionDepth` limits how deep subagents can spawn other subagents (default: 2).
 
-`compaction` controls automatic context compaction when the conversation approaches the model's context window.
-`reserveTokens` is the number of tokens to keep free for the model's response. `keepRecentTokens` is the number of
-recent tokens to preserve verbatim when compacting older context.
+`compaction` controls context compaction when the conversation approaches the model's context window. `enabled` turns
+the feature on, and `auto` decides whether it runs on its own at the threshold or only when `/compact` is invoked.
+`prune` drops older tool outputs before summarizing. `reserveTokens` is the number of tokens to keep free for the
+model's response, and `keepRecentTokens` is the number of recent tokens preserved verbatim when compacting older
+context.
+
+`branchSummary` governs the summary recorded when `/tree` navigation leaves a branch behind. `reserveTokens` is
+subtracted from the model's context window to bound the transcript sent for summarization, and `skipPrompt` navigates
+straight away instead of asking whether to summarize.
 
 `retry` controls automatic retry on transient API failures with exponential backoff.
 

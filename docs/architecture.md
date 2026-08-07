@@ -52,6 +52,17 @@ background registry. They report progress asynchronously and finish through `sub
 validation. The orchestrator can collect results with `check_inbox`, exchange messages with `send_message`, or inspect
 the same state from the TUI.
 
+## Patched Mosaic dependency
+
+The terminal UI runs on a patched build of Mosaic. `third_party/mosaic/repo` is a local Maven repository holding two
+rebuilt JVM artifacts, `mosaic-runtime-jvm` and `mosaic-tty-terminal-jvm`. The root `build.gradle.kts` declares it in
+its `allprojects` repositories block as an `exclusiveContent` repository scoped to exactly those two coordinates, so
+every other dependency still resolves from Maven Central. The patches address two upstream defects that application
+code cannot reach: the terminal event channel drops the middle of a fast input burst, and a line feed inside pasted
+text is normalized to Enter, submitting the message mid-paste. `third_party/mosaic/README.md` documents the patches,
+why the repository must be declared in the root build rather than in settings, and how to rebuild the artifacts
+against a new Mosaic tag.
+
 ## Building and API documentation
 
 Use `./gradlew build` for the complete build, `./gradlew test` for tests, and a module-qualified task for focused work.
