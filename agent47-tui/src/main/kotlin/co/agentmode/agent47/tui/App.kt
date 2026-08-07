@@ -46,6 +46,7 @@ import co.agentmode.agent47.tui.state.agentSelectionMoveDown
 import co.agentmode.agent47.tui.state.agentSelectionMoveUp
 import co.agentmode.agent47.tui.state.buildAgentListRows
 import co.agentmode.agent47.tui.state.rememberTuiAppState
+import co.agentmode.agent47.tui.state.taskBarTodoSource
 import co.agentmode.agent47.tui.controller.CompactionController
 import co.agentmode.agent47.tui.controller.ConversationController
 import co.agentmode.agent47.tui.controller.ModelController
@@ -517,10 +518,11 @@ private fun Agent47AppContent(
 
     InitialAgentSetup(state, client, feed, initialThinkingLevel, initialModel, initialUserMessage)
 
-    LaunchedEffect(todoState) {
-        if (todoState != null) {
-            taskBarState.bind(todoState)
-        }
+    // The task bar tracks whichever conversation is on screen, so entering and leaving focus mode
+    // swaps it onto that agent's todo list and back.
+    DisposableEffect(todoState, viewingAgentId, backgroundAgents) {
+        taskBarState.bind(taskBarTodoSource(todoState, viewingAgentId, backgroundAgents))
+        onDispose { taskBarState.unbind() }
     }
 
     AgentEventCollector(state, client, conversationController, compactionController)

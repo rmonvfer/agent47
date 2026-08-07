@@ -204,7 +204,7 @@ public class TaskTool(
                 task = task.assignment,
                 groupId = batchId,
                 groupSize = parsedTasks.size,
-            ) {
+            ) { running ->
                 executeTask(
                     task = task,
                     agentId = agentId,
@@ -213,6 +213,7 @@ public class TaskTool(
                     parentModel = parentModel,
                     parentSystemPrompt = parentSystemPrompt,
                     parentMessages = parentMessages,
+                    todoState = running.todos,
                     onProgress = { p -> backgroundAgents.updateProgress(agentId, p) },
                     onAgentReady = { a -> backgroundAgents.setAgentRef(agentId, a) },
                 )
@@ -251,6 +252,7 @@ public class TaskTool(
         parentModel: Model,
         parentSystemPrompt: String?,
         parentMessages: List<Message>,
+        todoState: TodoState,
         onProgress: (SubAgentProgress) -> Unit,
         onAgentReady: (Agent) -> Unit,
     ): SubAgentResult {
@@ -305,6 +307,7 @@ public class TaskTool(
                 onAgentReady = onAgentReady,
                 backgroundAgents = backgroundAgents,
                 backgroundAgentId = agentId,
+                todoState = todoState,
             ),
         )
 

@@ -1,5 +1,6 @@
 package co.agentmode.agent47.coding.core.agents
 
+import co.agentmode.agent47.coding.core.tools.TodoItem
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -7,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BackgroundAgentsTest {
@@ -30,6 +32,9 @@ class BackgroundAgentsTest {
         error = error,
         aborted = false,
     )
+
+    private fun todo(id: String, content: String) =
+        TodoItem(id = id, content = content, status = "pending", priority = "medium")
 
     private fun awaitInbox(bg: BackgroundAgents, expected: Int, timeoutMs: Long = 5000): List<InboxMessage> {
         val collected = mutableListOf<InboxMessage>()
@@ -88,6 +93,25 @@ class BackgroundAgentsTest {
             result("dup")
         }
         assertEquals("dup-2", bg.uniqueId("dup"))
+    }
+
+    @Test
+    fun `each agent keeps its own todo list`() {
+        val bg = BackgroundAgents()
+        bg.launch("a1", "explore", "desc", "task") { agent ->
+            agent.todos.update(listOf(todo("t1", "a1 only")))
+            result("a1")
+        }
+        bg.launch("a2", "explore", "desc", "task") { agent ->
+            agent.todos.update(listOf(todo("t1", "a2 first"), todo("t2", "a2 second")))
+            result("a2")
+        }
+
+        awaitInbox(bg, 2)
+
+        assertEquals(listOf("a1 only"), bg.todosFor("a1")?.getAll()?.map { it.content })
+        assertEquals(listOf("a2 first", "a2 second"), bg.todosFor("a2")?.getAll()?.map { it.content })
+        assertNull(bg.todosFor("never-launched"))
     }
 
     @Test

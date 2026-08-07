@@ -39,7 +39,7 @@ internal class ScheduledJobRunner(
                 agentName = def.name,
                 description = job.description,
                 task = job.prompt,
-            ) {
+            ) { scheduled ->
                 runSubAgent(
                     SubAgentOptions(
                         streamFunction = aiRuntime::streamSimple,
@@ -73,6 +73,7 @@ internal class ScheduledJobRunner(
                         skillContentProvider = { name -> skillRegistry.readSkillFile(name) },
                         sessionsDir = sessionsDir,
                         parentSessionId = sessionId,
+                        todoState = scheduled.todos,
                     ),
                 )
             }

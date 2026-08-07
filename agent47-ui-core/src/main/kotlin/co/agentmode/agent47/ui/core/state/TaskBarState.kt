@@ -9,13 +9,15 @@ import co.agentmode.agent47.coding.core.tools.TodoState
 
 /**
  * Compose-reactive wrapper around [TodoState] that bridges the listener-based
- * update mechanism into Compose snapshot state. Call [bind] once inside a
- * LaunchedEffect to start listening.
+ * update mechanism into Compose snapshot state. Call [bind] from an effect to
+ * follow a todo list, and again whenever the list on screen changes.
  */
 @Stable
 public class TaskBarState {
     public var items: List<TodoItem> by mutableStateOf(emptyList())
         private set
+
+    private var unsubscribe: (() -> Unit)? = null
 
     /**
      * True when the task bar should be visible: at least one item exists
@@ -36,14 +38,24 @@ public class TaskBarState {
         }
 
     /**
-     * Register a listener on the given [TodoState] so that Compose
-     * recomposes whenever the todo list changes.
+     * Follows [todoState], so that Compose recomposes whenever that todo list changes. Any list
+     * bound before is released first, leaving this state driven by exactly one source. A null
+     * source empties the bar: there is no list to show.
      */
-    public fun bind(todoState: TodoState) {
+    public fun bind(todoState: TodoState?) {
+        unbind()
+        if (todoState == null) return
         items = todoState.getAll()
-        todoState.addListener { snapshot ->
+        unsubscribe = todoState.addListener { snapshot ->
             items = snapshot
         }
+    }
+
+    /** Stops following the bound todo list and clears the items it contributed. */
+    public fun unbind() {
+        unsubscribe?.invoke()
+        unsubscribe = null
+        items = emptyList()
     }
 }
 

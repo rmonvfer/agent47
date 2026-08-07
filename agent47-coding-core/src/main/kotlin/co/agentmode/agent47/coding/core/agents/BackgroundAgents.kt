@@ -4,6 +4,7 @@ import co.agentmode.agent47.agent.core.Agent
 import co.agentmode.agent47.ai.types.Message
 import co.agentmode.agent47.ai.types.TextContent
 import co.agentmode.agent47.ai.types.UserMessage
+import co.agentmode.agent47.coding.core.tools.TodoState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +39,12 @@ public class RunningAgent(
     public val groupSize: Int = 1,
 ) {
     private val completion = CompletableDeferred<SubAgentResult?>()
+
+    /**
+     * This agent's own todo list, separate from the orchestrator's and from every sibling's. It is
+     * created with the agent so a UI can follow it from the moment the agent is registered.
+     */
+    public val todos: TodoState = TodoState()
 
     public enum class Status { QUEUED, RUNNING }
 
@@ -230,6 +237,9 @@ public class BackgroundAgents(
             runningBackground++
         }
     }
+
+    /** The todo list of agent [id], or null when no such agent was ever registered. */
+    public fun todosFor(id: String): TodoState? = agents[id]?.todos
 
     public fun updateProgress(id: String, progress: SubAgentProgress) {
         agents[id]?.progress = progress.copy(id = id)

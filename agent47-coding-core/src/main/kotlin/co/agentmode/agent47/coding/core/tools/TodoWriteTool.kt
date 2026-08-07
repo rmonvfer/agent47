@@ -78,9 +78,19 @@ public class TodoState {
         return removed
     }
 
+    /**
+     * Registers [listener] for every subsequent change to the list. The returned function removes
+     * it again, so a consumer that switches between todo lists can stop following this one.
+     */
     @Synchronized
-    public fun addListener(listener: (List<TodoItem>) -> Unit) {
+    public fun addListener(listener: (List<TodoItem>) -> Unit): () -> Unit {
         listeners.add(listener)
+        return { removeListener(listener) }
+    }
+
+    @Synchronized
+    public fun removeListener(listener: (List<TodoItem>) -> Unit) {
+        listeners.remove(listener)
     }
 }
 

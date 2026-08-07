@@ -24,6 +24,7 @@ import co.agentmode.agent47.coding.core.settings.SubagentsSettings
 import co.agentmode.agent47.coding.core.settings.SubagentsSettingsState
 import co.agentmode.agent47.coding.core.tools.SubmitResultData
 import co.agentmode.agent47.coding.core.tools.SubmitResultTool
+import co.agentmode.agent47.coding.core.tools.TodoState
 import co.agentmode.agent47.coding.core.tools.createCoreTools
 import co.agentmode.agent47.coding.core.tools.truncateHead
 import kotlinx.coroutines.CancellationException
@@ -89,6 +90,9 @@ public data class SubAgentOptions(
     val memoryGlobalDir: Path? = null,
     // Resolves a named skill's full content (SKILL.md) for preload; null disables skill preload.
     val skillContentProvider: ((String) -> String?)? = null,
+    // The store backing this sub-agent's todo tools. Supplying one lets the caller observe the
+    // agent's task list; without it the agent still gets a private store of its own.
+    val todoState: TodoState? = null,
 )
 
 public data class SubAgentResult(
@@ -458,9 +462,9 @@ private fun buildToolList(
 ): List<AgentTool<*>> {
     val toolNames = definition.tools
     val coreTools = if (toolNames != null) {
-        createCoreTools(options.cwd, toolNames)
+        createCoreTools(options.cwd, toolNames, todoState = options.todoState)
     } else {
-        createCoreTools(options.cwd)
+        createCoreTools(options.cwd, todoState = options.todoState)
     }
 
     val tools = coreTools.all().toMutableList()
