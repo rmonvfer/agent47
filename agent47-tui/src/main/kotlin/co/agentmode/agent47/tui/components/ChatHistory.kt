@@ -101,8 +101,7 @@ public fun ChatHistory(
 
     // Snap to bottom when pinned or explicitly requested, then clamp
     val maxScroll = (allLines.size - viewportHeight).coerceAtLeast(0)
-    val startupOnly = introLines.isNotEmpty() && state.entries.isEmpty()
-    if (!startupOnly && (state.pinnedToBottom || state.scrollToBottom)) {
+    if (state.pinnedToBottom || state.scrollToBottom) {
         state.scrollTopLine = maxScroll
         state.scrollToBottom = false
     }
@@ -136,11 +135,10 @@ public fun ChatHistory(
             val belowMarkerCount = if (hasBelow) 1 else 0
             val usedRows = size + contentSlice.size + belowMarkerCount
             val availablePadding = (viewportHeight - usedRows).coerceAtLeast(0)
-            val anchorToTop = startupOnly && safeTop == 0
 
-            // Startup information begins at the top of an empty transcript. Conversation
-            // content remains bottom-aligned so the newest message stays next to the editor.
-            if (!anchorToTop && availablePadding > 0) {
+            // Content shorter than the viewport is bottom-aligned so it sits next to the
+            // editor, and growing content pushes older lines upward without ever jumping.
+            if (availablePadding > 0) {
                 addAll(List(availablePadding) { annotated("") })
             }
 
@@ -149,9 +147,6 @@ public fun ChatHistory(
             if (hasBelow) {
                 val hiddenBelow = allLines.size - contentEnd
                 add(scrollMarker(width, hiddenLines = hiddenBelow, up = false, theme.colors.muted))
-            }
-            if (anchorToTop && availablePadding > 0) {
-                addAll(List(availablePadding) { annotated("") })
             }
         }
     }
