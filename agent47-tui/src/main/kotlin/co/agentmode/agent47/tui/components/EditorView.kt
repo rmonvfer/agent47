@@ -85,6 +85,9 @@ internal fun AutocompletePopup(
     theme: co.agentmode.agent47.tui.theme.ThemeConfig,
 ) {
     val items = model.items
+    // A row wider than the terminal cannot be drawn at all, so the popup is skipped entirely
+    // when even a minimal row would not fit.
+    if (maxWidth < MIN_POPUP_WIDTH) return
     val maxVisible = 8.coerceAtMost(items.size)
 
     // Compute scroll window so the selected item is always visible
@@ -98,36 +101,46 @@ internal fun AutocompletePopup(
     }
     val visibleItems = items.subList(scrollOffset, (scrollOffset + maxVisible).coerceAtMost(items.size))
 
-    val labelColumnWidth = visibleItems.maxOf { it.label.length }
-    val availableWidth = maxWidth.coerceAtLeast(10)
+    val availableWidth = maxWidth
     val gap = 4
+    // Rows are padded out to the popup width, so the label column can never claim more than the
+    // row has room for; file completions carry whole paths and are truncated to fit.
+    val labelColumnWidth = visibleItems.maxOf { it.label.length }.coerceAtMost(availableWidth - 2)
     val detailBudget = (availableWidth - labelColumnWidth - gap - 2).coerceAtLeast(0)
-    val itemWidth = availableWidth
 
     Column {
         visibleItems.forEachIndexed { index, item ->
             val isSelected = (scrollOffset + index) == model.selectedIndex
-            Text(renderCompletionItem(item, isSelected, itemWidth, labelColumnWidth, detailBudget, theme))
+            Text(renderCompletionItem(item, isSelected, labelColumnWidth, detailBudget, theme))
         }
         val hiddenBelow = items.size - (scrollOffset + maxVisible)
         if (hiddenBelow > 0) {
             Text(annotated(
-                " +$hiddenBelow more",
+                " +$hiddenBelow more".take(availableWidth),
                 SpanStyle(color = theme.colors.muted),
             ))
         }
     }
 }
 
+/** Columns below which no completion row fits inside the terminal. */
+private const val MIN_POPUP_WIDTH = 8
+
+/** [text] shortened to [width] columns, marking the cut with an ellipsis when there is room. */
+private fun truncateToWidth(text: String, width: Int): String = when {
+    text.length <= width -> text
+    width <= 1 -> text.take(width.coerceAtLeast(0))
+    else -> text.take(width - 1) + "…"
+}
+
 private fun renderCompletionItem(
     item: CompletionItem,
     selected: Boolean,
-    width: Int,
     labelColumnWidth: Int,
     detailBudget: Int,
     theme: co.agentmode.agent47.tui.theme.ThemeConfig,
 ) = buildAnnotatedString {
-    val label = item.label
+    val label = truncateToWidth(item.label, labelColumnWidth)
     val detail = item.detail
 
     val labelStyle = if (selected) {
