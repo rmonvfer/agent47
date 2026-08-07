@@ -31,10 +31,20 @@ Run tests for a single module:
 ./gradlew :agent47-ai-core:test
 ```
 
-Build a native binary (requires GraalVM):
+Run the working tree in your terminal:
 
 ```bash
-./gradlew :agent47-app:nativeCompile
+./scripts/dev.sh
+```
+
+The script builds the application and launches it with this terminal attached, forwarding any
+arguments it is given. A Gradle task cannot replace it: the build daemon owns the console and hands
+child processes a pipe, so the terminal UI would find no tty and fall back to print mode.
+
+Build the self-contained distribution, which bundles a Java runtime:
+
+```bash
+./gradlew :agent47-app:jvmDist
 ```
 
 Generate the multi-module HTML API reference with Dokka 2:

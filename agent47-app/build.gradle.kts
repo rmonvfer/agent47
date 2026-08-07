@@ -45,7 +45,15 @@ configurations.runtimeClasspath {
 }
 
 application {
+    applicationName = "agent47"
     mainClass.set("co.agentmode.agent47.app.MainKt")
+    // The terminal UI reaches the tty through Mosaic's foreign-function bindings, which the
+    // runtime denies unless native access is granted, so the launcher grants it the same way
+    // the distribution launcher does.
+    applicationDefaultJvmArgs = listOf(
+        "--enable-native-access=ALL-UNNAMED",
+        "--sun-misc-unsafe-memory-access=allow",
+    )
 }
 
 tasks.named<JavaExec>("run") {
