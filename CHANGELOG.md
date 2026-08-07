@@ -7,12 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-07
+
+### Added
+
+- Kotlin extension scripts register session-tree navigation hooks directly with `beforeTree` and
+  `afterTree`.
+
+### Changed
+
+- The agents widget sits flush with the transcript, drops agents as they finish (and disappears
+  entirely when only the main agent remains), and marks activity with filled dots instead of
+  spinners; the focused agent view carries a per-agent colored identity header. Agent selection
+  starts with the Left arrow, leaving mouse-wheel scrolling free.
+
 ### Fixed
 
 - Pasting into the editor is lossless: fast pastes no longer drop characters, and line breaks inside
   a paste no longer submit the input mid-paste. A paste beyond 10 lines or 1000 characters collapses
   to a `[paste #N ...]` placeholder that deletes as one unit and expands back to the full text on
   submit. Ships a patched Mosaic dependency vendored under `third_party/mosaic/`.
+- Edit tool diffs anchor their line numbers to the file's actual line positions.
 
 ## [0.3.0] - 2026-08-05
 
@@ -154,6 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GraalVM native image support for single-binary distribution.
 - Install script for curl-based installation.
 
+[0.3.1]: https://github.com/rmonvfer/agent47/releases/tag/v0.3.1
 [0.3.0]: https://github.com/rmonvfer/agent47/releases/tag/v0.3.0
 [0.2.2]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.2
 [0.2.1]: https://github.com/rmonvfer/agent47/releases/tag/v0.2.1
