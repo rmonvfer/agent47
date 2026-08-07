@@ -131,6 +131,7 @@ public class BatchTool(
                 toolName = tool.label,
                 output = outputText,
                 success = true,
+                arguments = input.toString(),
             )
         } catch (e: Exception) {
             BatchToolCallResult(
@@ -138,6 +139,7 @@ public class BatchTool(
                 toolName = tool.label,
                 output = "Error: ${e.message}",
                 success = false,
+                arguments = input.toString(),
             )
         }
     }
@@ -153,4 +155,6 @@ public data class BatchToolCallResult(
     val toolName: String,
     val output: String,
     val success: Boolean,
+    /** The call's JSON arguments, so a view can say which file was read or which pattern matched. */
+    val arguments: String = "",
 )

@@ -12,6 +12,7 @@ import com.jakewharton.mosaic.layout.height
 import com.jakewharton.mosaic.layout.width
 import co.agentmode.agent47.coding.core.agents.SubAgentProgress
 import co.agentmode.agent47.coding.core.agents.SubAgentResult
+import co.agentmode.agent47.coding.core.tools.BatchToolCallResult
 import co.agentmode.agent47.coding.core.tools.ToolDetails
 import com.jakewharton.mosaic.modifier.Modifier
 import com.jakewharton.mosaic.text.AnnotatedString
@@ -869,24 +870,51 @@ private fun renderBatchToolLines(
             })
 
             results.forEach { result ->
-                val nameColor = if (result.success) theme.colors.success else theme.colors.error
-                add(buildAnnotatedString {
-                    append("  ")
-                    withStyle(SpanStyle(color = nameColor)) { append(result.toolName) }
-                    if (!result.success && result.output.isNotBlank()) {
-                        val errLine = result.output.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: ""
-                        if (errLine.isNotEmpty()) {
-                            append(" ")
-                            val budget = (innerWidth - result.toolName.length - 4).coerceAtLeast(8)
-                            withStyle(SpanStyle(color = theme.colors.error)) { append(errLine.take(budget)) }
-                        }
-                    }
-                })
+                add(renderBatchCallLine(result, innerWidth, theme))
             }
         }
     }
     return bgBlock(width, toolBg(execution, theme), content)
 }
+
+/**
+ * One line per batched call, carrying what a regular tool card shows: the tool, the argument it
+ * was called with, and what came back — a failure reports its error in place of the result.
+ */
+internal fun renderBatchCallLine(
+    result: BatchToolCallResult,
+    innerWidth: Int,
+    theme: ThemeConfig,
+): AnnotatedString = buildAnnotatedString {
+    val indent = "  "
+    append(indent)
+    withStyle(SpanStyle(color = if (result.success) theme.colors.success else theme.colors.error)) {
+        append(result.toolName)
+    }
+
+    val spent = indent.length + result.toolName.length
+    val argSummary = if (result.arguments.isBlank()) {
+        ""
+    } else {
+        summarizeToolArguments(result.toolName, result.arguments, (innerWidth - spent - 1).coerceAtLeast(8))
+    }
+    if (argSummary.isNotEmpty()) {
+        append(" ")
+        withStyle(SpanStyle(color = theme.colors.muted)) { append(argSummary) }
+    }
+
+    val outcome = summarizeToolOutput(result.toolName, result.output, null, !result.success)
+    val remaining = innerWidth - spent - argSummary.length - 4
+    if (outcome.isNotEmpty() && remaining >= MIN_BATCH_OUTCOME_WIDTH) {
+        withStyle(SpanStyle(color = theme.colors.muted)) { append(" — ") }
+        withStyle(SpanStyle(color = if (result.success) theme.toolOutput else theme.colors.error)) {
+            append(outcome.take(remaining))
+        }
+    }
+}
+
+/** Columns below which a batched call's outcome is dropped rather than cut to noise. */
+private const val MIN_BATCH_OUTCOME_WIDTH = 8
 
 // ---------------------------------------------------------------------------
 // Todo tool rendering (textual checkboxes, ohm-style)
