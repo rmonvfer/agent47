@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Pasting into the editor is lossless: fast pastes no longer drop characters, and line breaks inside
+  a paste no longer submit the input mid-paste. A paste beyond 10 lines or 1000 characters collapses
+  to a `[paste #N ...]` placeholder that deletes as one unit and expands back to the full text on
+  submit. Ships a patched Mosaic dependency vendored under `third_party/mosaic/`.
+
 ## [0.3.0] - 2026-08-05
 
 ### Added

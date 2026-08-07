@@ -8,11 +8,18 @@ import co.agentmode.agent47.ui.core.editor.EditorSnapshot
 import co.agentmode.agent47.ui.core.editor.EditorState
 import co.agentmode.agent47.ui.core.editor.FileCompletionProvider
 import co.agentmode.agent47.ui.core.editor.KillRing
+import co.agentmode.agent47.ui.core.editor.PASTE_MARKER_REGEX
+import co.agentmode.agent47.ui.core.editor.PASTE_PLACEHOLDER_CHAR_THRESHOLD
+import co.agentmode.agent47.ui.core.editor.PASTE_PLACEHOLDER_LINE_THRESHOLD
+import co.agentmode.agent47.ui.core.editor.PastePlaceholderStore
 import co.agentmode.agent47.ui.core.editor.SlashCommandCompletionProvider
 import co.agentmode.agent47.ui.core.editor.UndoStack
 import co.agentmode.agent47.ui.core.editor.WordWrap
 
 import java.nio.file.Path
+
+/** Leading characters that mark pasted text as a file path, for spacing it off from typed text. */
+private val FILE_PATH_LEAD_CHARS = charArrayOf('/', '~', '.')
 
 public data class EditorAutocompleteRenderModel(
     val row: Int,
@@ -44,6 +51,7 @@ public class Editor(
 
     private val undoStack: UndoStack<EditorSnapshot> = UndoStack(state.snapshot())
     private val killRing: KillRing = KillRing()
+    private val pastePlaceholders: PastePlaceholderStore = PastePlaceholderStore()
     private val slashCommandCompletionProvider = SlashCommandCompletionProvider(slashCommands, slashCommandDetails)
     private val autocomplete: AutocompleteManager = AutocompleteManager(
         providers = listOf(
@@ -73,9 +81,14 @@ public class Editor(
         preferredColumn = null
         scrollTopVisualLine = 0
         autocomplete.dismiss()
+        pastePlaceholders.clear()
     }
 
     public fun text(): String = state.text()
+
+    /** [text] with every paste placeholder expanded back to the content it stands in for, so
+     * submission, slash-command parsing, and history all see what was actually pasted. */
+    public fun expandedText(): String = pastePlaceholders.expand(state.text())
 
     public fun setSlashCommands(commands: List<String>, descriptions: Map<String, String> = emptyMap()) {
         slashCommandCompletionProvider.update(commands, descriptions)
@@ -122,12 +135,24 @@ public class Editor(
      * update, regardless of how many characters or lines it spans. Used for pasted text so it never
      * goes through per-character handling, which would risk applying an open autocomplete selection
      * on an embedded newline or reacting to a slash/@ trigger midway through the paste.
+     *
+     * A paste beyond [PASTE_PLACEHOLDER_LINE_THRESHOLD] lines or [PASTE_PLACEHOLDER_CHAR_THRESHOLD]
+     * characters is replaced by a `[paste #N ...]` placeholder instead of being inserted directly;
+     * the full text is kept and swapped back in by [expandedText] before the message is submitted.
      */
     public fun insertPastedText(text: String) {
-        val normalized = normalizePastedText(text)
+        var normalized = normalizePastedText(text)
         if (normalized.isEmpty()) return
 
-        state.insertText(normalized)
+        normalized = withPasteFilePathSpacing(normalized)
+        val lineCount = normalized.count { it == '\n' } + 1
+        val toInsert = if (lineCount > PASTE_PLACEHOLDER_LINE_THRESHOLD || normalized.length > PASTE_PLACEHOLDER_CHAR_THRESHOLD) {
+            pastePlaceholders.store(normalized)
+        } else {
+            normalized
+        }
+
+        state.insertText(toInsert)
         pushUndo(null)
         resetNavigationState()
         resetEditState()
@@ -334,7 +359,7 @@ public class Editor(
             Key.Backspace -> {
                 if (event.alt) {
                     state.deleteWordBackward()
-                } else {
+                } else if (!deletePasteMarkerBeforeCursor()) {
                     state.deleteBackward()
                 }
                 pushUndo(null)
@@ -347,7 +372,7 @@ public class Editor(
             Key.Delete -> {
                 if (event.alt) {
                     state.deleteWordForward()
-                } else {
+                } else if (!deletePasteMarkerAfterCursor()) {
                     state.deleteForward()
                 }
                 pushUndo(null)
@@ -638,6 +663,50 @@ public class Editor(
                 }
             }
         }
+    }
+
+    /**
+     * Prepends a space when [text] looks like a pasted file path (starts with `/`, `~`, or `.`)
+     * and the character right before the cursor is a word character, so e.g. typing "see" and
+     * pasting a path doesn't run them together as "see/path/to/file".
+     */
+    private fun withPasteFilePathSpacing(text: String): String {
+        if (text.isEmpty() || text[0] !in FILE_PATH_LEAD_CHARS) return text
+
+        val charBeforeCursor = state.currentLineText().getOrNull(state.cursor.column - 1)
+        val joinsWord = charBeforeCursor != null &&
+            (charBeforeCursor.isLetterOrDigit() || charBeforeCursor == '_')
+        return if (joinsWord) " $text" else text
+    }
+
+    /** True when the cursor sits immediately after a complete, still-stored paste placeholder;
+     * deletes the whole placeholder as one edit instead of chipping a single character off it. */
+    private fun deletePasteMarkerBeforeCursor(): Boolean {
+        val match = storedMarkerAt { it.last + 1 == state.cursor.column } ?: return false
+        deleteMarker(match)
+        return true
+    }
+
+    /** True when the cursor sits immediately before a complete, still-stored paste placeholder;
+     * deletes the whole placeholder as one edit instead of chipping a single character off it. */
+    private fun deletePasteMarkerAfterCursor(): Boolean {
+        val match = storedMarkerAt { it.first == state.cursor.column } ?: return false
+        deleteMarker(match)
+        return true
+    }
+
+    /** The placeholder on the cursor's line whose range satisfies [positionMatches] and whose
+     * paste is still stored, or null. At most one marker can occupy any given position. */
+    private fun storedMarkerAt(positionMatches: (IntRange) -> Boolean): MatchResult? {
+        return PASTE_MARKER_REGEX.findAll(state.currentLineText()).firstOrNull { match ->
+            positionMatches(match.range) &&
+                match.groupValues[1].toIntOrNull()?.let(pastePlaceholders::contains) == true
+        }
+    }
+
+    private fun deleteMarker(match: MatchResult) {
+        state.replaceInCurrentLine(match.range.first, match.range.last + 1, "")
+        match.groupValues[1].toIntOrNull()?.let(pastePlaceholders::remove)
     }
 
     private fun eventCharacter(event: KeyboardEvent): Char? {

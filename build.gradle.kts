@@ -15,6 +15,18 @@ allprojects {
     version = rootProject.version
 
     repositories {
+        // Patched Mosaic modules (see third_party/mosaic/README.md). Declared first and scoped to
+        // exactly the two coordinates we vendor, so every other dependency still resolves normally
+        // from the repositories below.
+        exclusiveContent {
+            forRepository {
+                maven(rootProject.layout.projectDirectory.dir("third_party/mosaic/repo"))
+            }
+            filter {
+                includeModule("com.jakewharton.mosaic", "mosaic-runtime-jvm")
+                includeModule("com.jakewharton.mosaic", "mosaic-tty-terminal-jvm")
+            }
+        }
         mavenCentral()
         google()
     }

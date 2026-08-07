@@ -46,6 +46,7 @@ bin/
 
 ### Package files ###
 *.jar
+!third_party/mosaic/repo/**/*.jar
 *.war
 *.nar
 *.ear

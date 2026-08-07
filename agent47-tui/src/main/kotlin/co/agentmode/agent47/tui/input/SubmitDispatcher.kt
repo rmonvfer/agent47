@@ -78,7 +78,9 @@ internal class SubmitDispatcher(
             editor.handle(event)
             state.editorVersion++
         }
-        val text = editor.text().trimEnd()
+        // Expand paste placeholders first, so slash-command parsing, @mentions, and history all see
+        // the text that was actually pasted rather than a `[paste #N ...]` marker.
+        val text = editor.expandedText().trimEnd()
         if (text.isBlank()) {
             editor.setText("")
             state.editorVersion++
