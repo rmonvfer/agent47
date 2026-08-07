@@ -10,6 +10,7 @@ import co.agentmode.agent47.tui.theme.LocalThemeConfig
 import co.agentmode.agent47.tui.theme.ThemeConfig
 import com.jakewharton.mosaic.layout.*
 import com.jakewharton.mosaic.modifier.Modifier
+import com.jakewharton.mosaic.text.AnnotatedString
 import com.jakewharton.mosaic.text.SpanStyle
 import com.jakewharton.mosaic.text.buildAnnotatedString
 import com.jakewharton.mosaic.text.withStyle
@@ -76,9 +77,10 @@ private fun renderOverlayTitleRow(
     width: Int,
     theme: ThemeConfig,
 ) = buildAnnotatedString {
-    val titlePart = "  $title"
     val escPart = "esc  "
-    val gap = (width - titlePart.length - escPart.length).coerceAtLeast(1)
+    // The title gives way to the esc hint so the row stays exactly as wide as the surface.
+    val titlePart = "  $title".take((width - escPart.length - 1).coerceAtLeast(0))
+    val gap = (width - titlePart.length - escPart.length).coerceAtLeast(0)
     withStyle(SpanStyle(color = theme.markdownText, background = theme.overlayBg)) {
         append(titlePart)
         append(" ".repeat(gap))
@@ -97,17 +99,25 @@ private fun renderOverlayBlankRow(
     }
 }
 
+/** An indented, full-width line of dialog body text, padded so it paints every cell of its row. */
+private fun renderOverlayTextRow(
+    text: String,
+    width: Int,
+    theme: ThemeConfig,
+    color: Color = theme.colors.muted,
+) = buildAnnotatedString {
+    val content = "  $text"
+    val padded = content.take(width).padEnd(width)
+    withStyle(SpanStyle(color = color, background = theme.overlayBg)) {
+        append(padded)
+    }
+}
+
 private fun renderOverlayFooterRow(
     text: String,
     width: Int,
     theme: ThemeConfig,
-) = buildAnnotatedString {
-    val content = "  $text"
-    val padded = content.take(width).padEnd(width)
-    withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-        append(padded)
-    }
-}
+) = renderOverlayTextRow(text, width, theme)
 
 private fun renderSearchRow(
     query: String,
@@ -135,6 +145,79 @@ private fun renderSearchRow(
             }
         }
     }
+}
+
+/**
+ * Paints [rows] into a surface of exactly [height] rows, one row per line.
+ *
+ * Both directions of the fit matter. A surface fill colors cells but draws no characters, so any
+ * cell a dialog leaves untouched still shows whatever is composed beneath it; short content is
+ * therefore padded with fully painted blank rows. In the other direction a surface does not clip,
+ * so content longer than [height] would draw past the terminal; surplus rows are dropped instead.
+ */
+@Composable
+private fun OverlayRows(
+    rows: List<AnnotatedString>,
+    height: Int,
+    width: Int,
+    theme: ThemeConfig,
+) {
+    Column {
+        for (i in 0 until height) {
+            Text(rows.getOrNull(i) ?: renderOverlayBlankRow(width, theme))
+        }
+    }
+}
+
+/** Rows [SelectDialog] paints around its list: padding, title, search field, separators, and footer. */
+private const val SELECT_CHROME_ROWS = 8
+
+/** The height [SelectDialog] needs to show all [itemCount] items at once. */
+internal fun selectDialogHeight(itemCount: Int): Int = SELECT_CHROME_ROWS + itemCount.coerceAtLeast(1)
+
+internal fun <T> selectDialogRows(
+    title: String,
+    state: SelectDialogState<T>,
+    width: Int,
+    height: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> = buildList {
+    val bodyHeight = (height - SELECT_CHROME_ROWS).coerceAtLeast(0)
+    val visibleIndices = state.filteredIndices()
+    val scrollTop = state.scrollTopFor(bodyHeight)
+
+    add(renderOverlayBlankRow(width, theme))
+    add(renderOverlayTitleRow(title, width, theme))
+    add(renderOverlayBlankRow(width, theme))
+    add(renderSearchRow(state.query, width, theme))
+    add(renderOverlayBlankRow(width, theme))
+
+    for (i in 0 until bodyHeight) {
+        val visibleIndex = scrollTop + i
+        add(
+            when {
+                visibleIndex < visibleIndices.size -> {
+                    val optionIndex = visibleIndices[visibleIndex]
+                    val item = state.items[optionIndex]
+                    renderSelectLine(
+                        item.label,
+                        optionIndex == state.selectedIndex,
+                        width,
+                        theme,
+                        state.matchedPositions(optionIndex),
+                        item.rightLabel ?: "",
+                    )
+                }
+
+                visibleIndices.isEmpty() && i == 0 -> renderSelectLine("(no matches)", false, width, theme)
+                else -> renderSelectLine("", false, width, theme)
+            },
+        )
+    }
+
+    add(renderOverlayBlankRow(width, theme))
+    add(renderOverlayFooterRow("↑/↓ navigate  enter select", width, theme))
+    add(renderOverlayBlankRow(width, theme))
 }
 
 /**
@@ -172,20 +255,6 @@ public fun <T> SelectDialog(
 ) {
     val theme = LocalThemeConfig.current
 
-    val topPadding = 1
-    val titleHeight = 1
-    val spacer1 = 1
-    val searchHeight = 1
-    val spacer2 = 1
-    val spacerBeforeFooter = 1
-    val footerHeight = 1
-    val bottomPadding = 1
-    val chrome = topPadding + titleHeight + spacer1 + searchHeight + spacer2 + spacerBeforeFooter + footerHeight + bottomPadding
-    val bodyHeight = (height - chrome).coerceAtLeast(1)
-
-    val visibleIndices = state.filteredIndices()
-    val scrollTop = state.scrollTopFor(bodyHeight)
-
     ModalSurface(
         width = width,
         height = height,
@@ -195,32 +264,7 @@ public fun <T> SelectDialog(
             handleSelectDialogKey(event, state, onSubmit, onClose, onSelectionChanged)
         },
     ) {
-        Column {
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayTitleRow(title, width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderSearchRow(state.query, width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-
-            for (i in 0 until bodyHeight) {
-                val visibleIndex = scrollTop + i
-                if (visibleIndex < visibleIndices.size) {
-                    val optionIndex = visibleIndices[visibleIndex]
-                    val selected = optionIndex == state.selectedIndex
-                    val item = state.items[optionIndex]
-                    val positions = state.matchedPositions(optionIndex)
-                    Text(renderSelectLine(item.label, selected, width, theme, positions, item.rightLabel ?: ""))
-                } else if (visibleIndices.isEmpty() && i == 0) {
-                    Text(renderSelectLine("(no matches)", false, width, theme))
-                } else {
-                    Text(renderSelectLine("", false, width, theme))
-                }
-            }
-
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayFooterRow("↑/↓ navigate  enter select", width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-        }
+        OverlayRows(selectDialogRows(title, state, width, height, theme), height, width, theme)
     }
 }
 
@@ -396,7 +440,6 @@ public fun PromptDialog(
     onClose: () -> Unit,
 ) {
     val theme = LocalThemeConfig.current
-    val inputWidth = (width - 4).coerceAtLeast(1)
 
     ModalSurface(
         width = width,
@@ -407,76 +450,87 @@ public fun PromptDialog(
             handlePromptDialogKey(event, state, onSubmit, onClose)
         },
     ) {
-        Column {
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayTitleRow(title, width, theme))
-            Text(renderOverlayBlankRow(width, theme))
+        OverlayRows(promptDialogRows(title, state, width, height, placeholder, description, theme), height, width, theme)
+    }
+}
 
-            if (description != null) {
-                val descLines = description.lines()
-                for (line in descLines) {
-                    Text(
-                        buildAnnotatedString {
-                            val padded = ("  " + line).take(width).padEnd(width)
-                            withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-                                append(padded)
-                            }
-                        },
-                    )
-                }
-                Text(renderOverlayBlankRow(width, theme))
-            }
+private fun renderPromptInputRow(
+    state: PromptDialogState,
+    width: Int,
+    placeholder: String,
+    theme: ThemeConfig,
+) = buildAnnotatedString {
+    val inputWidth = (width - 4).coerceAtLeast(1)
+    withStyle(SpanStyle(background = theme.overlayBg)) {
+        append("  ")
+    }
+    val isEmpty = state.text.isEmpty()
+    val textColor = if (isEmpty) theme.colors.muted else theme.colors.accentBright
+    val cursorInRange = state.cursorPos.coerceIn(0, state.text.length)
+    if (isEmpty) {
+        withStyle(SpanStyle(color = theme.colors.accentBright, background = theme.overlaySelectedBg)) {
+            append(if (placeholder.isNotEmpty()) placeholder.first().toString() else " ")
+        }
+        val rest = if (placeholder.length > 1) placeholder.substring(1) else ""
+        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
+            append(rest.take(inputWidth - 1).padEnd(inputWidth - 1))
+        }
+    } else {
+        val shown = if (state.masked) "•".repeat(state.text.length) else state.text
+        // The field scrolls horizontally around the cursor, which may rest one past the last
+        // character, so text longer than the field never widens the row beyond the surface.
+        val field = "$shown "
+        val windowStart = (cursorInRange - inputWidth + 1)
+            .coerceIn(0, (field.length - inputWidth).coerceAtLeast(0))
+        val window = field.drop(windowStart).take(inputWidth).padEnd(inputWidth)
+        val cursorInWindow = cursorInRange - windowStart
 
-            Text(
-                buildAnnotatedString {
-                    withStyle(SpanStyle(background = theme.overlayBg)) {
-                        append("  ")
-                    }
-                    val isEmpty = state.text.isEmpty()
-                    val textColor = if (isEmpty) theme.colors.muted else theme.colors.accentBright
-                    val cursorInRange = state.cursorPos.coerceIn(0, state.text.length)
-                    if (isEmpty) {
-                        withStyle(SpanStyle(color = theme.colors.accentBright, background = theme.overlaySelectedBg)) {
-                            append(if (placeholder.isNotEmpty()) placeholder.first().toString() else " ")
-                        }
-                        val rest = if (placeholder.length > 1) placeholder.substring(1) else ""
-                        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-                            append(rest.take(inputWidth - 1).padEnd(inputWidth - 1))
-                        }
-                    } else {
-                        val shown = if (state.masked) "•".repeat(state.text.length) else state.text
-                        val beforeCursor = shown.substring(0, cursorInRange)
-                        val atCursor = if (cursorInRange < shown.length) shown[cursorInRange].toString() else " "
-                        val afterCursor = if (cursorInRange < shown.length) shown.substring(cursorInRange + 1) else ""
-
-                        withStyle(SpanStyle(color = textColor, background = theme.overlayBg)) {
-                            append(beforeCursor)
-                        }
-                        withStyle(SpanStyle(color = theme.colors.accentBright, background = theme.overlaySelectedBg)) {
-                            append(atCursor)
-                        }
-                        withStyle(SpanStyle(color = textColor, background = theme.overlayBg)) {
-                            append(afterCursor)
-                        }
-
-                        val usedWidth = beforeCursor.length + 1 + afterCursor.length
-                        val remaining = (inputWidth - usedWidth).coerceAtLeast(0)
-                        if (remaining > 0) {
-                            withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-                                append(" ".repeat(remaining))
-                            }
-                        }
-                    }
-                    withStyle(SpanStyle(background = theme.overlayBg)) {
-                        append("  ")
-                    }
-                },
-            )
-
-            Text(renderOverlayFooterRow("enter submit  esc cancel", width, theme))
-            Text(renderOverlayBlankRow(width, theme))
+        withStyle(SpanStyle(color = textColor, background = theme.overlayBg)) {
+            append(window.take(cursorInWindow))
+        }
+        withStyle(SpanStyle(color = theme.colors.accentBright, background = theme.overlaySelectedBg)) {
+            append(window[cursorInWindow].toString())
+        }
+        withStyle(SpanStyle(color = textColor, background = theme.overlayBg)) {
+            append(window.substring(cursorInWindow + 1))
         }
     }
+    withStyle(SpanStyle(background = theme.overlayBg)) {
+        append("  ")
+    }
+}
+
+/** Rows [PromptDialog] paints around its description: padding, title, separator, input, and footer. */
+private const val PROMPT_CHROME_ROWS = 6
+
+/** The height [PromptDialog] needs for its input plus an optional [description] block. */
+internal fun promptDialogHeight(description: String?): Int =
+    PROMPT_CHROME_ROWS + if (description == null) 0 else description.lines().size + 1
+
+internal fun promptDialogRows(
+    title: String,
+    state: PromptDialogState,
+    width: Int,
+    height: Int,
+    placeholder: String,
+    description: String?,
+    theme: ThemeConfig,
+): List<AnnotatedString> = buildList {
+    add(renderOverlayBlankRow(width, theme))
+    add(renderOverlayTitleRow(title, width, theme))
+    add(renderOverlayBlankRow(width, theme))
+
+    // The description takes whatever the surface leaves between the title and the input, so a
+    // description longer than the terminal clips rather than pushing the input row out of view.
+    val descriptionLines = description?.lines().orEmpty()
+    for (i in 0 until (height - PROMPT_CHROME_ROWS).coerceAtLeast(0)) {
+        val line = descriptionLines.getOrNull(i)
+        add(if (line == null) renderOverlayBlankRow(width, theme) else renderOverlayTextRow(line, width, theme))
+    }
+
+    add(renderPromptInputRow(state, width, placeholder, theme))
+    add(renderOverlayFooterRow("enter submit  esc cancel", width, theme))
+    add(renderOverlayBlankRow(width, theme))
 }
 
 private fun handlePromptDialogKey(
@@ -583,26 +637,34 @@ public fun InfoDialog(
             }
         },
     ) {
-        Column {
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayTitleRow(title, width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-
-            for (line in lines) {
-                Text(
-                    buildAnnotatedString {
-                        val padded = ("  " + line).take(width).padEnd(width)
-                        withStyle(SpanStyle(color = theme.colors.muted, background = theme.overlayBg)) {
-                            append(padded)
-                        }
-                    },
-                )
-            }
-
-            Text(renderOverlayFooterRow("esc cancel", width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-        }
+        OverlayRows(infoDialogRows(title, lines, width, height, theme), height, width, theme)
     }
+}
+
+/** Rows [InfoDialog] paints around its text: padding, title, separator, and footer. */
+private const val TEXT_CHROME_ROWS = 5
+
+/** The height [InfoDialog] needs to show all [lineCount] lines. */
+internal fun infoDialogHeight(lineCount: Int): Int = TEXT_CHROME_ROWS + lineCount.coerceAtLeast(1)
+
+internal fun infoDialogRows(
+    title: String,
+    lines: List<String>,
+    width: Int,
+    height: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> = buildList {
+    add(renderOverlayBlankRow(width, theme))
+    add(renderOverlayTitleRow(title, width, theme))
+    add(renderOverlayBlankRow(width, theme))
+
+    for (i in 0 until (height - TEXT_CHROME_ROWS).coerceAtLeast(0)) {
+        val line = lines.getOrNull(i)
+        add(if (line == null) renderOverlayBlankRow(width, theme) else renderOverlayTextRow(line, width, theme))
+    }
+
+    add(renderOverlayFooterRow("esc cancel", width, theme))
+    add(renderOverlayBlankRow(width, theme))
 }
 
 /**
@@ -622,8 +684,7 @@ public fun ScrollableTextDialog(
     onClose: () -> Unit,
 ) {
     val theme = LocalThemeConfig.current
-    val chrome = 5 // blank + title + blank + footer + blank
-    val bodyHeight = (height - chrome).coerceAtLeast(1)
+    val bodyHeight = (height - TEXT_CHROME_ROWS).coerceAtLeast(1)
     val maxScroll = (lines.size - bodyHeight).coerceAtLeast(0)
     val safeTop = scrollTop.coerceIn(0, maxScroll)
 
@@ -667,30 +728,26 @@ public fun ScrollableTextDialog(
             }
         },
     ) {
-        Column {
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayTitleRow(title, width, theme))
-            Text(renderOverlayBlankRow(width, theme))
+        val rows = buildList {
+            add(renderOverlayBlankRow(width, theme))
+            add(renderOverlayTitleRow(title, width, theme))
+            add(renderOverlayBlankRow(width, theme))
 
             for (i in 0 until bodyHeight) {
-                val lineIndex = safeTop + i
-                val lineText = if (lineIndex < lines.size) lines[lineIndex] else ""
-                Text(
-                    buildAnnotatedString {
-                        val padded = ("  " + lineText).take(width).padEnd(width)
-                        withStyle(SpanStyle(color = theme.markdownText, background = theme.overlayBg)) {
-                            append(padded)
-                        }
-                    },
-                )
+                val lineText = lines.getOrNull(safeTop + i).orEmpty()
+                add(renderOverlayTextRow(lineText, width, theme, theme.markdownText))
             }
 
             val scrollInfo = if (lines.size > bodyHeight) " (${safeTop + 1}-${min(safeTop + bodyHeight, lines.size)}/${lines.size})" else ""
-            Text(renderOverlayFooterRow("↑/↓ scroll  PgUp/PgDn page  esc close$scrollInfo", width, theme))
-            Text(renderOverlayBlankRow(width, theme))
+            add(renderOverlayFooterRow("↑/↓ scroll  PgUp/PgDn page  esc close$scrollInfo", width, theme))
+            add(renderOverlayBlankRow(width, theme))
         }
+        OverlayRows(rows, height, width, theme)
     }
 }
+
+/** The height [ScrollableTextDialog] needs to show all [lineCount] lines without scrolling. */
+internal fun scrollableTextDialogHeight(lineCount: Int): Int = TEXT_CHROME_ROWS + lineCount.coerceAtLeast(1)
 
 private fun treeRoleColor(role: TreeTextRole, theme: ThemeConfig): Color = when (role) {
     TreeTextRole.ACCENT -> theme.colors.accent
@@ -786,10 +843,13 @@ private fun renderTreeRow(
 ) = buildAnnotatedString {
     val bg = if (isSelected) theme.overlaySelectedBg else theme.overlayBg
     val folded = selectorState.isFolded(row.id)
-    val prefix = buildTreeRowPrefix(row, selectorState.multipleRoots, folded)
     val showsFoldInConnector = row.showConnector && !row.isVirtualRootChild
     val foldMarker = if (folded && !showsFoldInConnector) "⊞ " else ""
     val pathMarker = if (row.id in selectorState.activePathIds) "• " else ""
+    // Indentation yields to the surface: a deeply nested row clips its connectors rather than
+    // drawing a row wider than the dialog.
+    val prefix = buildTreeRowPrefix(row, selectorState.multipleRoots, folded)
+        .take((width - 2 - foldMarker.length - pathMarker.length).coerceAtLeast(0))
     val leadIn = "  $prefix$foldMarker$pathMarker"
 
     withStyle(rowSpanStyle(theme.colors.dim, bg, isSelected)) {
@@ -892,24 +952,6 @@ public fun TreeSelectorDialog(
 ) {
     val theme = LocalThemeConfig.current
 
-    val topPadding = 1
-    val titleHeight = 1
-    val spacer1 = 1
-    val searchHeight = 1
-    val spacer2 = 1
-    val spacerBeforeFooter = 1
-    val footerHeight = 1
-    val bottomPadding = 1
-    val chrome = topPadding + titleHeight + spacer1 + searchHeight + spacer2 + spacerBeforeFooter + footerHeight + bottomPadding
-    val bodyHeight = (height - chrome).coerceAtLeast(1)
-
-    val rows = selectorState.rows
-    val scrollTop = if (rows.isEmpty()) {
-        0
-    } else {
-        max(0, min(selectorState.selectedIndex - bodyHeight / 2, rows.size - bodyHeight))
-    }
-
     ModalSurface(
         width = width,
         height = height,
@@ -917,29 +959,50 @@ public fun TreeSelectorDialog(
         offsetY = offsetY,
         modifier = Modifier.onKeyEvent { event -> handleTreeDialogKey(event, selectorState, onSubmit, onClose) },
     ) {
-        Column {
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayTitleRow("Session Tree", width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderTreeSearchRow(selectorState, width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-
-            for (i in 0 until bodyHeight) {
-                val rowIndex = scrollTop + i
-                when {
-                    rowIndex < rows.size ->
-                        Text(renderTreeRow(rows[rowIndex], selectorState, rowIndex == selectorState.selectedIndex, width, theme))
-                    rows.isEmpty() && i == 0 -> Text(renderSelectLine("No entries found", false, width, theme))
-                    else -> Text(renderSelectLine("", false, width, theme))
-                }
-            }
-
-            Text(renderOverlayBlankRow(width, theme))
-            val counter = if (rows.isEmpty()) "(0/0)" else "(${selectorState.selectedIndex + 1}/${rows.size})"
-            Text(renderOverlayFooterRow("$counter${treeFilterSuffix(selectorState.filterMode)}", width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-        }
+        OverlayRows(treeSelectorDialogRows(selectorState, width, height, theme), height, width, theme)
     }
+}
+
+/** The height [TreeSelectorDialog] needs to show all [rowCount] entries at once. */
+internal fun treeSelectorDialogHeight(rowCount: Int): Int = SELECT_CHROME_ROWS + rowCount.coerceAtLeast(1)
+
+internal fun treeSelectorDialogRows(
+    selectorState: TreeSelectorState,
+    width: Int,
+    height: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> = buildList {
+    val bodyHeight = (height - SELECT_CHROME_ROWS).coerceAtLeast(0)
+    val rows = selectorState.rows
+    val scrollTop = if (rows.isEmpty()) {
+        0
+    } else {
+        max(0, min(selectorState.selectedIndex - bodyHeight / 2, rows.size - bodyHeight))
+    }
+
+    add(renderOverlayBlankRow(width, theme))
+    add(renderOverlayTitleRow("Session Tree", width, theme))
+    add(renderOverlayBlankRow(width, theme))
+    add(renderTreeSearchRow(selectorState, width, theme))
+    add(renderOverlayBlankRow(width, theme))
+
+    for (i in 0 until bodyHeight) {
+        val rowIndex = scrollTop + i
+        add(
+            when {
+                rowIndex < rows.size ->
+                    renderTreeRow(rows[rowIndex], selectorState, rowIndex == selectorState.selectedIndex, width, theme)
+
+                rows.isEmpty() && i == 0 -> renderSelectLine("No entries found", false, width, theme)
+                else -> renderSelectLine("", false, width, theme)
+            },
+        )
+    }
+
+    add(renderOverlayBlankRow(width, theme))
+    val counter = if (rows.isEmpty()) "(0/0)" else "(${selectorState.selectedIndex + 1}/${rows.size})"
+    add(renderOverlayFooterRow("$counter${treeFilterSuffix(selectorState.filterMode)}", width, theme))
+    add(renderOverlayBlankRow(width, theme))
 }
 
 private fun renderUserMessageLine(item: UserMessageItem, isSelected: Boolean, width: Int, theme: ThemeConfig) = buildAnnotatedString {
@@ -1017,23 +1080,6 @@ public fun UserMessageSelectorDialog(
 ) {
     val theme = LocalThemeConfig.current
 
-    val topPadding = 1
-    val titleHeight = 1
-    val spacer1 = 1
-    val spacerBeforeFooter = 1
-    val footerHeight = 1
-    val bottomPadding = 1
-    val chrome = topPadding + titleHeight + spacer1 + spacerBeforeFooter + footerHeight + bottomPadding
-    val bodyHeight = (height - chrome).coerceAtLeast(USER_MESSAGE_ROW_HEIGHT)
-    val maxVisibleItems = (bodyHeight / USER_MESSAGE_ROW_HEIGHT).coerceAtLeast(1)
-
-    val items = listState.items
-    val scrollTop = if (items.isEmpty()) {
-        0
-    } else {
-        max(0, min(listState.selectedIndex - maxVisibleItems / 2, items.size - maxVisibleItems))
-    }
-
     ModalSurface(
         width = width,
         height = height,
@@ -1041,60 +1087,110 @@ public fun UserMessageSelectorDialog(
         offsetY = offsetY,
         modifier = Modifier.onKeyEvent { event -> handleUserMessageDialogKey(event, listState, onSubmit, onClose) },
     ) {
-        Column {
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayTitleRow("Fork from Message", width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-
-            if (items.isEmpty()) {
-                Text(renderSelectLine("No user messages found", false, width, theme))
-            } else {
-                // Every body row is painted, item or not, so the surface never exposes the
-                // transcript behind it.
-                for (i in 0 until maxVisibleItems) {
-                    val itemIndex = scrollTop + i
-                    if (itemIndex < items.size) {
-                        val item = items[itemIndex]
-                        val isSelected = itemIndex == listState.selectedIndex
-                        Text(renderUserMessageLine(item, isSelected, width, theme))
-                        Text(renderUserMessageAge(item, isSelected, width, theme))
-                        Text(renderOverlayBlankRow(width, theme))
-                    } else {
-                        repeat(USER_MESSAGE_ROW_HEIGHT) { Text(renderOverlayBlankRow(width, theme)) }
-                    }
-                }
-            }
-
-            val footer = if (items.size > maxVisibleItems) {
-                "↑/↓ navigate  enter select  (${listState.selectedIndex + 1}/${items.size})"
-            } else {
-                "↑/↓ navigate  enter select"
-            }
-            Text(renderOverlayBlankRow(width, theme))
-            Text(renderOverlayFooterRow(footer, width, theme))
-            Text(renderOverlayBlankRow(width, theme))
-        }
+        OverlayRows(userMessageDialogRows(listState, width, height, theme), height, width, theme)
     }
 }
+
+/** Rows [UserMessageSelectorDialog] paints around its list: padding, title, separators, and footer. */
+private const val USER_MESSAGE_CHROME_ROWS = 6
+
+/** Messages the `/fork` list shows before it starts scrolling. */
+private const val MAX_USER_MESSAGE_ITEMS = 10
+
+/** The height [UserMessageSelectorDialog] needs for [itemCount] messages. */
+internal fun userMessageDialogHeight(itemCount: Int): Int = if (itemCount == 0) {
+    USER_MESSAGE_CHROME_ROWS + 1
+} else {
+    USER_MESSAGE_CHROME_ROWS + min(itemCount, MAX_USER_MESSAGE_ITEMS) * USER_MESSAGE_ROW_HEIGHT
+}
+
+internal fun userMessageDialogRows(
+    listState: UserMessageListState,
+    width: Int,
+    height: Int,
+    theme: ThemeConfig,
+): List<AnnotatedString> = buildList {
+    val bodyHeight = (height - USER_MESSAGE_CHROME_ROWS).coerceAtLeast(0)
+    val maxVisibleItems = bodyHeight / USER_MESSAGE_ROW_HEIGHT
+    val items = listState.items
+    val scrollTop = if (items.isEmpty()) {
+        0
+    } else {
+        max(0, min(listState.selectedIndex - maxVisibleItems / 2, items.size - maxVisibleItems))
+    }
+
+    add(renderOverlayBlankRow(width, theme))
+    add(renderOverlayTitleRow("Fork from Message", width, theme))
+    add(renderOverlayBlankRow(width, theme))
+
+    if (items.isEmpty()) {
+        add(renderSelectLine("No user messages found", false, width, theme))
+    } else {
+        for (i in 0 until maxVisibleItems) {
+            val item = items.getOrNull(scrollTop + i)
+            if (item == null) {
+                // Every body row is painted, item or not, so the surface never exposes the
+                // transcript behind it.
+                repeat(USER_MESSAGE_ROW_HEIGHT) { add(renderOverlayBlankRow(width, theme)) }
+            } else {
+                val isSelected = scrollTop + i == listState.selectedIndex
+                add(renderUserMessageLine(item, isSelected, width, theme))
+                add(renderUserMessageAge(item, isSelected, width, theme))
+                add(renderOverlayBlankRow(width, theme))
+            }
+        }
+    }
+
+    val footer = if (items.size > maxVisibleItems) {
+        "↑/↓ navigate  enter select  (${listState.selectedIndex + 1}/${items.size})"
+    } else {
+        "↑/↓ navigate  enter select"
+    }
+    add(renderOverlayBlankRow(width, theme))
+    add(renderOverlayFooterRow(footer, width, theme))
+    add(renderOverlayBlankRow(width, theme))
+}
+
+/** Rows left clear above and below a dialog so it reads as floating over the transcript. */
+private const val DIALOG_MARGIN_ROWS = 4
+
+/** Ceiling for list and form dialogs; longer content scrolls inside the dialog instead of growing it. */
+private const val MAX_DIALOG_HEIGHT = 24
+
+/**
+ * Sizes a dialog to the [naturalHeight] its content paints, within what [terminalHeight] can show.
+ * The terminal is a hard ceiling: a surface taller than the render target draws outside it.
+ */
+private fun fitDialogHeight(
+    naturalHeight: Int,
+    terminalHeight: Int,
+    ceiling: Int = MAX_DIALOG_HEIGHT,
+): Int {
+    val available = min(ceiling, terminalHeight - DIALOG_MARGIN_ROWS).coerceIn(1, terminalHeight)
+    return naturalHeight.coerceIn(1, available)
+}
+
+/** Vertically centers a dialog of [height] rows within [terminalHeight]. */
+private fun centeredOffsetY(height: Int, terminalHeight: Int): Int = max(0, (terminalHeight - height) / 2)
 
 @Composable
 private fun TreeOverlayHostEntry(
     entry: TreeOverlayEntry,
     state: OverlayHostState,
     dialogWidth: Int,
-    dialogHeight: Int,
+    terminalHeight: Int,
     offsetX: Int,
-    offsetY: Int,
 ) {
     val selectorState = entry.selectorState
         ?: TreeSelectorState(entry.session, entry.initialSelectedId).also { entry.selectorState = it }
 
+    val height = fitDialogHeight(treeSelectorDialogHeight(selectorState.rows.size), terminalHeight)
     TreeSelectorDialog(
         selectorState = selectorState,
         width = dialogWidth,
-        height = dialogHeight,
+        height = height,
         offsetX = offsetX,
-        offsetY = offsetY,
+        offsetY = centeredOffsetY(height, terminalHeight),
         onSubmit = { id ->
             state.stack.removeLastOrNull()
             entry.onSelect(id)
@@ -1111,24 +1207,19 @@ private fun UserMessageOverlayHostEntry(
     entry: UserMessageOverlayEntry,
     state: OverlayHostState,
     dialogWidth: Int,
-    dialogHeight: Int,
+    terminalHeight: Int,
     offsetX: Int,
-    offsetY: Int,
 ) {
     val listState = entry.listState
         ?: UserMessageListState(entry.items, entry.initialSelectedId).also { entry.listState = it }
 
-    // The dialog is sized to its list instead of the generic dialog height so a short
-    // history does not open a mostly empty panel; the offset shift keeps it centered.
-    val chromeRows = 6
-    val fitHeight = (chromeRows + entry.items.size.coerceIn(1, 10) * USER_MESSAGE_ROW_HEIGHT)
-        .coerceAtMost(dialogHeight)
+    val height = fitDialogHeight(userMessageDialogHeight(entry.items.size), terminalHeight)
     UserMessageSelectorDialog(
         listState = listState,
         width = dialogWidth,
-        height = fitHeight,
+        height = height,
         offsetX = offsetX,
-        offsetY = offsetY + ((dialogHeight - fitHeight) / 2).coerceAtLeast(0),
+        offsetY = centeredOffsetY(height, terminalHeight),
         onSubmit = { id ->
             state.stack.removeLastOrNull()
             entry.onSelect(id)
@@ -1158,9 +1249,7 @@ public fun OverlayHost(
     val entry = state.stack.lastOrNull() ?: return
 
     val dialogWidth = min(88, max(32, terminalWidth - 6))
-    val dialogHeight = min(24, max(8, terminalHeight - 4))
     val offsetX = max(0, (terminalWidth - dialogWidth) / 2)
-    val offsetY = max(0, (terminalHeight - dialogHeight) / 2)
 
     when (entry) {
         is SelectOverlayEntry<*> -> {
@@ -1172,13 +1261,16 @@ public fun OverlayHost(
                 initialSelectedIndex = typedEntry.initialSelectedIndex,
             ).also { typedEntry.dialogState = it }
 
+            // Sized on the full item list rather than the filtered one, so typing a filter narrows
+            // the list in place instead of resizing and re-centering the dialog on every keystroke.
+            val height = fitDialogHeight(selectDialogHeight(typedEntry.items.size), terminalHeight)
             SelectDialog(
                 title = typedEntry.title,
                 state = dialogState,
                 width = dialogWidth,
-                height = dialogHeight,
+                height = height,
                 offsetX = offsetX,
-                offsetY = offsetY,
+                offsetY = centeredOffsetY(height, terminalHeight),
                 onSubmit = { value ->
                     if (typedEntry.keepOpenOnSubmit) {
                         typedEntry.onSubmit(value)
@@ -1196,21 +1288,19 @@ public fun OverlayHost(
         }
 
         is PromptOverlayEntry -> {
-            val promptHeight = min(10, max(6, terminalHeight - 6))
-            val promptOffsetY = max(0, (terminalHeight - promptHeight) / 2)
-
             val dialogState = entry.dialogState ?: PromptDialogState(entry.initialValue).also {
                 it.masked = entry.masked
                 entry.dialogState = it
             }
 
+            val height = fitDialogHeight(promptDialogHeight(entry.description), terminalHeight)
             PromptDialog(
                 title = entry.title,
                 state = dialogState,
                 width = dialogWidth,
-                height = promptHeight,
+                height = height,
                 offsetX = offsetX,
-                offsetY = promptOffsetY,
+                offsetY = centeredOffsetY(height, terminalHeight),
                 placeholder = entry.placeholder,
                 description = entry.description,
                 onSubmit = { text ->
@@ -1225,16 +1315,14 @@ public fun OverlayHost(
         }
 
         is InfoOverlayEntry -> {
-            val infoHeight = min(10, max(6, terminalHeight - 6))
-            val infoOffsetY = max(0, (terminalHeight - infoHeight) / 2)
-
+            val height = fitDialogHeight(infoDialogHeight(entry.lines.size), terminalHeight)
             InfoDialog(
                 title = entry.title,
                 lines = entry.lines,
                 width = dialogWidth,
-                height = infoHeight,
+                height = height,
                 offsetX = offsetX,
-                offsetY = infoOffsetY,
+                offsetY = centeredOffsetY(height, terminalHeight),
                 onClose = {
                     state.stack.removeLastOrNull()
                     entry.onClose()
@@ -1243,17 +1331,16 @@ public fun OverlayHost(
         }
 
         is ScrollableTextOverlayEntry -> {
-            val scrollableHeight = min(terminalHeight - 2, max(12, terminalHeight - 4))
-            val scrollableOffsetY = max(0, (terminalHeight - scrollableHeight) / 2)
-
+            // A document viewer, so it may use the full terminal rather than the list-dialog ceiling.
+            val height = fitDialogHeight(scrollableTextDialogHeight(entry.lines.size), terminalHeight, terminalHeight)
             ScrollableTextDialog(
                 title = entry.title,
                 lines = entry.lines,
                 scrollTop = entry.scrollTop,
                 width = dialogWidth,
-                height = scrollableHeight,
+                height = height,
                 offsetX = offsetX,
-                offsetY = scrollableOffsetY,
+                offsetY = centeredOffsetY(height, terminalHeight),
                 onScroll = { newTop -> entry.scrollTop = newTop },
                 onClose = {
                     state.stack.removeLastOrNull()
@@ -1262,8 +1349,8 @@ public fun OverlayHost(
             )
         }
 
-        is TreeOverlayEntry -> TreeOverlayHostEntry(entry, state, dialogWidth, dialogHeight, offsetX, offsetY)
+        is TreeOverlayEntry -> TreeOverlayHostEntry(entry, state, dialogWidth, terminalHeight, offsetX)
 
-        is UserMessageOverlayEntry -> UserMessageOverlayHostEntry(entry, state, dialogWidth, dialogHeight, offsetX, offsetY)
+        is UserMessageOverlayEntry -> UserMessageOverlayHostEntry(entry, state, dialogWidth, terminalHeight, offsetX)
     }
 }
